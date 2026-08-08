@@ -200,47 +200,47 @@ fun HomeScreen(
                     )
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OptionChip(
-                    text = "Pass & Play",
-                    subtext = "Local Friends",
-                    isSelected = gameMode == GameMode.PASS_AND_PLAY,
-                    onClick = {
-                        gameMode = GameMode.PASS_AND_PLAY
-                        if (lastLoggedMode != GameMode.PASS_AND_PLAY) {
-                            lastLoggedMode = GameMode.PASS_AND_PLAY
-                            Telemetry.info(
-                                "ui.config",
-                                "config.game_mode_selected",
-                                "User selected Pass & Play mode",
-                                mapOf("gameMode" to "PASS_AND_PLAY")
-                            )
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-                OptionChip(
-                    text = "vs Bot (AI)",
-                    subtext = "Single Player",
-                    isSelected = gameMode == GameMode.VS_BOT,
-                    onClick = {
-                        gameMode = GameMode.VS_BOT
-                        if (lastLoggedMode != GameMode.VS_BOT) {
-                            lastLoggedMode = GameMode.VS_BOT
-                            Telemetry.info(
-                                "ui.config",
-                                "config.game_mode_selected",
-                                "User selected vs Bot mode",
-                                mapOf("gameMode" to "VS_BOT")
-                            )
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                )
+                        OptionChip(
+                            text = "Pass & Play",
+                            subtext = "Local Friends",
+                            isSelected = gameMode == GameMode.PASS_AND_PLAY,
+                            onClick = {
+                                gameMode = GameMode.PASS_AND_PLAY
+                                if (lastLoggedMode != GameMode.PASS_AND_PLAY) {
+                                    lastLoggedMode = GameMode.PASS_AND_PLAY
+                                    Telemetry.info(
+                                        "ui.config",
+                                        "config.game_mode_selected",
+                                        "User selected Pass & Play mode",
+                                        mapOf("gameMode" to "PASS_AND_PLAY")
+                                    )
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OptionChip(
+                            text = "vs Bot (AI)",
+                            subtext = "Single Player",
+                            isSelected = gameMode == GameMode.VS_BOT,
+                            onClick = {
+                                gameMode = GameMode.VS_BOT
+                                if (lastLoggedMode != GameMode.VS_BOT) {
+                                    lastLoggedMode = GameMode.VS_BOT
+                                    Telemetry.info(
+                                        "ui.config",
+                                        "config.game_mode_selected",
+                                        "User selected vs Bot mode",
+                                        mapOf("gameMode" to "VS_BOT")
+                                    )
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
-                }
-                }
+            }
 
-                Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(32.dp))
 
             Button(
                 onClick = {
