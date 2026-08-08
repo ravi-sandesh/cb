@@ -2,6 +2,8 @@
 // CHOKA BARAH – Minimal static file server (dev/E2E only).
 // Serves the web/ directory over HTTP so Playwright tests can
 // load the app without file:// limitations. No dependencies.
+// The request handler is exported so unit tests can exercise
+// routing without binding a real port.
 // ============================================================
 'use strict';
 
@@ -22,7 +24,7 @@ const MIME = {
   '.ico': 'image/x-icon'
 };
 
-http.createServer((req, res) => {
+function handleRequest(req, res) {
   let urlPath;
   try { urlPath = decodeURIComponent(req.url.split('?')[0]); } catch (e) { urlPath = '/'; }
   if (urlPath === '/') urlPath = '/index.html';
@@ -41,6 +43,23 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
     res.end(data);
   });
-}).listen(PORT, () => {
-  console.log(`Choka Barah static server on http://localhost:${PORT}`);
-});
+}
+
+function createServer() {
+  return http.createServer(handleRequest);
+}
+
+function startServer(listenPort) {
+  const srv = createServer();
+  srv.listen(listenPort || PORT, () => {
+    console.log(`Choka Barah static server on http://localhost:${listenPort || PORT}`);
+  });
+  return srv;
+}
+
+// Start only when executed directly (allows require('./server.js') in tests).
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = { createServer, handleRequest, startServer, MIME, PORT };

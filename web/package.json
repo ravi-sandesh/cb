@@ -24,8 +24,50 @@
       "**/*.test.js"
     ],
     "collectCoverageFrom": [
-      "game-engine.js"
+      "app.js",
+      "game-engine.js",
+      "server.js",
+      "sound.js",
+      "telemetry.js"
     ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 80,
+        "lines": 80
+      },
+      "app.js": {
+        "statements": 68,
+        "branches": 45,
+        "functions": 68,
+        "lines": 72
+      },
+      "game-engine.js": {
+        "statements": 95,
+        "branches": 90,
+        "functions": 95,
+        "lines": 95
+      },
+      "server.js": {
+        "statements": 55,
+        "branches": 40,
+        "functions": 30,
+        "lines": 50
+      },
+      "sound.js": {
+        "statements": 95,
+        "branches": 60,
+        "functions": 95,
+        "lines": 95
+      },
+      "telemetry.js": {
+        "statements": 75,
+        "branches": 60,
+        "functions": 70,
+        "lines": 85
+      }
+    },
     "coverageDirectory": "coverage",
     "coverageReporters": [
       "text",
