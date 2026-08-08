@@ -91,11 +91,12 @@ dependencies {
     androidTestImplementation("androidx.test:rules:1.5.0")
     androidTestImplementation("androidx.test:runner:1.5.2")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.6.0")
-    androidTestImplementation("androidx.compose.ui:ui-test-manifest:1.6.0")
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation("androidx.activity:activity-compose:1.9.0")
 
     // Debug/Preview
     debugImplementation("androidx.compose.ui:ui-tooling:1.6.0")
     debugImplementation("androidx.compose.ui:ui-tooling-preview:1.6.0")
+    // Compose testing activity (merged into the debug app manifest at the app package/process).
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.6.0")
 }

@@ -90,7 +90,7 @@ fun ChokaBarahApp() {
                 gridSize = selectedGridSize,
                 playerCount = selectedPlayerCount,
                 gameMode = selectedGameMode,
-                onBack = {
+                onBackToMenu = {
                     screenState = ScreenState.HOME
                 }
             )

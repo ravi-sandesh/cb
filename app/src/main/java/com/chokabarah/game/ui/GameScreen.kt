@@ -51,7 +51,7 @@ fun GameScreen(
     gridSize: GridSize,
     playerCount: Int,
     gameMode: GameMode,
-    onBack: () -> Unit
+    onBackToMenu: () -> Unit
 ) {
     val activeColors = remember(playerCount) {
         PlayerColor.entries.take(playerCount)
@@ -138,8 +138,7 @@ fun GameScreen(
                 Spacer(Modifier.weight(1f))
 
                 Text(
-                    text = "TURN: ${currentPlayer.displayName}" +
-                        (if (isBotTurn) " \uD83E\uDD16 (BOT)" else ""),
+                    text = "${gridSize.columns}x${gridSize.columns} CHOKA BARAH",
                     color = headerColor,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
@@ -163,37 +162,42 @@ fun GameScreen(
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037))
                 ) {
-                    Text(text = "\uD83D\uDD04", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "\uD83D\uDD04 RESTART",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
-
-            Spacer(Modifier.height(8.dp))
-
-            val isCutUnlocked = gameEngine.hasCapturedOpponent[gameEngine.currentPlayerIndex] == true
-            Text(
-                text = if (isCutUnlocked) "\uD83D\uDD13 INNER UNLOCKED" else "\uD83D\uDD12 CUT REQUIRED",
-                color = if (isCutUnlocked) unlockedColor else headerColor,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            )
 
             Spacer(Modifier.height(12.dp))
 
             // Board card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = cardColor)
+                colors = CardDefaults.cardColors(containerColor = Color(currentPlayer.hexColor))
             ) {
                 Column(modifier = Modifier.padding(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "TURN: ${currentPlayer.displayName}" +
                                 (if (isBotTurn) " \uD83E\uDD16 (BOT)" else ""),
-                            color = headerColor,
-                            fontSize = 14.sp,
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        val isCutUnlocked =
+                            gameEngine.hasCapturedOpponent[gameEngine.currentPlayerIndex] == true
+                        Text(
+                            text = if (isCutUnlocked) "\uD83D\uDD13 INNER UNLOCKED" else "\uD83D\uDD12 CUT REQUIRED",
+                            color = if (isCutUnlocked) unlockedColor else headerColor,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -402,7 +406,7 @@ fun GameScreen(
                         mapOf("gridSize" to gridSize.columns)
                     )
                     showPauseMenu = false
-                    onBack()
+                    onBackToMenu()
                 }) {
                     Text("EXIT TO MENU", color = Color(0xFFFF5252))
                 }
@@ -466,7 +470,7 @@ fun GameScreen(
                         "User navigated to main menu after victory",
                         mapOf("winner" to winner.displayName)
                     )
-                    onBack()
+                    onBackToMenu()
                 }) {
                     Text("MAIN MENU", color = Color(0xFFFFB74D))
                 }
