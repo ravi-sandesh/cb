@@ -242,7 +242,7 @@ class GameEngine(
             val opponents = atTarget.filter { it.playerIndex != currentPlayerIndex }
             val allies    = atTarget.filter { it.playerIndex == currentPlayerIndex }
 
-            val opponentGatti  = opponents.size >= 2
+            val opponentGatti = opponents.groupBy { it.playerIndex }.any { (_, list) -> list.size >= 2 }
             val myGroupIsGatti = grp.size >= 2
 
             var isCapture = false
@@ -362,13 +362,18 @@ class GameEngine(
             )
         }
 
-        // Check for Gatti formation at the destination after move
+        // Check for Gatti formation at the destination after move.
+        // Announce only when this move SURPASSES the moving group: the landed pawns
+        // must exceed the mover count (pre-existing own pawns sharing the cell).
+        //  - BUG-02: a pre-existing Gatti repositioning alone does NOT re-announce.
+        //  - BUG-03: a capture onto a cell holding our own pawn still forms a Gatti.
+        //  - EC-16 : a moving Gatti landing on our own single pawn grows to size 3.
         val nowAtDest = pawns.filter {
             it.playerIndex == currentPlayerIndex &&
             it.state == PawnState.ON_TRACK &&
             it.pathIndex == move.targetPathIndex
         }
-        if (nowAtDest.size >= 2 && !move.isCapture) {
+        if (nowAtDest.size >= 2 && nowAtDest.size > move.grpPawns.size) {
             gattiFormed = true
             gameLogMessage = "🔗 GATTI! Your pawns are toughened at this square!"
             Telemetry.info("engine", "move.gatti_formed", "Player $currentPlayerIndex formed a Gatti",

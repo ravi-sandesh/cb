@@ -8,9 +8,7 @@ import com.chokabarah.game.engine.PawnState
 import com.chokabarah.game.engine.PlayerColor
 import com.chokabarah.game.engine.TrackBuilder
 import org.junit.Assert.*
-import org.junit.Test
-
-/**
+import org.junit.Test/**
  * BUG VERIFICATION SUITE (Kotlin engine).
  *
  * Mirrors web/bugs-verify.test.js for the SHARED engine bugs documented in
@@ -50,14 +48,13 @@ class EngineBugsVerificationTest {
     }
 
     // ============================================================
-    // BUG-01: "Opponent Gatti" false positive across DIFFERENT players
+    // BUG-01 (FIXED): opponents from DIFFERENT players are capturable
     // DOC / EC-26: single mover landing on a cell shared by pawns of TWO
     // DIFFERENT opponents MUST be able to capture them (all sent home).
-    // ACTUAL: 2+ opponents (any ownership) are treated as an un-capturable
-    //         Gatti and the move is dropped entirely.
+    // FIX: Gatti immunity requires 2+ pawns of the SAME player.
     // ============================================================
     @Test
-    fun bug01_opponentsFromDifferentPlayersBlockCapture() {
+    fun bug01_opponentsFromDifferentPlayersAreCapturable() {
         val engine = GameEngine(
             gridSize = GridSize.FIVE_BY_FIVE,
             playerColors = listOf(PlayerColor.RED, PlayerColor.GREEN, PlayerColor.YELLOW, PlayerColor.BLUE)
@@ -69,12 +66,12 @@ class EngineBugsVerificationTest {
 
         engine.forceMoves(3)
 
-        // BUGGY actual: the move to the target is missing (all moves dropped).
-        val hasTarget = engine.validMoves.any { it.targetCoords == target }
-        assertEquals(
-            "EC-26 violation: move to cell shared by two different opponents must be allowed",
-            false, hasTarget
+        val captureMove = engine.validMoves.firstOrNull { it.targetCoords == target }
+        assertNotNull(
+            "EC-26: move to cell shared by two different opponents must be offered",
+            captureMove
         )
+        assertEquals("move must be a capture of both opponents", true, captureMove!!.isCapture)
     }
 
     @Test
@@ -94,12 +91,11 @@ class EngineBugsVerificationTest {
     }
 
     // ============================================================
-    // BUG-02: moving an EXISTING Gatti is re-announced as a new formation.
+    // BUG-02 (FIXED): moving an EXISTING Gatti is NOT a new formation.
     // DOC §5.1: formation is announced when pawns newly join a cell.
-    // ACTUAL: executeMove recomputes from post-move state -> reports again.
     // ============================================================
     @Test
-    fun bug02_movingExistingGattiReportsFormationAgain() {
+    fun bug02_movingExistingGattiDoesNotReportFormation() {
         val engine = GameEngine(gridSize = GridSize.FIVE_BY_FIVE)
         engine.putOnTrack(0, 5)
         engine.putOnTrack(1, 5)                     // pre-existing Gatti
@@ -108,18 +104,36 @@ class EngineBugsVerificationTest {
         val gattiMove = engine.validMoves.firstOrNull { it.isGattiGroup }!!
         engine.setRoll(2, isExtra = true)        // extra roll: no advanceTurn, message survives
         engine.executeMove(gattiMove)
+        assertFalse(
+            "FIXED: moving a pre-existing Gatti must NOT announce a new formation",
+            engine.gameLogMessage.contains("GATTI")
+        )
+    }
+
+    // EC-16 guard: a Gatti landing on our OWN single pawn grows to size 3.
+    @Test
+    fun ec16_gattiGroupLandsOnOwnPawnGrowsToThree() {
+        val engine = GameEngine(gridSize = GridSize.FIVE_BY_FIVE)
+        engine.putOnTrack(0, 5)
+        engine.putOnTrack(1, 5)                     // pre-existing Gatti at 5
+        engine.putOnTrack(2, 7)                     // own single pawn at 7
+
+        engine.forceMoves(2)
+        val gattiMove = engine.validMoves.firstOrNull { it.isGattiGroup }!!
+        assertEquals("group should land next to our single pawn", 7, gattiMove.targetPathIndex)
+        engine.setRoll(2, isExtra = true)
+        engine.executeMove(gattiMove)
         assertTrue(
-            "BUG: moving a pre-existing Gatti must NOT announce a new formation",
+            "EC-16: landing a Gatti onto one of our own pawns forms size-3 Gatti",
             engine.gameLogMessage.contains("GATTI")
         )
     }
 
     // ============================================================
-    // BUG-03: a CAPTURE that also lands onto my OWN pawn suppresses the
-    // Gatti announcement even though a 2-pawn stack now exists.
+    // BUG-03 (FIXED): a CAPTURE onto my OWN pawn DOES announce the Gatti.
     // ============================================================
     @Test
-    fun bug03_captureOntoOwnStackSuppressesGattiMessage() {
+    fun bug03_captureOntoOwnStackAnnouncesGatti() {
         val engine = GameEngine(gridSize = GridSize.FIVE_BY_FIVE)
         engine.putOnTrack(0, 4)                     // mover -> idx 6 on score 2
         val dest = TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 0)[6]
@@ -133,9 +147,9 @@ class EngineBugsVerificationTest {
         engine.setRoll(2, isExtra = false)
         engine.executeMove(captureMove)
 
-        // BUG: even though 2 own pawns now share the cell, no GATTI message.
-        assertFalse(
-            "BUG: capture onto own stack must still announce the new Gatti",
+        // FIXED: 2 own pawns now share the cell -> GATTI message announced.
+        assertTrue(
+            "FIXED: capture onto own stack must announce the new Gatti",
             engine.gameLogMessage.contains("GATTI")
         )
     }

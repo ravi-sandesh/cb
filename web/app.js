@@ -115,7 +115,13 @@ function startGame() {
     renderBoard();
     Sound.play('game_start');
 }
-function restartGame() { T.info('ui', 'game.restarted', 'Game restarted by user', boardSnapshot()); initGameState(); renderBoard(); }
+function restartGame() {
+    T.info('ui', 'game.restarted', 'Game restarted by user', boardSnapshot());
+    // Cancel any scheduled bot turn so it cannot fire into the fresh game (BUG-07).
+    if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+    initGameState();
+    renderBoard();
+}
 
 // Toggle sound mute (US-27). Reflects state in the mute button label.
 function toggleMute() {
@@ -150,6 +156,12 @@ function initGameState() {
     currentRoll        = null;
     validMoves         = [];
     winner             = null;
+
+    // Re-enable the roll button on every fresh game (BUG-06): a previous
+    // victory banner disabled it, and reset must undo that for a new game.
+    // Do this BEFORE updateUI so the button is styled as actionable for P0.
+    const rollBtn = document.getElementById('btn-roll');
+    if (rollBtn) rollBtn.disabled = false;
 
     T.debug('engine', 'state.initialized', 'Game state initialized', boardSnapshot());
 
@@ -559,11 +571,14 @@ function renderBoard() {
         ctx.stroke();
     });
 
-    // 3. Group pawns by board cell
+    // 3. Group pawns by board cell. Only pawns still on the track are drawn;
+    //    FINISHED pawns have reached center home and are removed from the board
+    //    (BUG-10) — they must not be grouped into a gold 'G' Gatti bundle.
     const cellMap = {};
     pawns.forEach(pawn => {
+        if (pawn.state === 'FINISHED') return;
         let coords;
-        if (pawn.state === 'ON_TRACK' || pawn.state === 'FINISHED') {
+        if (pawn.state === 'ON_TRACK') {
             coords = getPlayerPath(currentGridSize, pawn.playerIndex)[pawn.pathIndex];
         } else {
             coords = getPlayerPath(currentGridSize, pawn.playerIndex)[0];

@@ -192,7 +192,11 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
 
         const pawnsAtTarget = getPawnsAtCoords(gridSize, pawns, tr, tc, null);
         const opponentsAtTarget = pawnsAtTarget.filter(p => p.playerIndex !== currentPlayerIndex);
-        const opponentGatti = opponentsAtTarget.length >= 2;
+        // A Gatti is 2+ pawns of the SAME player. Opponents from two DIFFERENT
+        // players each holding a single pawn are all individually capturable.
+        const perPlayerCounts = {};
+        opponentsAtTarget.forEach(p => { perPlayerCounts[p.playerIndex] = (perPlayerCounts[p.playerIndex] || 0) + 1; });
+        const opponentGatti = Object.values(perPlayerCounts).some(c => c >= 2);
         const myGroupIsGatti = grpPawns.length >= 2;
 
         let isCapture = false;
@@ -300,13 +304,19 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
             { byPlayer: currentPlayerIndex, capturedCount, targetCoords });
     }
 
-    // Check for Gatti formation at destination after move
+    // Check for Gatti formation at destination after move.
+    // Announce only when this move SURPASSES the moving group: the destination
+    // must already house 2+ of our pawns AND the landed pawns must exceed the
+    // mover count. That correctly handles:
+    //   - BUG-02: a pre-existing Gatti repositioning alone does NOT re-announce.
+    //   - BUG-03: a capture onto a cell holding our own pawn still forms a Gatti.
+    //   - EC-16 : a moving Gatti landing on our own single pawn grows to a Gatti of 3.
     const nowAtDest = newPawns.filter(p =>
         p.playerIndex === currentPlayerIndex &&
         p.state === 'ON_TRACK' &&
         p.pathIndex === targetPathIndex
     );
-    if (nowAtDest.length >= 2 && !isCapture) {
+    if (nowAtDest.length >= 2 && nowAtDest.length > grpPawns.length) {
         gattiFormed = true;
         T.info('engine.move', 'move.gatti_formed', `Player ${currentPlayerIndex} formed a Gatti at ${tr},${tc}`,
             { byPlayer: currentPlayerIndex, targetCoords, count: nowAtDest.length, pawnIds: nowAtDest.map(p => p.id) });

@@ -28,7 +28,10 @@ http.createServer((req, res) => {
   if (urlPath === '/') urlPath = '/index.html';
 
   const filePath = path.resolve(ROOT, '.' + urlPath);
-  if (filePath.indexOf(ROOT) !== 0) {
+  // Boundary-safe containment check (BUG-24): a sibling dir such as
+  // "...\web2\..." must NOT pass. Prefix matching (indexOf === 0) would allow it.
+  const rel = path.relative(ROOT, filePath);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
     res.writeHead(403); res.end('Forbidden'); return;
   }
 
