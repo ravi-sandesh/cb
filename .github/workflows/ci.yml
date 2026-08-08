@@ -57,7 +57,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Enforce coverage threshold (min 80% statements / 70% branches)
+      - name: Enforce coverage threshold (min 88% statements / 78% branches)
         run: |
           node -e "
             const s = require('./coverage/coverage-summary.json');
@@ -65,8 +65,8 @@ jobs:
             const st = totals.statements.pct;
             const br = totals.branches.pct;
             console.log('Statements:', st + '%', '| Branches:', br + '%');
-            if (st < 80) { console.error('FAIL: statements coverage < 80% (' + st + '%)'); process.exit(1); }
-            if (br < 70) { console.error('FAIL: branches coverage < 70% (' + br + '%)'); process.exit(1); }
+            if (st < 88) { console.error('FAIL: statements coverage < 88% (' + st + '%)'); process.exit(1); }
+            if (br < 78) { console.error('FAIL: branches coverage < 78% (' + br + '%)'); process.exit(1); }
             console.log('PASS: coverage thresholds met');
           }
 

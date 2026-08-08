@@ -15,7 +15,7 @@
 // ============================================================
 'use strict';
 
-const holder = { docEls: {} }; // id -> fake element; fresh() swaps a new map
+const holder = { docEls: {}, _eltSeq: 0 }; // id -> fake element; fresh() swaps a new map
 
 function makeCanvas(width) {
   width = width || 600;
@@ -30,9 +30,15 @@ function makeCanvas(width) {
   ctx.__calls = calls;
   const canvas = {
     width, height: width,
+    _listeners: {},
     getContext: () => ctx,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width, height }),
-    addEventListener: () => {}
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: canvas.width, height: canvas.height }),
+    addEventListener: (type, fn) => { canvas._listeners[type] = fn; },
+    // Dispatch a board tap exactly like the browser would (clientX/Y in px).
+    fireClick(clientX, clientY) {
+      const fn = canvas._listeners.click;
+      if (fn) fn({ clientX, clientY });
+    }
   };
   return canvas;
 }
@@ -57,7 +63,7 @@ function makeElement(id) {
   });
   Object.defineProperty(el, 'innerHTML', {
     get() { return el._innerHTML; },
-    set(v) { el._innerHTML = String(v); }
+    set(v) { el._innerHTML = String(v); el.children.length = 0; }
   });
   return el;
 }
@@ -70,8 +76,25 @@ function makeTimers() {
     setTimeout(fn, ms) { const id = ++seq; reg.set(id, { fn, cancelled: false, fired: false }); return id; },
     clearTimeout(id) { const t = reg.get(id); if (t) t.cancelled = true; },
     active() { return Array.from(reg.values()).filter(t => !t.cancelled && !t.fired).length; },
+    fireOne() { const t = Array.from(reg.values()).find(x => !x.cancelled && !x.fired); if (t) { t.fired = true; t.fn(); } return !!t; },
     fireAll() { Array.from(reg.values()).forEach(t => { if (!t.cancelled && !t.fired) { t.fired = true; t.fn(); } }); }
   };
+}
+
+const realMathRandom = globalThis.Math.random;
+function useSeededRandom(seed) {
+  let s = seed >>> 0;
+  globalThis.Math.random = () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+function useScriptedRandom(values) {
+  const q = values.slice();
+  globalThis.Math.random = () => (q.length ? q.shift() : 0.1);
+}
+function restoreMathRandom() {
+  globalThis.Math.random = realMathRandom;
 }
 
 const realSetTimeout = globalThis.setTimeout;
@@ -98,7 +121,7 @@ function boot() {
   const w = {};
   const document = {
     getElementById: (id) => holder.docEls[id] || (holder.docEls[id] = makeElement(id)),
-    createElement: (tag) => makeElement(tag + '_' + Math.random().toString(36).slice(2))
+    createElement: (tag) => makeElement(`${tag}_${holder._eltSeq++}`)
   };
 
   w.window = w;
@@ -136,6 +159,7 @@ function fresh() {
 
 afterEach(() => {
   useRealTimers();
+  restoreMathRandom();
 });
 
 describe('app.js UI bootstrap (browser harness)', () => {
@@ -255,5 +279,115 @@ describe('navigation & config', () => {
     expect(holder.docEls['rules-modal'].classList._set.hidden).toBeUndefined();
     w.closeRules();
     expect(holder.docEls['rules-modal'].classList._set.hidden).toBe(true);
+  });
+});
+
+describe('board canvas tap handling', () => {
+  const cs = 120; // 600px canvas / 5x5
+  const tapCell = (canvas, r, c) => canvas.fireClick(c * cs + cs / 2, r * cs + cs / 2);
+
+  test('tap with no valid moves traces tapped_none and does not throw', () => {
+    const { w, canvas } = fresh();
+    w.startGame();
+    expect(() => tapCell(canvas, 0, 0)).not.toThrow();
+  });
+
+  test('tap is ignored after leaving the game screen', () => {
+    const { w, canvas } = fresh();
+    w.startGame();
+    w.showHomeScreen();
+    expect(() => tapCell(canvas, 2, 2)).not.toThrow();
+  });
+
+  test('tap on a valid move target executes the move', () => {
+    const { w, canvas } = fresh();
+    w.startGame();
+    // Score 1 (one cowry open) lets a HOME_BASE pawn move to path[0] = (4,2).
+    useScriptedRandom([0.6, 0.1, 0.1, 0.1]);
+    w.handleRoll();
+    expect(holder.docEls['btn-roll'].disabled).toBe(true);
+    expect(() => tapCell(canvas, 4, 2)).not.toThrow();
+    // Move executed: turn advanced to player 1 without an extra roll.
+    expect(holder.docEls['game-log']._innerText).toContain("Green (North)'s turn");
+    expect(holder.docEls['btn-roll'].disabled).toBe(false);
+  });
+
+  test('tap on a non-target cell while moves exist selects no move', () => {
+    const { w, canvas } = fresh();
+    w.startGame();
+    useScriptedRandom([0.6, 0.1, 0.1, 0.1]);
+    w.handleRoll();
+    expect(() => tapCell(canvas, 1, 1)).not.toThrow();
+    expect(holder.docEls['game-log']._innerText).toContain('Select a pawn to move');
+    expect(holder.docEls['btn-roll'].disabled).toBe(true);
+  });
+
+  test('tap during a bot turn is ignored (human-only input)', () => {
+    const { w, canvas } = fresh();
+    w.setGameMode('bot');
+    w.startGame();
+    // Human (P0) rolls score 1 and moves, advancing to the bot (P1).
+    useScriptedRandom([0.6, 0.1, 0.1, 0.1]);
+    w.handleRoll();
+    tapCell(canvas, 4, 2);
+    expect(holder.docEls['turn-text']._innerText).toContain('🤖');
+    expect(() => tapCell(canvas, 4, 2)).not.toThrow();
+  });
+
+  test('a second roll while a roll is pending is ignored', () => {
+    const { w } = fresh();
+    w.startGame();
+    useScriptedRandom([0.6, 0.1, 0.1, 0.1]);
+    w.handleRoll();
+    const before = holder.docEls['roll-score-display']._innerText;
+    expect(() => w.handleRoll()).not.toThrow();
+    expect(holder.docEls['roll-score-display']._innerText).toBe(before);
+    expect(holder.docEls['btn-roll'].disabled).toBe(true);
+  });
+});
+
+describe('full deterministic bot game to victory', () => {
+  function driveFullGame(seed, cap) {
+    const timers = makeTimers();
+    globalThis.setTimeout = timers.setTimeout;
+    globalThis.clearTimeout = timers.clearTimeout;
+    useSeededRandom(seed);
+    const { w, canvas } = fresh();
+    w.setGameMode('bot');
+    w.startGame();
+
+    let steps = 0;
+    for (; steps < cap; steps++) {
+      const turnText = holder.docEls['turn-text']._innerText;
+      const btnRoll = holder.docEls['btn-roll'];
+      const btnContainer = holder.docEls['pawn-buttons-container'];
+
+      if (turnText.includes('🤖')) {
+        // Bot's turn: any board tap is ignored; fire its scheduled action.
+        canvas.fireClick(cs(600) * 1.5, cs(600) * 1.5);
+        timers.fireOne();
+      } else if (btnContainer.children.length > 0) {
+        // Human with valid moves: pick the first offered move.
+        btnContainer.children[0].onclick();
+      } else if (!btnRoll.disabled) {
+        w.handleRoll();
+        timers.fireOne(); // drain a possible no-move advanceTurn
+      } else {
+        timers.fireOne();
+      }
+
+      if (holder.docEls['game-log']._innerText.includes('VICTORY')) break;
+    }
+    return { steps, w };
+  }
+  const cs = (width) => width / 5;
+
+  test('reaches an actual winner via rolls, bot moves and taps', () => {
+    const { steps } = driveFullGame(1, 5000);
+    expect(holder.docEls['game-log']._innerText).toContain('VICTORY');
+    expect(holder.docEls['btn-roll'].disabled).toBe(true);
+    expect(steps).toBeLessThan(5000);
+    // A tap after the game ended is a no-op (winner !== null guard).
+    expect(() => booted.canvas.fireClick(300, 300)).not.toThrow();
   });
 });
