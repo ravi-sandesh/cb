@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Choka Barah</string>
+    <string name="title_5_column">5-Column Board (5x5)</string>
+    <string name="title_7_column">7-Column Board (7x7)</string>
+</resources>

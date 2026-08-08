@@ -1,0 +1,335 @@
+name: CI - Web & Android
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Security hardening: CI only needs read access to the repo contents.
+permissions:
+  contents: read
+
+env:
+  # Telemetry default OFF in CI unless explicitly enabled via workflow_dispatch input.
+  CB_TELEMETRY_ENABLED: "false"
+
+jobs:
+  # =====================================================================
+  # 1) WEB - Unit tests (Jest) with coverage, run on multiple Node versions
+  # =====================================================================
+  web-tests:
+    name: Web unit tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22]
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests with coverage (text + lcov + json in ONE run)
+        run: npm test -- --coverageReporters=text --coverageReporters=lcov --coverageReporters=json
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-coverage-node${{ matrix.node }}
+          path: web/coverage/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce coverage threshold (min 95% statements / 90% branches)
+        run: |
+          node -e "
+            const s = require('./coverage/coverage-summary.json');
+            const totals = s.total;
+            const st = totals.statements.pct;
+            const br = totals.branches.pct;
+            console.log('Statements:', st + '%', '| Branches:', br + '%');
+            if (st < 95) { console.error('FAIL: statements coverage < 95% (' + st + '%)'); process.exit(1); }
+            if (br < 90) { console.error('FAIL: branches coverage < 90% (' + br + '%)'); process.exit(1); }
+            console.log('PASS: coverage thresholds met');
+          "
+
+      - name: Syntax-check browser files
+        run: |
+          for f in app.js game-engine.js sound.js telemetry.js server.js e2e/smoke.spec.js e2e/a11y.spec.js e2e/robustness.spec.js integration.test.js telemetry.test.js; do
+            node --check "$f"
+            echo "OK: $f"
+          done
+
+  # =====================================================================
+  # 2) WEB - Backend telemetry "trace" smoke (headless, no jest)
+  # =====================================================================
+  web-trace:
+    name: Web telemetry trace smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate structured trace emission
+        run: |
+          node -e "
+            const { telemetry, LEVELS } = require('./telemetry.js');
+            telemetry.config.enabled = true;
+            telemetry.config.minLevel = LEVELS.TRACE;
+            telemetry.config.sink = 'json';
+            const seen = [];
+            const off = telemetry.subscribe(r => seen.push(r));
+            const outer = telemetry.startSpan('game.turn', { player: 0 });
+            telemetry.info('engine', 'dice.rolled', 'score=4', { score: 4, isExtraRoll: true });
+            telemetry.endSpan(outer, { outcome: 'ok' });
+            off();
+            if (seen.length < 3) throw new Error('expected >=3 trace records, got ' + seen.length);
+            for (const r of seen) {
+              if (typeof r.timestamp !== 'string' || !Number.isFinite(r.level)) throw new Error('malformed record: ' + JSON.stringify(r));
+              JSON.parse(JSON.stringify(r)); // NDJSON-safe
+            }
+            const spanEnds = seen.filter(r => r.event === 'span.end');
+            if (!spanEnds.some(r => r.context && r.context.name === 'game.turn' && typeof r.context.durationMs === 'number')) {
+              throw new Error('missing well-formed span.end');
+            }
+            console.log('PASS: ' + seen.length + ' well-formed trace records (incl. span.end with duration)');
+          "
+
+  # =====================================================================
+  # 3) WEB - E2E + accessibility (Playwright + axe-core) in real Chromium
+  # =====================================================================
+  web-e2e:
+    name: Web E2E & accessibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium + system deps
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright E2E + accessibility
+        run: npx playwright test
+
+      - name: Upload Playwright traces on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: web/test-results/
+          if-no-files-found: ignore
+
+  # =====================================================================
+  # 3) ENGINE - Pure-JVM Kotlin engine unit tests (NO Android SDK needed)
+  # =====================================================================
+  engine-jvm-test:
+    name: Kotlin engine JVM tests (JDK 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CB_ENGINE_ONLY: "1"   # skip :app so no Android SDK/AGP required
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Generate Gradle wrapper
+        run: |
+          if [ ! -f gradlew ]; then
+            curl -fsSL -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-8.7-bin.zip
+            unzip -q /tmp/gradle.zip -d /tmp/gradle
+            /tmp/gradle/gradle-8.7/bin/gradle wrapper --gradle-version 8.7
+            chmod +x gradlew
+          fi
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-engine-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}
+
+      - name: Run engine unit tests (no Android SDK)
+        run: ./gradlew --no-daemon :engine:test --stacktrace
+
+  # =====================================================================
+  # 3) ANDROID - Static analysis + build + unit tests (JVM)
+  # =====================================================================
+  android-test:
+    name: Android build & unit tests (JDK ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [17]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission to Gradle wrapper
+        run: |
+          # No wrapper committed; bootstrap it below.
+          echo "No gradlew present - will generate."
+          ls -la
+
+      - name: Generate Gradle wrapper
+        run: |
+          # Bootstrap a Gradle distribution then generate the wrapper from build files.
+          if [ ! -f gradlew ]; then
+            # Download gradle and generate wrapper
+            curl -fsSL -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-8.7-bin.zip
+            unzip -q /tmp/gradle.zip -d /tmp/gradle
+            /tmp/gradle/gradle-8.7/bin/gradle wrapper --gradle-version 8.7
+            chmod +x gradlew
+          fi
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}
+
+      - name: Run lint + build + unit tests (no telemetry)
+        run: |
+          ./gradlew --no-daemon lintDebug assembleDebug testDebugUnitTest --stacktrace
+
+      - name: Build also with telemetry enabled (compile-time flag)
+        run: |
+          ./gradlew --no-daemon assembleDebug -PtelemetryEnabled=true --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chokabarah-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload lint report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: android-lint-report
+          path: app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # =====================================================================
+  # 4) ANDROID - Instrumented (device) tests on hosted emulator
+  # =====================================================================
+  android-instrumented:
+    name: Android instrumented tests (emulator)
+    runs-on: macos-latest   # faster x86 emulator on macOS runners
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate Gradle wrapper
+        run: |
+          if [ ! -f gradlew ]; then
+            curl -fsSL -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-8.7-bin.zip
+            unzip -q /tmp/gradle.zip -d /tmp/gradle
+            /tmp/gradle/gradle-8.7/bin/gradle wrapper --gradle-version 8.7
+            chmod +x gradlew
+          fi
+
+      - name: Enable KVM (for nested hardware acceleration)
+        run: |
+          echo 'KVM hack handled by runtimes'
+
+      - name: Run instrumented tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            ./gradlew --no-daemon connectedDebugAndroidTest --stacktrace
+
+  # =====================================================================
+  # 5) NOTIFY - Optional summary of all jobs
+  # =====================================================================
+  summary:
+    name: CI summary
+    runs-on: ubuntu-latest
+    needs: [web-tests, web-trace, web-e2e, engine-jvm-test, android-test, android-instrumented]
+    if: always()
+    steps:
+      - name: Report overall status
+        run: |
+          echo "## CI Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Web unit tests: ${{ needs.web-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Web telemetry trace: ${{ needs.web-trace.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Web E2E/accessibility: ${{ needs.web-e2e.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Kotlin engine JVM tests: ${{ needs.engine-jvm-test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Android build/tests: ${{ needs.android-test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Android instrumented tests: ${{ needs.android-instrumented.result }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.web-tests.result }}" != "failure" ] && [ "${{ needs.web-trace.result }}" != "failure" ] && [ "${{ needs.web-e2e.result }}" != "failure" ] && [ "${{ needs.engine-jvm-test.result }}" != "failure" ] && [ "${{ needs.android-test.result }}" != "failure" ] && [ "${{ needs.android-instrumented.result }}" != "failure" ]; then
+            echo "✅ **All checks passed**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Some checks failed**" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi

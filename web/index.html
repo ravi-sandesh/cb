@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Choka Barah - Traditional Indian Board Game</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <main>
+        <!-- Main Configuration Menu -->
+        <div id="home-screen" class="screen active">
+            <div class="logo-area">
+                <h1>CHOKA BARAH</h1>
+                <p class="tagline">TRADITIONAL INDIAN STRATEGY BOARD GAME</p>
+            </div>
+
+            <div class="card-section">
+                <h2>1. SELECT BOARD SIZE</h2>
+                <div class="chip-group">
+                    <button class="chip active" id="btn-grid-5" onclick="setGridSize(5)">
+                        <span class="chip-title">5-Column (5x5)</span>
+                        <span class="chip-sub">Classic Board</span>
+                    </button>
+                    <button class="chip" id="btn-grid-7" onclick="setGridSize(7)">
+                        <span class="chip-title">7-Column (7x7)</span>
+                        <span class="chip-sub">Ashta Chamma</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="card-section">
+                <h2>2. NUMBER OF PLAYERS</h2>
+                <div class="chip-group">
+                    <button class="chip active" id="btn-p2" onclick="setPlayers(2)">
+                        <span class="chip-title">2 Players</span>
+                        <span class="chip-sub">1v1 Duel</span>
+                    </button>
+                    <button class="chip" id="btn-p3" onclick="setPlayers(3)">
+                        <span class="chip-title">3 Players</span>
+                        <span class="chip-sub">3-Way</span>
+                    </button>
+                    <button class="chip" id="btn-p4" onclick="setPlayers(4)">
+                        <span class="chip-title">4 Players</span>
+                        <span class="chip-sub">4-Way</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="card-section">
+                <h2>3. GAME MODE</h2>
+                <div class="chip-group">
+                    <button class="chip active" id="btn-mode-pnp" onclick="setGameMode('pnp')">
+                        <span class="chip-title">Pass & Play</span>
+                        <span class="chip-sub">Local Friends</span>
+                    </button>
+                    <button class="chip" id="btn-mode-bot" onclick="setGameMode('bot')">
+                        <span class="chip-title">vs Bot (AI)</span>
+                        <span class="chip-sub">Single Player</span>
+                    </button>
+                </div>
+            </div>
+
+            <button class="btn-primary" id="btn-start" onclick="startGame()">▶ START GAME</button>
+            <button class="btn-secondary" id="btn-rules" onclick="openRules()">📖 HOW TO PLAY RULES</button>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="screen">
+            <div class="header-bar">
+                <button class="btn-sm" onclick="showHomeScreen()">⚙ MENU</button>
+                <h1 id="board-title">5x5 CHOKA BARAH</h1>
+                <button class="btn-sm btn-restart" onclick="restartGame()">🔄 RESTART</button>
+                <button class="btn-sm" id="btn-mute" onclick="toggleMute()">🔊</button>
+            </div>
+
+            <div class="turn-banner" id="turn-banner">
+                <span id="turn-text">TURN: RED (SOUTH)</span>
+                <span id="cut-status-badge" class="badge locked">🔒 CUT REQUIRED</span>
+            </div>
+
+            <!-- Player names/colors legend, current turn highlighted (US-04/US-24) -->
+            <div id="player-strip" class="player-strip"></div>
+
+            <div id="game-log" class="game-log">Game Started! Roll cowries to begin.</div>
+
+            <!-- Canvas Board Container -->
+            <div class="board-wrapper">
+                <canvas id="board-canvas" width="500" height="500"></canvas>
+            </div>
+
+            <!-- Pawn Move Selector Bar -->
+            <div id="pawn-select-bar" class="pawn-select-bar hidden">
+                <span class="select-label">SELECT PAWN TO MOVE:</span>
+                <div id="pawn-buttons-container" class="pawn-buttons-container"></div>
+            </div>
+
+            <!-- Cowry Roll View -->
+            <div class="cowry-container">
+                <div class="cowry-title">COWRY SHELLS ROLL</div>
+                <div class="cowry-shells" id="cowry-shells">
+                    <div class="shell open"></div>
+                    <div class="shell closed"></div>
+                    <div class="shell open"></div>
+                    <div class="shell closed"></div>
+                </div>
+                <button id="btn-roll" class="btn-roll" onclick="handleRoll()">🎲 ROLL COWRIES</button>
+                <div id="roll-score-display" class="roll-score-display"></div>
+            </div>
+        </div>
+        </main>
+    </div>
+
+    <!-- Rules Modal -->
+    <div id="rules-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>CHOKA BARAH RULES</h2>
+            <div class="rules-body">
+                <p><strong>🎯 Objective:</strong> Race all 4 pawns anti-clockwise around the outer ring, then spiral inward to the Center Home.</p>
+                <hr style="border-color:#5D4037;margin:8px 0">
+                <p><strong>🐚 5-House (4 Shells):</strong> Mouths up = steps. All 4 up = Chowka (4 + EXTRA ROLL). All 4 down = Baara (8 + EXTRA ROLL).</p>
+                <p><strong>🐚 7-House (6 Shells):</strong> Mouths up = steps. All 6 up = Chowka (6 + EXTRA ROLL). All 6 down = Baara (12 + EXTRA ROLL).</p>
+                <hr style="border-color:#5D4037;margin:8px 0">
+                <p><strong>🔒 Cut Requirement:</strong> You MUST capture at least 1 opponent pawn before your pawns can enter the inner path toward Center Home.</p>
+                <p><strong>✂️ Capturing:</strong> Land on a square with an opponent → they return to Home Base. You earn an EXTRA TURN!</p>
+                <p><strong>🔗 Gatti (Doubles):</strong> If 2+ of YOUR pawns land on the same square, they form <em>Gatti</em> — they move together as one and CANNOT be captured by a single opponent pawn.</p>
+                <p><strong>✖ Safe Squares ('X'):</strong> No captures on safe squares. All pawns coexist peacefully here.</p>
+                <p><strong>🏠 Home Base Safety:</strong> Pawns in their own Home Base are completely safe — cannot be captured.</p>
+                <p><strong>🎲 Extra Rolls:</strong> On Chowka/Baara or after a capture, you get an extra roll. You may move a DIFFERENT pawn each extra roll!</p>
+            </div>
+            <button class="btn-primary" onclick="closeRules()">GOT IT!</button>
+        </div>
+    </div>
+
+    <!-- Telemetry must load before app.js so app.js can use window.Telemetry -->
+    <script src="telemetry.js"></script>
+    <!-- The shared, unit-tested game engine must load before app.js -->
+    <script src="game-engine.js"></script>
+    <!-- Sound feedback (US-27); must load before app.js -->
+    <script src="sound.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

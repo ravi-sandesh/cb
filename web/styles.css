@@ -1,0 +1,459 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: 'Outfit', sans-serif;
+    user-select: none;
+}
+
+body {
+    background-color: #12100E;
+    color: #FFFFFF;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+.app-container {
+    width: 100%;
+    max-width: 480px;
+    height: 100vh;
+    max-height: 900px;
+    background-color: #1E1B18;
+    position: relative;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.screen {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.screen.active {
+    display: flex;
+}
+
+/* Single <main> landmark wraps both screens (a11y: content in landmarks). */
+.app-container > main {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+.app-container > main > .screen {
+    height: 100%;
+}
+
+/* Logo */
+.logo-area {
+    text-align: center;
+    margin: 20px 0 30px;
+}
+
+.logo-area h1 {
+    color: #FFD54F;
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: 2px;
+}
+
+.tagline {
+    color: #A1887F;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+/* Configuration Cards */
+.card-section {
+    background-color: #2C241E;
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.card-section h2 {
+    color: #FFB74D;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+
+.chip-group {
+    display: flex;
+    gap: 10px;
+}
+
+.chip {
+    flex: 1;
+    background: #1E1B18;
+    border: 1px solid #4E342E;
+    border-radius: 12px;
+    padding: 12px 6px;
+    color: #D7CCC8;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transition: all 0.2s ease;
+}
+
+.chip.active {
+    background: #5D4037;
+    border: 2px solid #FFD54F;
+    color: #FFFFFF;
+}
+
+.chip-title {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.chip-sub {
+    font-size: 10px;
+    color: #BCAFA1;
+}
+
+.chip.active .chip-sub {
+    color: #FFD54F;
+}
+
+/* Buttons */
+.btn-primary {
+    background: #2E7D32;
+    color: #FFF;
+    border: none;
+    border-radius: 14px;
+    padding: 16px;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    margin-top: 10px;
+    box-shadow: 0 4px 12px rgba(46, 125, 50, 0.4);
+
+}
+
+.btn-secondary {
+    background: transparent;
+    border: 1px solid #FFB74D;
+    color: #FFB74D;
+    border-radius: 14px;
+    padding: 14px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 10px;
+}
+
+.btn-sm {
+    background: #2C241E;
+    border: 1px solid #FFB74D;
+    color: #FFB74D;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.btn-restart {
+    background: #5D4037;
+    color: #FFF;
+    border: none;
+}
+
+/* Header & Banner */
+.header-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.header-bar h1 {
+    color: #FFD54F;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.turn-banner {
+    background: #E53935;
+    border-radius: 12px;
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 800;
+    margin-bottom: 8px;
+}
+
+.badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.badge.locked {
+    background: rgba(0,0,0,0.3);
+    color: #FFD54F;
+}
+
+.badge.unlocked {
+    background: rgba(0,0,0,0.3);
+    color: #76FF03;
+}
+
+.game-log {
+    color: #D7CCC8;
+    font-size: 12px;
+    text-align: center;
+    min-height: 20px;
+    margin-bottom: 8px;
+}
+
+/* Board Wrapper */
+.board-wrapper {
+    width: 100%;
+    aspect-ratio: 1;
+    background: #12100E;
+    border-radius: 12px;
+    border: 3px solid #5D4037;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+#board-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* Cowry Section */
+.cowry-container {
+    background: #2C241E;
+    border-radius: 16px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.cowry-title {
+    color: #FFD54F;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.cowry-shells {
+    display: flex;
+    gap: 12px;
+    margin: 10px 0;
+}
+
+.shell {
+    width: 44px;
+    height: 52px;
+    border-radius: 24px;
+    position: relative;
+    transition: transform 0.3s ease;
+}
+
+.shell.open {
+    background: #FFF8E1;
+    border: 2px solid #8D6E63;
+}
+
+.shell.open::after {
+    content: '';
+    position: absolute;
+    top: 15%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 70%;
+    background: #4E342E;
+    border-radius: 2px;
+}
+
+.shell.closed {
+    background: #8D6E63;
+    border: 2px solid #3E2723;
+}
+
+.shell.closed::after {
+    content: '';
+    position: absolute;
+    top: 30%;
+    left: 20%;
+    width: 60%;
+    height: 40%;
+    border-top: 3px solid #A1887F;
+    border-radius: 50%;
+}
+
+.btn-roll {
+    width: 80%;
+    background: #FF8F00;
+    color: #FFF;
+    border: none;
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.btn-roll:disabled {
+    background: #5D4037;
+    color: #8D6E63;
+    cursor: not-allowed;
+}
+
+.roll-score-display {
+    color: #76FF03;
+    font-weight: 800;
+    margin-top: 6px;
+    font-size: 14px;
+}
+
+/* US-06: visual highlight when the roll grants an extra roll (Chowka/Baara). */
+.roll-score-display.is-extra {
+    color: #FFD54F;
+    text-shadow: 0 0 10px rgba(255, 213, 79, 0.7);
+    animation: rollGlow 0.9s ease-out 2;
+}
+
+@keyframes rollGlow {
+    0%   { box-shadow: 0 0 0 0 rgba(255, 213, 79, 0.55); }
+    100% { box-shadow: 0 0 0 10px rgba(255, 213, 79, 0); }
+}
+
+/* US-04 / US-24: player names/colors legend strip with active-turn highlight. */
+.player-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    align-items: center;
+    margin: 6px 0 4px;
+    min-height: 30px;
+}
+
+.player-chip {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 800;
+    border-left: 2px solid transparent;
+    transition: transform 0.25s ease;
+}
+
+.player-chip.active {
+    transform: scale(1.08);
+    outline: 2px solid #FFFFFF;
+    border-left: 2px solid transparent;
+}
+
+.pawn-select-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.select-label {
+    color: #FFB74D;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.pawn-buttons-container {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.pawn-btn {
+    background: #5D4037;
+    color: #FFF;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Modal */
+.modal {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    z-index: 100;
+}
+
+.modal-content {
+    background: #2C241E;
+    border-radius: 16px;
+    padding: 20px;
+    max-width: 94%;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.modal-content h2 {
+    color: #FFD54F;
+    font-size: 20px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+}
+
+.rules-body {
+    overflow-y: auto;
+    flex: 1;
+    margin-bottom: 12px;
+    padding-right: 4px;
+}
+
+.rules-body p {
+    color: #D7CCC8;
+    font-size: 13px;
+    margin-bottom: 10px;
+    line-height: 1.5;
+}
+
+/* Gatti gold shimmer badge */
+.gatti-badge {
+    display: inline-block;
+    background: linear-gradient(90deg, #FFD54F, #FF8F00);
+    color: #1E1B18;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 1px 5px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+}

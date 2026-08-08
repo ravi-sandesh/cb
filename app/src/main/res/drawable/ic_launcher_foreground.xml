@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Central ring -->
+    <path
+        android:pathData="M54,28 a26,26 0 1,0 0.01,0 z"
+        android:strokeColor="@color/ic_launcher_foreground_tint"
+        android:strokeWidth="5"
+        android:fillColor="#00000000" />
+    <!-- Cowry dots (4) in a diamond around center -->
+    <path
+        android:pathData="M54,44 a7,7 0 1,0 0.01,0 z"
+        android:fillColor="@color/ic_launcher_foreground_tint" />
+    <path
+        android:pathData="M41.5,54 a7,7 0 1,0 0.01,0 z"
+        android:fillColor="@color/ic_launcher_foreground_tint" />
+    <path
+        android:pathData="M66.5,54 a7,7 0 1,0 0.01,0 z"
+        android:fillColor="@color/ic_launcher_foreground_tint" />
+    <path
+        android:pathData="M54,64 a7,7 0 1,0 0.01,0 z"
+        android:fillColor="@color/ic_launcher_foreground_tint" />
+</vector>
