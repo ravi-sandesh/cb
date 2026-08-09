@@ -353,6 +353,7 @@ describe('board canvas tap handling', () => {
 
   test('tap on a valid move target executes the move', () => {
     const { w, canvas } = fresh();
+    w.setGameMode('pnp'); // isolate from bot-mode leakage set by earlier tests
     w.startGame();
     // Score 1 (one cowry open) lets a HOME_BASE pawn move to path[0] = (4,2).
     useScriptedRandom([0.6, 0.1, 0.1, 0.1]);
@@ -395,6 +396,27 @@ describe('board canvas tap handling', () => {
     expect(() => w.handleRoll()).not.toThrow();
     expect(holder.docEls['roll-score-display']._innerText).toBe(before);
     expect(holder.docEls['btn-roll'].disabled).toBe(true);
+  });
+
+  test('an extra roll with no valid moves resets the roll for an immediate human re-roll', () => {
+    const { w } = fresh();
+    w.setGameMode('pnp'); // isolate from bot-mode state leaked by earlier tests
+    w.startGame();
+    // Force validMoves to stay empty so the isExtraRoll reset branch runs.
+    const orig = w.ChokaBarahEngine.calculateValidMoves;
+    w.ChokaBarahEngine.calculateValidMoves = () => [];
+    try {
+      // All shells closed = Baara (8) on 5x5 -> isExtraRoll true.
+      useScriptedRandom([0.1, 0.1, 0.1, 0.1]);
+      w.handleRoll();
+      expect(holder.docEls['game-log']._innerText).toContain('No valid moves');
+      // Human re-roll is allowed immediately (button not left disabled).
+      expect(holder.docEls['btn-roll'].disabled).toBe(false);
+      // The score display kept the extra-roll highlight.
+      expect(holder.docEls['roll-score-display'].classList._set['is-extra']).toBe(true);
+    } finally {
+      w.ChokaBarahEngine.calculateValidMoves = orig;
+    }
   });
 });
 

@@ -72,6 +72,8 @@ let validMoves = [];
 let winner = null;
 let gameActive = true;    // false once we leave the game screen (stops bot timers)
 let botTimer = null;      // handle of the scheduled bot turn
+let turnTimer = null;     // 1s auto-advance after a no-valid-moves roll (BUG-02)
+let victoryTimer = null;  // delayed victory banner after a win (BUG-03)
 
 const canvas = document.getElementById('board-canvas');
 const ctx    = canvas.getContext('2d');
@@ -98,9 +100,10 @@ function openRules()  { T.info('ui', 'rules.opened', 'Rules modal opened', {}); 
 function closeRules() { T.info('ui', 'rules.closed', 'Rules modal closed', {}); document.getElementById('rules-modal').classList.add('hidden'); }
 function showHomeScreen() {
     T.info('ui', 'navigation.to_home', 'Navigated to home screen', { priorGameActive: gameActive });
-    // Stop any pending bot timers so they don't leak onto the menu / next game
+    // Stop any pending game timers (bot turn, no-move auto-advance, victory
+    // banner) so they don't leak onto the menu / next game (BUG-02/BUG-03).
     gameActive = false;
-    if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+    clearScheduledTimers();
     document.getElementById('home-screen').classList.add('active');
     document.getElementById('game-screen').classList.remove('active');
 }
@@ -117,8 +120,9 @@ function startGame() {
 }
 function restartGame() {
     T.info('ui', 'game.restarted', 'Game restarted by user', boardSnapshot());
-    // Cancel any scheduled bot turn so it cannot fire into the fresh game (BUG-07).
-    if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+    // Cancel any scheduled game timers (bot turn, no-move advance, victory
+    // banner) so none can fire into the fresh game (BUG-02/BUG-03/BUG-07).
+    clearScheduledTimers();
     initGameState();
     renderBoard();
 }
@@ -140,6 +144,36 @@ function scheduleBotTurn(ms) {
         botTimer = null;
         if (gameActive) handleBotTurn();
     }, ms);
+}
+
+// All auto-advance / victory-deferred timers are created exclusively through
+// these helpers so a single cancel path (used by restart/home/init) can never
+// miss one (BUG-02 / BUG-03 timer leaks).
+function scheduleTurnTimer(ms) {
+    clearTimeout(turnTimer);
+    turnTimer = setTimeout(() => {
+        turnTimer = null;
+        advanceTurn();
+    }, ms);
+}
+function scheduleVictoryBanner(ms) {
+    clearTimeout(victoryTimer);
+    victoryTimer = setTimeout(() => {
+        victoryTimer = null;
+        showVictoryBanner();
+    }, ms);
+}
+function clearScheduledTimers() {
+    if (botTimer)    { clearTimeout(botTimer);     botTimer = null; }
+    if (turnTimer)   { clearTimeout(turnTimer);    turnTimer = null; }
+    if (victoryTimer){ clearTimeout(victoryTimer); victoryTimer = null; }
+}
+
+// US-xx: the roll button must never be actionable for a bot turn. BUG-06:
+// advanceTurn re-enabled the button unconditionally, which exposed it on
+// bot-controlled players.
+function isBotTurn() {
+    return gameMode === 'bot' && currentPlayerIndex !== 0;
 }
 
 // ---- Init ----
@@ -228,13 +262,19 @@ function handleRoll() {
         T.info('engine', 'roll.no_valid_moves', `Player ${currentPlayerIndex} rolled ${score} with no valid moves`, { playerIndex: currentPlayerIndex, score, isExtraRoll });
         if (isExtraRoll) {
             currentRoll = null;
-            document.getElementById('btn-roll').disabled = false;
+            // BUG-06: only a human is allowed to immediately re-roll; a bot's
+            // next roll is dispatched through scheduleBotTurn instead.
+            document.getElementById('btn-roll').disabled = isBotTurn();
             T.info('engine', 'roll.extra_no_moves_reset', 'Extra roll had no moves; roll reset for re-roll', { playerIndex: currentPlayerIndex });
             if (gameMode === 'bot' && currentPlayerIndex !== 0 && winner === null) {
                 scheduleBotTurn(300);
             }
         } else {
-            setTimeout(advanceTurn, 1000);
+            // A roll with no valid moves gives the interface a beat to show the
+            // math BEFORE auto-advancing. The roll button is pressed during this
+            // window is a dead env-roll (no state), so reflect that (BUG-05).
+            document.getElementById('btn-roll').disabled = true;
+            scheduleTurnTimer(1000);
         }
     } else {
         setLog(`Rolled ${scoreText}! Select a pawn to move.`);
@@ -326,12 +366,11 @@ function executeMove(move) {
         T.info('game', 'game.victory', `Player ${currentPlayerIndex} (${winner.name}) won the game`, { winnerIndex: currentPlayerIndex, winnerName: winner.name, gridSize: currentGridSize, playerNum });
         renderBoard();
         updateUI();
-        if (gattiFormed) {
-            const prev = document.getElementById('game-log').innerText;
-            setLog(`${prev}\n🎉 VICTORY! ${winner.name} has moved all 4 pawns to Center Home! Play again ↻`);
-        } else {
-            setTimeout(showVictoryBanner, 200);
-        }
+        // BUG-04: disable the roll button on EVERY victory path. A Gatti cannot
+        // coincide with this move (a Gatti needs a pawn to remain ON_TRACK while
+        // a win finishes the last pawn), so there is only the single banner path.
+        document.getElementById('btn-roll').disabled = true;
+        scheduleVictoryBanner(200);
         if (spanId && T.endSpan) T.endSpan(spanId, { outcome: 'victory', reachesHome: true, gattiFormed });
         return;
     }
@@ -343,7 +382,8 @@ function executeMove(move) {
         const gl = document.getElementById('game-log');
         T.debug('engine', 'turn.extra', `Player ${currentPlayerIndex} gets an extra turn (${move.isCapture ? 'capture' : 'chowka/baara'})`, { playerIndex: currentPlayerIndex, reason: move.isCapture ? 'capture' : 'score' });
         setLog(`${gl.innerText} 🎲 Extra roll!`);
-        document.getElementById('btn-roll').disabled = false;
+        // BUG-06: a bot granted an extra turn keeps the button inert.
+        document.getElementById('btn-roll').disabled = isBotTurn();
         if (gameMode === 'bot' && currentPlayerIndex !== 0 && winner === null) {
             scheduleBotTurn(700);
         }
@@ -357,6 +397,9 @@ function executeMove(move) {
 }
 
 function showVictoryBanner() {
+    // BUG-01 (UI-side): a deferred banner must never render after the game was
+    // reset (winner cleared) — guard against the stale-timer crash path.
+    if (!winner || !winner.name) return;
     const name = winner.name;
     document.getElementById('game-log').innerText =
         `🎉 VICTORY! ${name} has moved all 4 pawns to Center Home! Play again ↻`;
@@ -372,7 +415,9 @@ function advanceTurn() {
     currentPlayerIndex = (currentPlayerIndex + 1) % playerNum;
     currentRoll        = null;
     validMoves         = [];
-    document.getElementById('btn-roll').disabled = false;
+    // BUG-06: keep the roll button non-actionable while it is a bot's turn;
+    // only the human player (a botGame turn index 0) may interact with it.
+    document.getElementById('btn-roll').disabled = isBotTurn();
     document.getElementById('roll-score-display').innerText = '';
 
     T.info('engine', 'turn.advanced', `Turn advanced from player ${from} to player ${currentPlayerIndex}`, { from, to: currentPlayerIndex, playerNum });

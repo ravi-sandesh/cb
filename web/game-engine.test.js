@@ -377,6 +377,20 @@ describe('executeMove – Core Execution', () => {
     expect(res.hasCapturedOpponent[0]).toBe(true); // gate unlocked
   });
 
+  test('BUG-01: executeMove tolerates an undefined currentRoll without crashing', () => {
+    const pawns = [
+      { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 5 },
+      { id: 1, playerIndex: 0, state: 'HOME_BASE', pathIndex: -1 }
+    ];
+    const move = { grpPawns:[pawns[0]], targetPathIndex: 7, targetCoords:getPlayerPath(5,0)[7], isCapture:false, reachesHome:false };
+    // Callers on the optional isExtraRoll contract may omit the roll object.
+    const res = executeMove(5, pawns, {0:true,1:true}, 0, move, undefined);
+    expect(res.error).toBeUndefined();
+    expect(res.extraTurn).toBe(false); // plain move grants no extra turn
+    expect(res.winner).toBeNull();
+    expect(res.pawns.find(p => p.id === 0).pathIndex).toBe(7);
+  });
+
   test('home-entry (reachesHome) sets pawn to FINISHED', () => {
     const pawns = [
       { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 23 },

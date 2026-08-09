@@ -282,7 +282,9 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
         }
     });
 
-    let extraTurn = currentRoll.isExtraRoll;
+    // BUG-01-FIX: safe when a caller omits currentRoll (undefined). A plain
+    // move must not grant an extra roll; capture still sets it explicitly below.
+    let extraTurn = !!(currentRoll && currentRoll.isExtraRoll);
     let gattiFormed = false;
     let capturedCount = 0;
 

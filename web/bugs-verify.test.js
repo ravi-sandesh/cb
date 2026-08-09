@@ -154,7 +154,8 @@ describe('BUG-07 restartGame cancels scheduled bot timer — FIXED', () => {
         const body = appSrc();
         const fn = body.match(/function restartGame[\s\S]{0,300}/);
         expect(fn).toBeTruthy();
-        expect(fn[0].includes('clearTimeout')).toBe(true); // FIXED: cleanup present
+        // FIXED: cleanup now centrally clears bot/turn/victory timers.
+        expect(fn[0].includes('clearScheduledTimers')).toBe(true);
     });
 });
 
@@ -172,7 +173,109 @@ describe('BUG-10 finished pawns removed from board render — FIXED', () => {
 });
 
 // ============================================================
-// BUG-24 (server) — FIXED: path guard uses boundary-safe containment
+// BUG-01 (UI) — FIXED: engine + showVictoryBanner tolerate missing roll / null winner
+// ============================================================
+describe('BUG-01 null-guards (engine undefined currentRoll + stale banner) — FIXED', () => {
+    test('executeMove tolerates undefined currentRoll (no throw, no extra turn)', () => {
+        const E = require('./game-engine.js');
+        const st = createInitialState(5, 2);
+        const moves = E.calculateValidMoves(5, st.pawns, 0, st.hasCapturedOpponent, 3);
+        const res = E.executeMove(5, st.pawns, st.hasCapturedOpponent, 0, moves[0], undefined);
+        expect(res.error).toBeUndefined();
+        expect(res.extraTurn).toBe(false);
+        expect(res.winner).toBeNull();
+    });
+
+    test('showVictoryBanner is defensively guarded when winner was cleared by a reset', () => {
+        const body = appSrc();
+        expect(body).toMatch(/showVictoryBanner[\s\S]*if \(!winner \|\| !winner\.name\) return;/);
+    });
+});
+
+// ============================================================
+// BUG-02 (web UI) — FIXED: no-move auto-advance timer is tracked/cleared
+// ============================================================
+describe('BUG-02 no-move auto-advance uses tracked, cancellable timer — FIXED', () => {
+    test('handleRoll schedules the advance through scheduleTurnTimer', () => {
+        const body = appSrc();
+        expect(body).toMatch(/scheduleTurnTimer\(1000\)/);
+        expect(body).not.toMatch(/setTimeout\(advanceTurn, 1000\)/);
+    });
+
+    test('restartGame and showHomeScreen invoke clearScheduledTimers', () => {
+        const body = appSrc();
+        const restart = body.match(/function restartGame[\s\S]{0,400}/);
+        const home = body.match(/function showHomeScreen[\s\S]{0,400}/);
+        expect(restart[0]).toMatch(/clearScheduledTimers\(\)/);
+        expect(home[0]).toMatch(/clearScheduledTimers\(\)/);
+    });
+});
+
+// ============================================================
+// BUG-03 (web UI) — FIXED: victory banner uses a tracked/cancellable timer
+// ============================================================
+describe('BUG-03 victory banner deferred via scheduleVictoryBanner — FIXED', () => {
+    test('victory path schedules the banner through the shared helper', () => {
+        const body = appSrc();
+        expect(body).toMatch(/scheduleVictoryBanner\(200\)/);
+        expect(body).not.toMatch(/setTimeout\(showVictoryBanner, 200\)/);
+    });
+
+    test('scheduleVictoryBanner and clearScheduledTimers exist', () => {
+        const body = appSrc();
+        expect(body).toMatch(/function scheduleVictoryBanner[\s\S]*clearTimeout\(victoryTimer\)/);
+        expect(body).toMatch(/if \(victoryTimer\)\s*\{\s*clearTimeout\(victoryTimer\);/);
+    });
+});
+
+// ============================================================
+// BUG-04 (web UI) — FIXED: every victory path disables btn-roll
+// ============================================================
+describe('BUG-04 victory disables the roll button — FIXED', () => {
+    test('victory branch sets btn-roll.disabled = true before banner scheduling', () => {
+        const body = appSrc();
+        const vic = body.slice(body.indexOf('if (winnerIdx !== null)'), body.indexOf('function showVictoryBanner'));
+        // the unconditional victory path must disable the roll button
+        expect(vic).toMatch(/btn-roll[\s\S]{0,40}disabled = true[\s\S]{0,60}scheduleVictoryBanner\(200\)/);
+    });
+});
+
+// ============================================================
+// BUG-05 (web UI) — FIXED: dead roll button disabled during no-valid wait
+// ============================================================
+describe('BUG-05 no-valid-moves roll leaves — FIXED', () => {
+    test('non-extra no-valid branch disables btn-roll before the auto-advance', () => {
+        const body = appSrc();
+        const fn = body.slice(body.indexOf('function handleRoll'), body.indexOf('function renderCowryShells')).slice(0, 3000);
+        // the non-extra no-valid path must disable the button and use the tracked timer
+        expect(fn).toMatch(/btn-roll[\s\S]{0,120}disabled = true[\s\S]{0,120}scheduleTurnTimer\(1000\)/);
+    });
+});
+
+// ============================================================
+// BUG-06 (web UI binary revisit) — FIXED: advanceTurn keeps bot turns inert
+// ============================================================
+describe('BUG-06 bot turns keep btn-roll disabled (isBotTurn helper)', () => {
+    test('advanceTurn does NOT unconditionally re-enable the roll button', () => {
+        const body = appSrc();
+        const adv = body.match(/function advanceTurn[\s\S]{0,600}/);
+        expect(adv).toBeTruthy();
+        expect(adv[0]).toMatch(/disabled = isBotTurn\(\)/);
+        expect(adv[0]).not.toMatch(/disabled = false/);
+    });
+
+    test('extra-roll grant and extra-no-moves reset gate on isBotTurn()', () => {
+        const body = appSrc();
+        // extra-roll grant keeps bot turns inert
+        expect(body).toMatch(/Extra roll![\s\S]{0,200}disabled = isBotTurn\(\)/);
+        // bot re-rolls are scheduled, not via a re-enabled button (roll-helper
+        // assignment lands just before the no_moves_reset telemetry log)
+        expect(body).toMatch(/disabled = isBotTurn\(\)[\s\S]{0,300}roll.extra_no_moves_reset/);
+    });
+});
+
+// ============================================================
+// BUG-24 (server) — FIXED: boundary-safe containment
 // ============================================================
 describe('BUG-24 server.js boundary-safe guard — FIXED', () => {
     test('server.js shipped source rejects a sibling whose name starts with ROOT', () => {
