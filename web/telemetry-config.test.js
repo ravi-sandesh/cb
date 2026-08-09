@@ -130,6 +130,12 @@ describe('telemetry config resolution (module-load)', () => {
     expect(tel.config.minLevel).toBe(30);
   });
 
+  test('a non-numeric CB_TELEMETRY_BUFFER falls back to 2000', () => {
+    withGlobals({ location: { search: '?CB_TELEMETRY_BUFFER=abc' } });
+    const tel = freshTelemetry();
+    expect(tel.config.maxBuffer).toBe(2000);
+  });
+
   test('genId uses the Math.random fallback when crypto.randomUUID is absent', () => {
     withGlobals({ crypto: undefined });
     const tel = freshTelemetry();
