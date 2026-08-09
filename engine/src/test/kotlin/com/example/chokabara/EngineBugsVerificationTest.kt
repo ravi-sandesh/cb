@@ -42,6 +42,19 @@ class EngineBugsVerificationTest {
         f.set(this, CowryResult(listOf(), score, isExtra, "injected"))
     }
 
+    // Inject a roll that LOOKS like it belongs to a different acting turn.
+    private fun GameEngine.setRollActor(actor: Int) {
+        val f = GameEngine::class.java.getDeclaredField("rollActor")
+        f.isAccessible = true
+        f.setInt(this, actor)
+    }
+
+    private fun GameEngine.setCurrentPlayer(index: Int) {
+        val f = GameEngine::class.java.getDeclaredField("currentPlayerIndex")
+        f.isAccessible = true
+        f.setInt(this, index)
+    }
+
     private fun playerIndexAt(player: Int, target: Pair<Int, Int>): Int {
         return TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, player)
             .indexOf(target)
@@ -164,5 +177,112 @@ class EngineBugsVerificationTest {
         engine.forceMoves(12)                       // max Baara entry on 7x7
         // entry index = 12 - 1 = 11 < gate 24 -> the gate branch can never fire
         assertTrue(engine.validMoves.all { it.targetPathIndex == 11 })
+    }
+
+    // ============================================================
+    // BUG-08 (FIXED): a playerCount < 2 must not crash GameEngine init.
+    // DOC / defensive guard: the engine requires 2..4 players. Previously a
+    // <2 list slipped to take() in the caller and blew up the constructor.
+    // ============================================================
+    @Test
+    fun bug08_fewerThanTwoPlayersFailsFastNotCrash() {
+        val e = assertThrows(IllegalArgumentException::class.java) {
+            GameEngine(
+                gridSize = GridSize.FIVE_BY_FIVE,
+                playerColors = listOf(PlayerColor.RED)
+            )
+        }
+        assertTrue(e.message!!.contains("must be 2..4"))
+    }
+
+    // ============================================================
+    // BUG-09 (FIXED): a winning move must clear the consumed roll + moves.
+    // Previously executeMove returned on victory WITHOUT clearing
+    // currentRoll/validMoves, leaking the winning roll into any follow-up
+    // (e.g. a post-victory roll or a fresh game).
+    // ============================================================
+    @Test
+    fun bug09_victoryClearsRollAndMoves() {
+        val engine = GameEngine(gridSize = GridSize.FIVE_BY_FIVE)
+        engine.hasCapturedOpponent[0] = true
+        val path = TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 0)
+        val last = path.lastIndex
+        // 3 pawns already home; last pawn one step from center.
+        (0 until 3).forEach { engine.putOnTrack(it, last - 1); engine.pawns[it].state = PawnState.FINISHED }
+        engine.putOnTrack(3, last - 1)
+
+        engine.forceMoves(1)
+        val winMove = engine.validMoves.first { it.reachesHome }
+        engine.setRoll(1, isExtra = false)
+        engine.executeMove(winMove)
+
+        assertEquals(PlayerColor.RED, engine.winner)
+        assertNull("FIXED: victory must clear the consumed roll", engine.currentRoll)
+        assertTrue("FIXED: victory must clear valid moves", engine.validMoves.isEmpty())
+    }
+
+    // ============================================================
+    // BUG-10 (FIXED): rollCowries must only auto-clear / re-roll / resurrect a
+    // pending roll for the SAME acting turn. A roll that belongs to a previous
+    // actor (left over from a different turn) is orphaned state: it must be
+    // discarded, never returned to / cleared for a new actor.
+    // ============================================================
+    @Test
+    fun bug10_pendingRollFromOtherTurnIsDiscardedNotResurrected() {
+        val engine = GameEngine(gridSize = GridSize.FIVE_BY_FIVE)
+        engine.setRoll(2, isExtra = false)            // pending roll "for" some actor
+        engine.setRollActor(0)                        // roll actually belongs to player 0
+        engine.setCurrentPlayer(1)                    // but player 1 is now acting
+        engine.forceMoves(2)
+
+        val result = engine.rollCowries()
+
+        // Player 1 must NOT be handed player 0's stale roll, and the stale roll
+        // must not be auto-cleared as if it were player 1's re-roll.
+        assertEquals(
+            "FIXED: player 1 must receive a FRESH roll, not player 0's stale one",
+            4, result.shells.size
+        )
+        assertEquals(
+            "FIXED: a fresh roll's label must never be the injected stale label",
+            false, result.label == "injected"
+        )
+        assertEquals(
+            "FIXED: the stale roll must not linger as currentRoll (label)",
+            false, engine.currentRoll?.label == "injected"
+        )
+        // The turn was NOT recycled to player 0; player 1 stays the actor.
+        assertEquals("player 1 remains the acting player after the discard", 1, engine.currentPlayerIndex)
+    }
+
+    // ============================================================
+    // BUG-13 (FIXED): the "No valid moves" outcome must survive in the log even
+    // when the turn auto-advances. Previously advanceTurn() overwrote the message
+    // so the UI never saw why the roll was rejected.
+    // ============================================================
+    @Test
+    fun bug13_noValidMovesMessageSurvivesAdvanceTurn() {
+        val engine = GameEngine(gridSize = GridSize.SEVEN_BY_SEVEN)
+        // Block every path so any roll yields no valid moves: all pawns finished
+        // except the current player's own lifeline, with a roll that overshoots...
+        // Simpler deterministic approach: put ALL of player 0's pawns in a state
+        // where a computed move list is empty via a full-board finished state.
+        engine.pawns.forEach { it.state = PawnState.FINISHED }
+
+        // Non-extra roll that yields no moves must preserve the message.
+        // Force a deterministic non-extra score by injecting the computation.
+        engine.forceMoves(1)
+        assertTrue("setup: all pawns finished => no valid moves", engine.validMoves.isEmpty())
+
+        // Re-establish a full board then roll for real: no pawns movable.
+        val msg = with(engine) {
+            // WAS: advanceTurn() inside rollCowries would overwrite the log.
+            rollCowries()
+            gameLogMessage
+        }
+        assertTrue(
+            "FIXED: 'No valid moves' must remain in the log after the turn passes",
+            msg.contains("No valid moves")
+        )
     }
 }

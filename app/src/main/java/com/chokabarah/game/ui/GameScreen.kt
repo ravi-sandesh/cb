@@ -54,7 +54,10 @@ fun GameScreen(
     onBackToMenu: () -> Unit
 ) {
     val activeColors = remember(playerCount) {
-        PlayerColor.entries.take(playerCount)
+        // Defensive: the engine requires 2..4 players. If an entry point ever
+        // passes <2 (HomeScreen only offers 2..4), clamp instead of crashing on
+        // the GameEngine init guard (BUG-08).
+        PlayerColor.entries.take(playerCount.coerceIn(2, PlayerColor.entries.size))
     }
     val gameEngine = remember(gridSize, playerCount, gameMode) {
         GameEngine(gridSize = gridSize, playerColors = activeColors)
@@ -74,8 +77,17 @@ fun GameScreen(
         gameEngine.currentRoll,
         gameEngine.validMoves,
         stateTrigger,
-        isBotTurn
+        isBotTurn,
+        showPauseMenu
     ) {
+        // Pausing the game must also pause a bot that is mid-turn; a bot must
+        // not keep rolling/moving (and thus telemetry-spanning) behind the
+        // pause dialog (BUG-16). Cancelling mid-flight must not strand the
+        // botProcessing latch, or the bot would never move again after resume.
+        if (showPauseMenu) {
+            botProcessing = false
+            return@LaunchedEffect
+        }
         if (isBotTurn && gameEngine.winner == null && !botProcessing) {
             botProcessing = true
             delay(700)

@@ -83,9 +83,21 @@ object Telemetry {
 
     fun setEnabled(value: Boolean) {
         enabled = value
+        // Re-enabling starts a clean session: drop any level filter that a
+        // previous session/test changed, and flush any span left open when the
+        // telemetry was disabled mid-flight (BUG-11). A stale spanStack would
+        // otherwise give new spans a bogus parent (span leak isolation).
+        minLevel = LEVEL_INFO
+        if (!value) {
+            spanStack.clear()
+        }
     }
 
     fun isEnabled(): Boolean = enabled
+
+    // Test seam: number of spans currently on the stack. Used to verify the
+    // span-leak isolation guarantees in setEnabled(false)/endSpan (BUG-11).
+    internal fun spanDepth(): Int = spanStack.size
 
     fun getSessionId(): String = sessionId
 
@@ -117,10 +129,16 @@ object Telemetry {
     }
 
     fun endSpan(spanId: String?, fields: Map<String, Any?> = emptyMap()) {
-        if (!enabled || spanId == null) return
+        // Always pop the span off the stack even when disabled: dropping telemetry
+        // mid-flight must not leave a stale span that corrupts a later re-enable
+        // (parent linkage / span leak isolation, BUG-11).
+        if (spanId == null) return
         val idx = spanStack.indexOfFirst { it.spanId == spanId }
-        if (idx < 0) return
+        if (idx < 0) {
+            return
+        }
         val span = spanStack.removeAt(idx)
+        if (!enabled) return
         val durationMillis = (System.nanoTime() - span.startNanos) / 1_000_000
         val ctx = HashMap<String, Any?>()
         ctx["spanId"] = span.spanId

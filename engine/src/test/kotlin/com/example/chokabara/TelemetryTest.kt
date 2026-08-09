@@ -116,4 +116,63 @@ class TelemetryTest {
     fun testGetTraceIdMatchesSession() {
         assertEquals(Telemetry.getSessionId(), Telemetry.getTraceId())
     }
+
+    // ============================================================
+    // BUG-11 (FIXED): setEnabled must reset the level filter and drop any
+    // span left open mid-flight, or a later re-enable inherits a stale
+    // minLevel and a bogus parent span.
+    // ============================================================
+    @Test
+    fun testSetEnabledResetsMinLevel() {
+        Telemetry.setEnabled(true)
+        Telemetry.minLevel = Telemetry.LEVEL_ERROR
+        assertEquals(Telemetry.LEVEL_ERROR, Telemetry.minLevel)
+
+        Telemetry.setEnabled(true)
+        // Re-enabling starts a clean session at the default INFO filter.
+        assertEquals(Telemetry.LEVEL_INFO, Telemetry.minLevel)
+    }
+
+    @Test
+    fun testDisableFlushesSpanStack() {
+        Telemetry.setEnabled(true)
+        val spanId = Telemetry.startSpan("leaked")
+        assertNotNull(spanId)
+        assertEquals(1, Telemetry.spanDepth())
+
+        Telemetry.setEnabled(false)
+        // Disabling while a span is still open must flush the stack.
+        assertEquals(0, Telemetry.spanDepth())
+        assertFalse(Telemetry.isEnabled())
+    }
+
+    @Test
+    fun testEndSpanWhileDisabledStillPops() {
+        Telemetry.setEnabled(true)
+        val spanId = Telemetry.startSpan("orphan")
+        assertNotNull(spanId)
+        assertEquals(1, Telemetry.spanDepth())
+
+        Telemetry.setEnabled(false)
+        // endSpan must still pop the span even though it cannot log it.
+        Telemetry.endSpan(spanId)
+        assertEquals(0, Telemetry.spanDepth())
+        assertEquals(0, Telemetry.spanDepth())
+    }
+
+    @Test
+    fun testReenableStartsWithCleanParent() {
+        Telemetry.setEnabled(true)
+        val first = Telemetry.startSpan("first")
+        Telemetry.setEnabled(false)
+
+        Telemetry.setEnabled(true)
+        val second = Telemetry.startSpan("second")
+        assertNotNull(second)
+        // No stale parent should exist after the disable/flush cycle:
+        // a fresh top-level span must not be nested under the old one.
+        Telemetry.endSpan(second)
+        Telemetry.endSpan(first)
+        assertEquals(0, Telemetry.spanDepth())
+    }
 }

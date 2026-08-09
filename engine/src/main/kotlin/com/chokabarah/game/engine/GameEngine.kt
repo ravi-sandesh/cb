@@ -219,6 +219,12 @@ class GameEngine(
     var validMoves: List<MoveOption> = emptyList()
         private set
 
+    // Which player's turn the pending roll belongs to. rollCowries() may only
+    // auto-clear / re-roll / resurrect a pending roll for the SAME acting
+    // player; a roll left over from a different actor is orphaned state and
+    // must be discarded before a fresh roll (BUG-10).
+    private var rollActor: Int = -1
+
     var winner: PlayerColor? = null
         private set
 
@@ -243,6 +249,7 @@ class GameEngine(
         }
         currentPlayerIndex = 0
         currentRoll = null
+        rollActor = -1
         validMoves = emptyList()
         winner = null
         gameLogMessage = "Player ${playerColors[0].displayName}'s turn! Roll cowries."
@@ -252,12 +259,27 @@ class GameEngine(
 
     fun rollCowries(): CowryResult {
         val spanId = Telemetry.startSpan("roll", mapOf("player" to currentPlayerIndex))
+        // A pending roll only belongs to the player whose turn produced it
+        // (BUG-10). If the acting turn changed, an existing roll is orphaned
+        // state from a previous actor and must be discarded — it must NEVER be
+        // auto-cleared-as-fresh, re-rolled for, or returned to a new actor.
+        if (currentRoll != null && rollActor != -1 && rollActor != currentPlayerIndex) {
+            Telemetry.warn("engine", "roll.orphaned_discarded",
+                "Discarding pending roll from a different player's turn",
+                mapOf("player" to currentPlayerIndex, "rollActor" to rollActor))
+            currentRoll = null
+            validMoves = emptyList()
+            rollActor = -1
+        }
+
         // If a previous extra-roll had no moves, currentRoll would still be set.
-        // Clear it so a fresh roll can happen.
+        // Clear it so a fresh roll can happen (only for the SAME acting turn,
+        // which the guard above guarantees).
         if (currentRoll != null && validMoves.isEmpty()) {
             Telemetry.debug("engine", "roll.stale_cleared", "Stale roll (no moves) cleared before fresh roll",
                 mapOf("player" to currentPlayerIndex))
             currentRoll = null
+            rollActor = -1
         } else if (currentRoll != null) {
             // Normal case: a roll is already pending (shouldn't call rollCowries again)
             Telemetry.warn("engine", "roll.ignored", "Roll requested while a roll is already pending",
@@ -276,6 +298,7 @@ class GameEngine(
         // the scoreShells extraction.
         val rolled = CowryResult(shells, score, isExtra, label)
         currentRoll = rolled
+        rollActor = currentPlayerIndex
 
         Telemetry.info("dice", "dice.rolled", "Player $currentPlayerIndex rolled score $score",
             mapOf(
@@ -300,17 +323,24 @@ class GameEngine(
             )
         )
 
+        // Preserve the "No valid moves" outcome in the game log. advanceTurn()
+        // overwrites the banner, so (for non-extra rolls) restore the
+        // informational message AFTER the turn passes (BUG-13).
         if (validMoves.isEmpty()) {
-            gameLogMessage = "${playerColors[currentPlayerIndex].displayName} rolled $label — No valid moves!"
+            val rollOwner = playerColors[currentPlayerIndex].displayName
+            val noMovesMessage = "$rollOwner rolled $label — No valid moves!"
             Telemetry.info("engine", "roll.no_valid_moves", "Player $currentPlayerIndex rolled $score with no valid moves",
                 mapOf("playerIndex" to currentPlayerIndex, "score" to score, "isExtraRoll" to isExtra))
             if (!isExtra) {
                 advanceTurn()
+                gameLogMessage = noMovesMessage + " ${playerColors[currentPlayerIndex].displayName}'s turn! Roll cowries."
             } else {
                 // Extra roll (Chowka/Baara) but no valid moves.
                 // Clear currentRoll so the player/bot can roll again.
                 // The roll result is kept in 'rolled' for display, but we mark it consumed.
                 currentRoll = null
+                rollActor = -1
+                gameLogMessage = noMovesMessage
                 Telemetry.info("engine", "roll.extra_no_moves_reset", "Extra roll had no moves; roll reset for re-roll",
                     mapOf("playerIndex" to currentPlayerIndex))
             }
@@ -446,6 +476,11 @@ class GameEngine(
             } else {
                 gameLogMessage = "🎉 VICTORY! ${winner?.displayName} wins!"
             }
+            // The winning move consumed the roll; never let the stale roll or
+            // its move options leak into the next game/turn (BUG-09).
+            currentRoll = null
+            rollActor = -1
+            validMoves = emptyList()
             Telemetry.info("game", "game.victory", "Player $currentPlayerIndex (${winner?.displayName}) won the game",
                 mapOf(
                     "winnerIndex" to currentPlayerIndex,
@@ -459,6 +494,7 @@ class GameEngine(
         }
 
         currentRoll = null
+        rollActor = -1
         validMoves  = emptyList()
 
         if (!extraTurn) {
@@ -477,6 +513,7 @@ class GameEngine(
         val from = currentPlayerIndex
         currentPlayerIndex = (currentPlayerIndex + 1) % playerColors.size
         currentRoll        = null
+        rollActor          = -1
         validMoves         = emptyList()
         gameLogMessage     = "Player ${playerColors[currentPlayerIndex].displayName}'s turn! Roll cowries."
         Telemetry.info("engine", "turn.advanced", "Turn advanced from player $from to player $currentPlayerIndex",
