@@ -224,6 +224,58 @@ describe('BUG-07 restartGame cancels a pending bot timer (behavioral)', () => {
     w.restartGame();
     expect(timers.active()).toBe(0);
   });
+
+  test('showHomeScreen also cancels a pending bot timer (timer leak guard)', () => {
+    const timers = makeTimers();
+    globalThis.setTimeout = timers.setTimeout;
+    globalThis.clearTimeout = timers.clearTimeout;
+    const { w } = fresh();
+    w.startGame();
+    w.setGameMode('bot');
+
+    // Advance until a bot-controlled turn schedules a timer.
+    const step = () => {
+      const moves = holder.docEls['pawn-buttons-container'].children;
+      if (moves.length && typeof moves[0].onclick === 'function') { moves[0].onclick(); }
+      else if (!holder.docEls['btn-roll'].disabled) { w.handleRoll(); }
+      timers.fireAll();
+    };
+    let n = 0;
+    while (timers.active() === 0 && n < 25) { step(); n++; }
+    expect(timers.active()).toBeGreaterThan(0);
+
+    w.showHomeScreen();
+    expect(holder.docEls['home-screen'].classList._set.active).toBe(true);
+    expect(timers.active()).toBe(0);
+    // Stale callback must not revive a deactivated game.
+    timers.fireAll();
+    expect(() => w.startGame()).not.toThrow();
+  });
+
+  test('a bot timer that fires after the game was left does not execute a move', () => {
+    const timers = makeTimers();
+    globalThis.setTimeout = timers.setTimeout;
+    globalThis.clearTimeout = timers.clearTimeout;
+    const { w } = fresh();
+    w.setGameMode('bot');
+    w.startGame();
+
+    // Drive until a bot-controlled turn has a pending timer.
+    const step = () => {
+      const moves = holder.docEls['pawn-buttons-container'].children;
+      if (moves.length && typeof moves[0].onclick === 'function') { moves[0].onclick(); }
+      else if (!holder.docEls['btn-roll'].disabled) { w.handleRoll(); }
+      timers.fireAll();
+    };
+    let n = 0;
+    while (timers.active() === 0 && n < 25) { step(); n++; }
+    expect(timers.active()).toBeGreaterThan(0);
+
+    w.showHomeScreen(); // gameActive = false
+    timers.fireAll();   // the pending callback runs, hits the gameActive guard
+    expect(holder.docEls['game-log']._innerText).toBeDefined();
+    expect(() => w.startGame()).not.toThrow();
+  });
 });
 
 describe('render & board drawing', () => {

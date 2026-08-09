@@ -181,4 +181,22 @@ describe('createWebAudioSink', () => {
     const sink = createWebAudioSink();
     expect(sink.play({ tone: 440 })).toBe(false);
   });
+
+  test('resolves to window.AudioContext in a browser-like global', () => {
+    function FakeBrowserAudio() {
+      this.currentTime = 0;
+      this.destination = {};
+      this.createOscillator = () => ({ frequency: { value: 0 }, connect(){}, start(){}, stop(){} });
+      this.createGain = () => ({ gain: { setValueAtTime(){}, exponentialRampToValueAtTime(){} }, connect(){} });
+    }
+    const prevWindow = globalThis.window;
+    globalThis.window = { AudioContext: FakeBrowserAudio };
+    try {
+      const sink = createWebAudioSink();
+      expect(sink.play({ tone: 523 })).toBe(true);
+    } finally {
+      if (prevWindow === undefined) delete globalThis.window;
+      else globalThis.window = prevWindow;
+    }
+  });
 });

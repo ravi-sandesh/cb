@@ -5,7 +5,10 @@
 // are covered by the same jest suite as the rest of the web app.
 // ============================================================
 'use strict';
-const { createServer, handleRequest, MIME, PORT } = require('./server.js');
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
+const { createServer, handleRequest, startServer, MIME, PORT } = require('./server.js');
 
 // Mock response whose end() settles a promise, so tests can await the
 // async fs.readFile callback inside handleRequest.
@@ -67,6 +70,21 @@ describe('server routing', () => {
     expect(res._status).toBe(404);
     expect(res._body).toBe('Not found');
   });
+
+  test('GET /parity/parity-corpus.json serves JSON with application/json', async () => {
+    const res = await request('/parity/parity-corpus.json');
+    expect(res._status).toBe(200);
+    expect(res._headers['Content-Type']).toContain('application/json');
+  });
+
+  test('an extension outside the MIME map falls back to application/octet-stream', async () => {
+    // coverage/lcov.info is a real sibling file whose '.info' extension is
+    // absent from MIME, so it exercises the octet-stream fallback branch.
+    const res = await request('/coverage/lcov.info');
+    expect(res._status).toBe(200);
+    expect(res._headers['Content-Type']).toBe('application/octet-stream');
+    expect(res._body.length).toBeGreaterThan(0);
+  });
 });
 
 describe('BUG-24 boundary containment guard', () => {
@@ -101,5 +119,31 @@ describe('BUG-24 boundary containment guard', () => {
   test('query strings are stripped before routing', async () => {
     const res = await request('/index.html?foo=bar');
     expect(res._status).toBe(200);
+  });
+});
+
+describe('startServer runtime path', () => {
+  test('listen uses the default PORT when no port is supplied', (done) => {
+    const srv = startServer();
+    srv.on('listening', () => {
+      const addr = srv.address();
+      expect(addr.port).toBe(PORT);
+      srv.close(() => done());
+    });
+    srv.on('error', () => done.fail('server failed to bind default port'));
+  });
+
+  test('listen uses an explicitly supplied port', (done) => {
+    const srv = startServer(3199);
+    srv.on('listening', () => {
+      expect(srv.address().port).toBe(3199);
+      srv.close(() => done());
+    });
+    srv.on('error', () => done.fail('server failed to bind 3199'));
+  });
+
+  test('createServer returns an http.Server wrapper', () => {
+    const srv = createServer();
+    expect(srv instanceof http.Server).toBe(true);
   });
 });
