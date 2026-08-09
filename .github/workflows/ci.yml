@@ -36,6 +36,8 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # diff-based coverage gate needs the merge-base
 
       - uses: actions/setup-node@v4
         with:
@@ -57,7 +59,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Enforce coverage threshold (min 88% statements / 78% branches)
+      - name: Enforce coverage threshold (min 88% statements / 90% branches)
         run: |
           node -e "
             const s = require('./coverage/coverage-summary.json');
@@ -66,9 +68,18 @@ jobs:
             const br = totals.branches.pct;
             console.log('Statements:', st + '%', '| Branches:', br + '%');
             if (st < 88) { console.error('FAIL: statements coverage < 88% (' + st + '%)'); process.exit(1); }
-            if (br < 78) { console.error('FAIL: branches coverage < 78% (' + br + '%)'); process.exit(1); }
+            if (br < 90) { console.error('FAIL: branches coverage < 90% (' + br + '%)'); process.exit(1); }
             console.log('PASS: coverage thresholds met');
           }
+
+      # Per-file branch coverage gate on the CHANGED web tests/sources only.
+      # A changed test gates its module-under-test; scripts/ helpers are out of
+      # scope. Reuses the coverage-summary.json written by the step above.
+      - name: Diff-based per-file coverage gate (changed files >= 90% branches)
+        if: github.event_name == 'pull_request'
+        env:
+          CB_GATE_REUSE: "1"
+        run: node scripts/coverage-gate-diff.js
 
       # The per-file coverage thresholds live in web/package.json (jest config);
       # the step above just fails fast on the rollup. The list here must NOT be

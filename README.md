@@ -70,6 +70,7 @@ cd web
 npm install
 npm run serve       # local static server on http://localhost:3111
 npm test            # Jest unit tests + coverage
+npm run test:gate   # diff-based per-file coverage gate (changed files)
 npm run e2e         # Playwright E2E + axe-core accessibility
 ```
 
@@ -78,6 +79,14 @@ npm run e2e         # Playwright E2E + axe-core accessibility
 `.github/workflows/ci.yml` runs, on push/PR: web unit tests + coverage threshold
 (≥95% statements, ≥90% branches), telemetry trace smoke, Playwright E2E,
 engine JVM tests, and Android lint/build/unit instrumented emulator tests.
+
+On PRs it additionally runs a **diff-based coverage gate**
+(`npm run test:gate`): every changed web source file (or module gated by a
+changed test file) must hold ≥90% branch / ≥90% statement coverage, not just
+the global rollup. Base ref resolution: `CB_BASE`, then the PR base branch,
+then the default branch, then `HEAD~1`. Set `CB_GATE_BRANCH`/`CB_GATE_STMTS`
+to override the per-file thresholds, and `CB_GATE_REUSE=1` to reuse the
+existing `web/coverage/coverage-summary.json` instead of re-running Jest.
 
 ## Notes
 

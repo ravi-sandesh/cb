@@ -5,6 +5,7 @@
   "scripts": {
     "test": "jest --coverage",
     "test:watch": "jest --watch",
+    "test:gate": "node scripts/coverage-gate-diff.js",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium",
     "serve": "node server.js"
