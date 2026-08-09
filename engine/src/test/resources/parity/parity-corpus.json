@@ -1,0 +1,3445 @@
+{
+  "formatVersion": 1,
+  "paths": [
+    {
+      "gridSize": 5,
+      "playerIndex": 0,
+      "cells": [
+        [
+          4,
+          2
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          1,
+          4
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          3,
+          2
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          1,
+          3
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          2,
+          2
+        ]
+      ]
+    },
+    {
+      "gridSize": 5,
+      "playerIndex": 1,
+      "cells": [
+        [
+          0,
+          2
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          4,
+          2
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          1,
+          4
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          3,
+          2
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          1,
+          3
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          2,
+          2
+        ]
+      ]
+    },
+    {
+      "gridSize": 5,
+      "playerIndex": 2,
+      "cells": [
+        [
+          2,
+          4
+        ],
+        [
+          1,
+          4
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          4,
+          2
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          3,
+          2
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          1,
+          3
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          2,
+          2
+        ]
+      ]
+    },
+    {
+      "gridSize": 5,
+      "playerIndex": 3,
+      "cells": [
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          4,
+          2
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          1,
+          4
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          3,
+          2
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          1,
+          3
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          2,
+          2
+        ]
+      ]
+    },
+    {
+      "gridSize": 7,
+      "playerIndex": 0,
+      "cells": [
+        [
+          6,
+          3
+        ],
+        [
+          6,
+          4
+        ],
+        [
+          6,
+          5
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          3,
+          6
+        ],
+        [
+          2,
+          6
+        ],
+        [
+          1,
+          6
+        ],
+        [
+          0,
+          6
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          5,
+          0
+        ],
+        [
+          6,
+          0
+        ],
+        [
+          6,
+          1
+        ],
+        [
+          6,
+          2
+        ],
+        [
+          5,
+          2
+        ],
+        [
+          5,
+          3
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          5,
+          5
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          2,
+          5
+        ],
+        [
+          1,
+          5
+        ],
+        [
+          1,
+          4
+        ],
+        [
+          1,
+          3
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          5,
+          1
+        ],
+        [
+          4,
+          2
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          2
+        ],
+        [
+          3,
+          3
+        ]
+      ]
+    },
+    {
+      "gridSize": 7,
+      "playerIndex": 1,
+      "cells": [
+        [
+          0,
+          3
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          5,
+          0
+        ],
+        [
+          6,
+          0
+        ],
+        [
+          6,
+          1
+        ],
+        [
+          6,
+          2
+        ],
+        [
+          6,
+          3
+        ],
+        [
+          6,
+          4
+        ],
+        [
+          6,
+          5
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          3,
+          6
+        ],
+        [
+          2,
+          6
+        ],
+        [
+          1,
+          6
+        ],
+        [
+          0,
+          6
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          5,
+          2
+        ],
+        [
+          5,
+          3
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          5,
+          5
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          2,
+          5
+        ],
+        [
+          1,
+          5
+        ],
+        [
+          1,
+          4
+        ],
+        [
+          1,
+          3
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          5,
+          1
+        ],
+        [
+          4,
+          2
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          2
+        ],
+        [
+          3,
+          3
+        ]
+      ]
+    },
+    {
+      "gridSize": 7,
+      "playerIndex": 2,
+      "cells": [
+        [
+          3,
+          6
+        ],
+        [
+          2,
+          6
+        ],
+        [
+          1,
+          6
+        ],
+        [
+          0,
+          6
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          5,
+          0
+        ],
+        [
+          6,
+          0
+        ],
+        [
+          6,
+          1
+        ],
+        [
+          6,
+          2
+        ],
+        [
+          6,
+          3
+        ],
+        [
+          6,
+          4
+        ],
+        [
+          6,
+          5
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          5,
+          2
+        ],
+        [
+          5,
+          3
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          5,
+          5
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          2,
+          5
+        ],
+        [
+          1,
+          5
+        ],
+        [
+          1,
+          4
+        ],
+        [
+          1,
+          3
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          5,
+          1
+        ],
+        [
+          4,
+          2
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          2
+        ],
+        [
+          3,
+          3
+        ]
+      ]
+    },
+    {
+      "gridSize": 7,
+      "playerIndex": 3,
+      "cells": [
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          5,
+          0
+        ],
+        [
+          6,
+          0
+        ],
+        [
+          6,
+          1
+        ],
+        [
+          6,
+          2
+        ],
+        [
+          6,
+          3
+        ],
+        [
+          6,
+          4
+        ],
+        [
+          6,
+          5
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          3,
+          6
+        ],
+        [
+          2,
+          6
+        ],
+        [
+          1,
+          6
+        ],
+        [
+          0,
+          6
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          5,
+          2
+        ],
+        [
+          5,
+          3
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          5,
+          5
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          2,
+          5
+        ],
+        [
+          1,
+          5
+        ],
+        [
+          1,
+          4
+        ],
+        [
+          1,
+          3
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          5,
+          1
+        ],
+        [
+          4,
+          2
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          2
+        ],
+        [
+          3,
+          3
+        ]
+      ]
+    }
+  ],
+  "safeCells": {
+    "5": [
+      [
+        0,
+        2
+      ],
+      [
+        2,
+        0
+      ],
+      [
+        2,
+        2
+      ],
+      [
+        2,
+        4
+      ],
+      [
+        4,
+        2
+      ]
+    ],
+    "7": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        3
+      ],
+      [
+        0,
+        6
+      ],
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        5
+      ],
+      [
+        3,
+        0
+      ],
+      [
+        3,
+        3
+      ],
+      [
+        3,
+        6
+      ],
+      [
+        5,
+        1
+      ],
+      [
+        5,
+        5
+      ],
+      [
+        6,
+        0
+      ],
+      [
+        6,
+        3
+      ],
+      [
+        6,
+        6
+      ]
+    ]
+  },
+  "cowryRolls": [
+    {
+      "size": 5,
+      "shells": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "score": 8,
+      "isExtraRoll": true
+    },
+    {
+      "size": 5,
+      "shells": [
+        true,
+        false,
+        false,
+        false
+      ],
+      "score": 1,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        false,
+        true,
+        false,
+        false
+      ],
+      "score": 1,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        true,
+        true,
+        false,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        false,
+        false,
+        true,
+        false
+      ],
+      "score": 1,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        true,
+        false,
+        true,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        false,
+        true,
+        true,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        true,
+        true,
+        true,
+        false
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        false,
+        false,
+        false,
+        true
+      ],
+      "score": 1,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        true,
+        false,
+        false,
+        true
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        false,
+        true,
+        false,
+        true
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        true,
+        true,
+        false,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        false,
+        false,
+        true,
+        true
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        true,
+        false,
+        true,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        false,
+        true,
+        true,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 5,
+      "shells": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "score": 4,
+      "isExtraRoll": true
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "score": 12,
+      "isExtraRoll": true
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "score": 1,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        false,
+        false,
+        false,
+        false
+      ],
+      "score": 1,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        false,
+        false,
+        false,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "score": 1,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        true,
+        false,
+        false,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        true,
+        false,
+        false,
+        false
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "score": 1,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        false,
+        true,
+        false,
+        false
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        true,
+        true,
+        false,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        true,
+        true,
+        false,
+        false
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        true,
+        true,
+        false,
+        false
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        true,
+        true,
+        false,
+        false
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "score": 1,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        false,
+        false,
+        true,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        false
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        false,
+        true,
+        true,
+        false
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        false,
+        true,
+        true,
+        false
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        true,
+        true,
+        true,
+        false
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        true,
+        true,
+        true,
+        false
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        true,
+        true,
+        true,
+        false
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        false
+      ],
+      "score": 5,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "score": 1,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        false,
+        false,
+        false,
+        true
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        false,
+        false,
+        false,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        true,
+        false,
+        false,
+        true
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        true,
+        false,
+        false,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        true,
+        false,
+        false,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        true,
+        false,
+        false,
+        true
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        true
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        false,
+        true,
+        false,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        false,
+        true,
+        false,
+        true
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        true,
+        true,
+        false,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        true,
+        true,
+        false,
+        true
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        true,
+        true,
+        false,
+        true
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        true,
+        true,
+        false,
+        true
+      ],
+      "score": 5,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "score": 2,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        false,
+        false,
+        true,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        true,
+        false,
+        true,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        true
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        true,
+        false,
+        true,
+        true
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        true,
+        false,
+        true,
+        true
+      ],
+      "score": 5,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "score": 3,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        false,
+        true,
+        true,
+        true
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        false,
+        true,
+        true,
+        true
+      ],
+      "score": 5,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        false,
+        true,
+        true,
+        true,
+        true
+      ],
+      "score": 4,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        false,
+        true,
+        true,
+        true,
+        true
+      ],
+      "score": 5,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        false,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "score": 5,
+      "isExtraRoll": false
+    },
+    {
+      "size": 7,
+      "shells": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "score": 6,
+      "isExtraRoll": true
+    }
+  ],
+  "validMoves": [
+    {
+      "label": "scen1",
+      "gridSize": 5,
+      "player": 0,
+      "score": 4,
+      "hasCaptured": {},
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            0
+          ],
+          "targetPathIndex": 3,
+          "targetCoords": [
+            3,
+            4
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 3,
+          "targetCoords": [
+            3,
+            4
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            2
+          ],
+          "targetPathIndex": 3,
+          "targetCoords": [
+            3,
+            4
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            3
+          ],
+          "targetPathIndex": 3,
+          "targetCoords": [
+            3,
+            4
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen2",
+      "gridSize": 5,
+      "player": 0,
+      "score": 1,
+      "hasCaptured": {},
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            0
+          ],
+          "targetPathIndex": 0,
+          "targetCoords": [
+            4,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 0,
+          "targetCoords": [
+            4,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            2
+          ],
+          "targetPathIndex": 0,
+          "targetCoords": [
+            4,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            3
+          ],
+          "targetPathIndex": 0,
+          "targetCoords": [
+            4,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen3",
+      "gridSize": 5,
+      "player": 0,
+      "score": 8,
+      "hasCaptured": {},
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 20
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 7,
+          "targetCoords": [
+            0,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            2
+          ],
+          "targetPathIndex": 7,
+          "targetCoords": [
+            0,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            3
+          ],
+          "targetPathIndex": 7,
+          "targetCoords": [
+            0,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen4",
+      "gridSize": 5,
+      "player": 0,
+      "score": 2,
+      "hasCaptured": {},
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 15
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            4,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            2
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            4,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            3
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            4,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen5",
+      "gridSize": 5,
+      "player": 0,
+      "score": 2,
+      "hasCaptured": {
+        "0": true
+      },
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 15
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 1
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 3,
+          "targetCoords": [
+            3,
+            4
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            0
+          ],
+          "targetPathIndex": 17,
+          "targetCoords": [
+            3,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen6",
+      "gridSize": 5,
+      "player": 0,
+      "score": 1,
+      "hasCaptured": {
+        "0": true
+      },
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 23
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            0
+          ],
+          "targetPathIndex": 24,
+          "targetCoords": [
+            2,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": true,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen7",
+      "gridSize": 5,
+      "player": 0,
+      "score": 1,
+      "hasCaptured": {
+        "0": true
+      },
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 5
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 5
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            0,
+            1
+          ],
+          "targetPathIndex": 6,
+          "targetCoords": [
+            0,
+            4
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": true
+        },
+        {
+          "pawnIds": [
+            2
+          ],
+          "targetPathIndex": 0,
+          "targetCoords": [
+            4,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            3
+          ],
+          "targetPathIndex": 0,
+          "targetCoords": [
+            4,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen8",
+      "gridSize": 5,
+      "player": 0,
+      "score": 2,
+      "hasCaptured": {},
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 3
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 4,
+          "playerIndex": 1,
+          "state": "ON_TRACK",
+          "pathIndex": 13
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            0
+          ],
+          "targetPathIndex": 5,
+          "targetCoords": [
+            1,
+            4
+          ],
+          "isCapture": true,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            4,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            2
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            4,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            3
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            4,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen9",
+      "gridSize": 5,
+      "player": 0,
+      "score": 1,
+      "hasCaptured": {},
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 4,
+          "playerIndex": 1,
+          "state": "ON_TRACK",
+          "pathIndex": 8
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            0
+          ],
+          "targetPathIndex": 0,
+          "targetCoords": [
+            4,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 0,
+          "targetCoords": [
+            4,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            2
+          ],
+          "targetPathIndex": 0,
+          "targetCoords": [
+            4,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            3
+          ],
+          "targetPathIndex": 0,
+          "targetCoords": [
+            4,
+            2
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen10",
+      "gridSize": 5,
+      "player": 0,
+      "score": 2,
+      "hasCaptured": {},
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 3
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 4,
+          "playerIndex": 1,
+          "state": "ON_TRACK",
+          "pathIndex": 13
+        },
+        {
+          "id": 5,
+          "playerIndex": 1,
+          "state": "ON_TRACK",
+          "pathIndex": 13
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            4,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            2
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            4,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            3
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            4,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen11",
+      "gridSize": 5,
+      "player": 0,
+      "score": 2,
+      "hasCaptured": {},
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 3
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 4,
+          "playerIndex": 1,
+          "state": "ON_TRACK",
+          "pathIndex": 13
+        },
+        {
+          "id": 8,
+          "playerIndex": 2,
+          "state": "ON_TRACK",
+          "pathIndex": 1
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            0
+          ],
+          "targetPathIndex": 5,
+          "targetCoords": [
+            1,
+            4
+          ],
+          "isCapture": true,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            4,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen12",
+      "gridSize": 7,
+      "player": 0,
+      "score": 6,
+      "hasCaptured": {},
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            0
+          ],
+          "targetPathIndex": 5,
+          "targetCoords": [
+            4,
+            6
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 5,
+          "targetCoords": [
+            4,
+            6
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            2
+          ],
+          "targetPathIndex": 5,
+          "targetCoords": [
+            4,
+            6
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            3
+          ],
+          "targetPathIndex": 5,
+          "targetCoords": [
+            4,
+            6
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen13",
+      "gridSize": 7,
+      "player": 0,
+      "score": 1,
+      "hasCaptured": {
+        "0": true
+      },
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 47
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 10
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 11,
+          "targetCoords": [
+            0,
+            4
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            0
+          ],
+          "targetPathIndex": 48,
+          "targetCoords": [
+            3,
+            3
+          ],
+          "isCapture": false,
+          "reachesHome": true,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen14",
+      "gridSize": 7,
+      "player": 0,
+      "score": 3,
+      "hasCaptured": {
+        "0": true
+      },
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 10
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 1
+        },
+        {
+          "id": 4,
+          "playerIndex": 1,
+          "state": "ON_TRACK",
+          "pathIndex": 1
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 4,
+          "targetCoords": [
+            5,
+            6
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            0
+          ],
+          "targetPathIndex": 13,
+          "targetCoords": [
+            0,
+            2
+          ],
+          "isCapture": true,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen15",
+      "gridSize": 7,
+      "player": 0,
+      "score": 2,
+      "hasCaptured": {},
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 23
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "expected": [
+        {
+          "pawnIds": [
+            1
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            6,
+            4
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            2
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            6,
+            4
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        },
+        {
+          "pawnIds": [
+            3
+          ],
+          "targetPathIndex": 1,
+          "targetCoords": [
+            6,
+            4
+          ],
+          "isCapture": false,
+          "reachesHome": false,
+          "isGattiGroup": false
+        }
+      ]
+    },
+    {
+      "label": "scen16",
+      "gridSize": 5,
+      "player": 0,
+      "score": 9,
+      "hasCaptured": {
+        "0": true
+      },
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "expected": []
+    },
+    {
+      "label": "scen17",
+      "gridSize": 7,
+      "player": 0,
+      "score": 0,
+      "hasCaptured": {},
+      "pawns": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "expected": []
+    }
+  ]
+}

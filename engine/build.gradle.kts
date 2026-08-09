@@ -22,6 +22,9 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.24")
+    // org.json powers EngineParityTest, which reads the JS-derived parity corpus
+    // (engine/src/test/resources/parity/parity-corpus.json). Test-only dep.
+    testImplementation("org.json:json:20240303")
 }
 
 tasks.test {

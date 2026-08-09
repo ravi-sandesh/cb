@@ -19,6 +19,190 @@ data class CowryResult(
     val label: String            // display text
 )
 
+// Pure cowry-scoring rule surface. Board type is implied by shell count
+// (5x5 plays 4 shells, 7x7 plays 6). Kept top-level so the same logic is
+// exercised by both the engine and the JS<->Kotlin parity tests.
+fun scoreShells(shells: List<Boolean>): CowryResult {
+    require(shells.size == 4 || shells.size == 6) {
+        "Expected 4 (5x5) or 6 (7x7) shells, got ${shells.size}"
+    }
+    val mouthUpCount = shells.count { it }
+    val isFive = shells.size == 4
+
+    // Scoring per official rules:
+    // 5-house: 4 shells. 0 mouths = 8 (Baara), 4 mouths = 4 (Chowka). Else = count.
+    // 7-house: 6 shells. 0 mouths = 12 (Baara), 6 mouths = 6 (Chowka). Else = count.
+    val score: Int
+    val label: String
+    if (isFive) {
+        score = when (mouthUpCount) {
+            0    -> 8
+            4    -> 4
+            else -> mouthUpCount
+        }
+        label = when (score) {
+            4    -> "CHOWKA (4) — EXTRA ROLL!"
+            8    -> "BAARA (8) — EXTRA ROLL!"
+            else -> "Score: $score"
+        }
+    } else {
+        score = when (mouthUpCount) {
+            0    -> 12
+            6    -> 6
+            else -> mouthUpCount
+        }
+        label = when (score) {
+            6    -> "CHOWKA (6) — EXTRA ROLL!"
+            12   -> "BAARA (12) — EXTRA ROLL!"
+            else -> "Score: $score"
+        }
+    }
+    val isExtra = if (isFive) (score == 4 || score == 8) else (score == 6 || score == 12)
+
+    return CowryResult(shells, score, isExtra, label)
+}
+
+// Pure move-calculation rule surface, mirroring web/game-engine.js
+// calculateValidMoves. Deterministic — no RNG, no engine state mutation —
+// so the JS and Kotlin engines can be differentially tested against a
+// shared corpus. Behavior is identical to the original engine method:
+// Gatti grouping, home-base entry, gate enforcement, safe/capture/Gatti
+// resolution. Move order mirrors the JS engine: numeric (pathIndex) groups
+// ascend first, then HOME_* groups follow in insertion order.
+fun calculateValidMoves(
+    gridSize: GridSize,
+    pawns: List<Pawn>,
+    currentPlayerIndex: Int,
+    hasCapturedOpponent: Map<Int, Boolean>,
+    score: Int
+): List<MoveOption> {
+    val maxScore = if (gridSize == GridSize.FIVE_BY_FIVE) 8 else 12
+    if (score !in 1..maxScore) return emptyList()
+
+    val path      = TrackBuilder.getPlayerPath(gridSize, currentPlayerIndex)
+    val innerGate = TrackBuilder.innerGateIndex(gridSize)
+    val hasInner  = hasCapturedOpponent[currentPlayerIndex] == true
+
+    // Group current player's non-finished pawns by cell (Gatti groups)
+    val myPawns = pawns.filter {
+        it.playerIndex == currentPlayerIndex && it.state != PawnState.FINISHED
+    }
+
+    val groups = LinkedHashMap<String, MutableList<Pawn>>()
+    myPawns.forEach { pawn ->
+        // NOTE: Each HOME_BASE pawn is its OWN movable group. A roll brings exactly ONE
+        // pawn into play — never all pawns still in the base together (that would wrongly
+        // form an impossible all-home Gatti unit). The id suffix keeps them distinct.
+        val key = if (pawn.state == PawnState.HOME_BASE) "HOME_${pawn.id}" else "${pawn.pathIndex}"
+        groups.getOrPut(key) { mutableListOf() }.add(pawn)
+    }
+
+    // Iterate keys in the same order the JS engine does (Object.values over the
+    // group map): numeric (pathIndex) keys ascend numerically first, non-numeric
+    // (HOME_*) keys follow in insertion order. Keeps JS/Kotlin move ordering identical.
+    val orderedKeys =
+        groups.keys.filter { it.toIntOrNull() != null }.sortedBy { it.toInt() } +
+        groups.keys.filter { it.toIntOrNull() == null }
+
+    val moves = mutableListOf<MoveOption>()
+
+    orderedKeys.forEach { key ->
+        val grp = groups.getValue(key)
+        val isHome = key.startsWith("HOME")
+        val curIdx = if (isHome) -1 else key.toInt()
+        // A home pawn enters the track at its starting cell (index 0) and then advances
+        // the remaining (roll-1) steps → lands at path[score - 1].
+        val nextIdx = if (isHome) score - 1 else curIdx + score
+
+        if (nextIdx < 0 || nextIdx >= path.size) {
+            Telemetry.trace("engine", "move.overshoot_skipped",
+                "Group at idx $curIdx + $score overshoots path (len ${path.size})",
+                mapOf(
+                    "pawnIds" to grp.map { it.id },
+                    "curIdx" to curIdx,
+                    "score" to score,
+                    "nextIdx" to nextIdx,
+                    "reason" to "overshoot"
+                )
+            )
+            return@forEach
+        }
+        // Cannot enter the inner (gate) region until the player has made a cut.
+        if (!hasInner && nextIdx >= innerGate) {
+            Telemetry.trace("engine", "move.gate_blocked",
+                "Group cannot enter inner path (no cut yet)",
+                mapOf(
+                    "pawnIds" to grp.map { it.id },
+                    "nextIdx" to nextIdx,
+                    "innerGate" to innerGate,
+                    "reason" to "gate"
+                )
+            )
+            return@forEach
+        }
+
+        val target = path[nextIdx]
+        val isSafe = TrackBuilder.isSafeCell(gridSize, target.first, target.second)
+        val reachesHome = (nextIdx == path.size - 1)
+
+        // Find pawns at target cell
+        val atTarget = pawns.filter { p ->
+            p.state == PawnState.ON_TRACK &&
+            TrackBuilder.getPlayerPath(gridSize, p.playerIndex).getOrNull(p.pathIndex) == target
+        }
+        val opponents = atTarget.filter { it.playerIndex != currentPlayerIndex }
+
+        val opponentGatti = opponents.groupBy { it.playerIndex }.any { (_, list) -> list.size >= 2 }
+        val myGroupIsGatti = grp.size >= 2
+
+        var isCapture = false
+        var blocked   = false
+
+        if (opponents.isNotEmpty()) {
+            when {
+                isSafe -> {
+                    // Safe square: everyone coexists, no capture
+                    isCapture = false
+                    blocked = false
+                }
+                opponentGatti -> {
+                    // Opponent has a Gatti (2+ pawns) — CANNOT BE CAPTURED BY ANYONE
+                    // Not even by another Gatti. This is the traditional rule.
+                    blocked = true
+                    Telemetry.trace("engine", "move.gatti_blocked",
+                        "Target is an opponent Gatti; cannot capture",
+                        mapOf(
+                            "pawnIds" to grp.map { it.id },
+                            "targetCoords" to listOf(target.first, target.second),
+                            "opponentCount" to opponents.size,
+                            "reason" to "opponent_gatti"
+                        )
+                    )
+                }
+                else -> {
+                    // Normal capture (single opponent pawn)
+                    isCapture = true
+                }
+            }
+        }
+
+        if (blocked) return@forEach
+
+        moves.add(
+            MoveOption(
+                grpPawns       = grp,
+                targetPathIndex = nextIdx,
+                targetCoords   = target,
+                isCapture      = isCapture,
+                reachesHome    = reachesHome,
+                isGattiGroup   = myGroupIsGatti
+            )
+        )
+    }
+
+    return moves
+}
+
 class GameEngine(
     val gridSize: GridSize = GridSize.FIVE_BY_FIVE,
     val playerColors: List<PlayerColor> = listOf(PlayerColor.RED, PlayerColor.GREEN)
@@ -83,48 +267,21 @@ class GameEngine(
         }
 
         val shells = List(numCowries) { Random.nextBoolean() }
-        val mouthUpCount = shells.count { it }
+        val scoreShell = scoreShells(shells)
+        val score = scoreShell.score
+        val label = scoreShell.label
+        val isExtra = scoreShell.isExtraRoll
 
-        // Scoring per official rules:
-        // 5-house: 4 shells. 0 mouths = 8 (Baara), 4 mouths = 4 (Chowka). Else = count.
-        // 7-house: 6 shells. 0 mouths = 12 (Baara), 6 mouths = 6 (Chowka). Else = count.
-        val score: Int
-        val label: String
-        if (gridSize == GridSize.FIVE_BY_FIVE) {
-            score = when (mouthUpCount) {
-                0    -> 8
-                4    -> 4
-                else -> mouthUpCount
-            }
-            label = when (score) {
-                4    -> "CHOWKA (4) — EXTRA ROLL!"
-                8    -> "BAARA (8) — EXTRA ROLL!"
-                else -> "Score: $score"
-            }
-        } else {
-            score = when (mouthUpCount) {
-                0    -> 12
-                6    -> 6
-                else -> mouthUpCount
-            }
-            label = when (score) {
-                6    -> "CHOWKA (6) — EXTRA ROLL!"
-                12   -> "BAARA (12) — EXTRA ROLL!"
-                else -> "Score: $score"
-            }
-        }
-
-        val isExtra = if (gridSize == GridSize.FIVE_BY_FIVE) (score == 4 || score == 8)
-                      else (score == 6 || score == 12)
-
-        val result = CowryResult(shells, score, isExtra, label)
-        currentRoll = result
+        // Re-wrap the pure result so currentRoll carries the same shape as before
+        // the scoreShells extraction.
+        val rolled = CowryResult(shells, score, isExtra, label)
+        currentRoll = rolled
 
         Telemetry.info("dice", "dice.rolled", "Player $currentPlayerIndex rolled score $score",
             mapOf(
                 "playerIndex" to currentPlayerIndex,
                 "shells" to shells,
-                "mouthUp" to mouthUpCount,
+                "mouthUp" to shells.count { it },
                 "score" to score,
                 "isExtraRoll" to isExtra,
                 "gridSize" to gridSize.columns,
@@ -152,7 +309,7 @@ class GameEngine(
             } else {
                 // Extra roll (Chowka/Baara) but no valid moves.
                 // Clear currentRoll so the player/bot can roll again.
-                // The roll result is kept in 'result' for display, but we mark it consumed.
+                // The roll result is kept in 'rolled' for display, but we mark it consumed.
                 currentRoll = null
                 Telemetry.info("engine", "roll.extra_no_moves_reset", "Extra roll had no moves; roll reset for re-roll",
                     mapOf("playerIndex" to currentPlayerIndex))
@@ -162,12 +319,15 @@ class GameEngine(
         }
 
         Telemetry.endSpan(spanId, mapOf("outcome" to "applied", "score" to score, "validMoveCount" to validMoves.size))
-        return result
+        return rolled
     }
 
     // =========================================================
     // MOVE CALCULATION — Gatti aware, home-base safe, gate enforced
     // =========================================================
+    // Stateful wrapper: validates the roll value (with telemetry), then
+    // delegates the pure rule computation to the top-level calculateValidMoves
+    // so the SAME logic can be differentially tested against the JS engine.
     private fun calculateValidMoves(rollValue: Int) {
         if (!validateScore(rollValue)) {
             Telemetry.warn("engine", "move.invalid_score", "calculateValidMoves rejected: invalid score",
@@ -175,123 +335,13 @@ class GameEngine(
             validMoves = emptyList()
             return
         }
-        val path        = TrackBuilder.getPlayerPath(gridSize, currentPlayerIndex)
-        val innerGate   = TrackBuilder.innerGateIndex(gridSize)
-        val hasInner    = hasCapturedOpponent[currentPlayerIndex] == true
-
-        // Group current player's non-finished pawns by cell (Gatti groups)
-        val myPawns = pawns.filter {
-            it.playerIndex == currentPlayerIndex && it.state != PawnState.FINISHED
-        }
-        data class Group(val pawns: List<Pawn>, val pathIndex: Int, val isHome: Boolean)
-
-        val groups = mutableMapOf<String, MutableList<Pawn>>()
-        myPawns.forEach { pawn ->
-            // NOTE: Each HOME_BASE pawn is its OWN movable group. A roll brings exactly ONE
-            // pawn into play — never all pawns still in the base together (that would wrongly
-            // form an impossible all-home Gatti unit). The id suffix keeps them distinct.
-            val key = if (pawn.state == PawnState.HOME_BASE) "HOME_${pawn.id}" else "${pawn.pathIndex}"
-            groups.getOrPut(key) { mutableListOf() }.add(pawn)
-        }
-
-        val moves = mutableListOf<MoveOption>()
-
-        groups.forEach { (key, grp) ->
-            val isHome = key.startsWith("HOME")
-            val curIdx = if (isHome) -1 else key.toInt()
-            // A home pawn enters the track at its starting cell (index 0) and then advances
-            // the remaining (roll-1) steps → lands at path[rollValue - 1].
-            val nextIdx = if (isHome) rollValue - 1 else curIdx + rollValue
-
-            if (nextIdx < 0 || nextIdx >= path.size) {
-                Telemetry.trace("engine", "move.overshoot_skipped",
-                    "Group at idx $curIdx + $rollValue overshoots path (len ${path.size})",
-                    mapOf(
-                        "pawnIds" to grp.map { it.id },
-                        "curIdx" to curIdx,
-                        "rollValue" to rollValue,
-                        "nextIdx" to nextIdx,
-                        "reason" to "overshoot"
-                    )
-                )
-                return@forEach
-            }
-            // Cannot enter the inner (gate) region until the player has made a cut.
-            if (!hasInner && nextIdx >= innerGate) {
-                Telemetry.trace("engine", "move.gate_blocked",
-                    "Group cannot enter inner path (no cut yet)",
-                    mapOf(
-                        "pawnIds" to grp.map { it.id },
-                        "nextIdx" to nextIdx,
-                        "innerGate" to innerGate,
-                        "reason" to "gate"
-                    )
-                )
-                return@forEach
-            }
-
-            val target = path[nextIdx]
-            val isSafe = TrackBuilder.isSafeCell(gridSize, target.first, target.second)
-            val reachesHome = (nextIdx == path.size - 1)
-
-            // Find pawns at target cell
-            val atTarget = pawns.filter { p ->
-                p.state == PawnState.ON_TRACK &&
-                TrackBuilder.getPlayerPath(gridSize, p.playerIndex).getOrNull(p.pathIndex) == target
-            }
-            val opponents = atTarget.filter { it.playerIndex != currentPlayerIndex }
-            val allies    = atTarget.filter { it.playerIndex == currentPlayerIndex }
-
-            val opponentGatti = opponents.groupBy { it.playerIndex }.any { (_, list) -> list.size >= 2 }
-            val myGroupIsGatti = grp.size >= 2
-
-            var isCapture = false
-            var blocked   = false
-
-            if (opponents.isNotEmpty()) {
-                when {
-                    isSafe -> {
-                        // Safe square: everyone coexists, no capture
-                        isCapture = false
-                        blocked = false
-                    }
-                    opponentGatti -> {
-                        // Opponent has a Gatti (2+ pawns) — CANNOT BE CAPTURED BY ANYONE
-                        // Not even by another Gatti. This is the traditional rule.
-                        blocked = true
-                        Telemetry.trace("engine", "move.gatti_blocked",
-                            "Target is an opponent Gatti; cannot capture",
-                            mapOf(
-                                "pawnIds" to grp.map { it.id },
-                                "targetCoords" to listOf(target.first, target.second),
-                                "opponentCount" to opponents.size,
-                                "reason" to "opponent_gatti"
-                            )
-                        )
-                    }
-                    else -> {
-                        // Normal capture (single opponent pawn, or opponent Gatti but we're also Gatti —
-                        // but the above branch blocks all opponent Gatti captures)
-                        isCapture = true
-                    }
-                }
-            }
-
-            if (blocked) return@forEach
-
-            moves.add(
-                MoveOption(
-                    grpPawns       = grp,
-                    targetPathIndex= nextIdx,
-                    targetCoords   = target,
-                    isCapture      = isCapture,
-                    reachesHome    = reachesHome,
-                    isGattiGroup   = myGroupIsGatti
-                )
-            )
-        }
-
-        validMoves = moves
+        validMoves = calculateValidMoves(
+            gridSize,
+            pawns,
+            currentPlayerIndex,
+            hasCapturedOpponent,
+            score = rollValue
+        )
     }
 
     // ---- Input validation helpers ----
