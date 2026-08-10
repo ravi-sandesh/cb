@@ -92,8 +92,11 @@ fun BoardCanvas(
         }
 
         val cellPawnsMap = mutableMapOf<Pair<Int, Int>, MutableList<Pawn>>()
+        // BUG-10 (parity with web): only pawns still ON_TRACK are drawn. FINISHED
+        // pawns have reached center home and belong to the victory overlay, not a
+        // board stack (and must never merge into a Gatti-looking bundle at center).
         for (pawn in gameEngine.pawns) {
-            if (pawn.state != PawnState.ON_TRACK && pawn.state != PawnState.FINISHED) continue
+            if (pawn.state != PawnState.ON_TRACK) continue
             val coords = TrackBuilder.getPlayerPath(gameEngine.gridSize, pawn.playerIndex)[pawn.pathIndex]
             cellPawnsMap.getOrPut(coords) { mutableListOf() }.add(pawn)
         }

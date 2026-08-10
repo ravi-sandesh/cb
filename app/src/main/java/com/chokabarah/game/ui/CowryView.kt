@@ -119,35 +119,17 @@ fun CowryRollSection(
 
         if (currentRoll != null) {
             Spacer(modifier = Modifier.height(8.dp))
-            val (rollScoreText, isExtra) = rollScoreLabel(currentRoll, gridSize)
+            // BUG-19: render the engine-authoritative label (scoreShells /
+            // rollCowries output), not a UI-side re-derivation. The cowry labels
+            // were duplicating the formatter ("SCORE: N", " - ") and drifting
+            // from the Kotlin engine + rules doc ("Score: N", " — ").
             Text(
-                text = rollScoreText,
-                color = if (isExtra) Color(0xFF76FF03) else Color.White,
+                text = currentRoll.label,
+                color = if (currentRoll.isExtraRoll) Color(0xFF76FF03) else Color.White,
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp
             )
         }
-    }
-}
-
-private fun rollScoreLabel(roll: CowryResult, gridSize: GridSize): Pair<String, Boolean> {
-    val name = if (gridSize == GridSize.SEVEN_BY_SEVEN) {
-        when (roll.score) {
-            6 -> "CHOWKA"
-            12 -> "BAARA"
-            else -> null
-        }
-    } else {
-        when (roll.score) {
-            4 -> "CHOWKA"
-            8 -> "BAARA"
-            else -> null
-        }
-    }
-    return if (name != null) {
-        "$name (${roll.score}) - EXTRA ROLL!" to true
-    } else {
-        "SCORE: ${roll.score}" to false
     }
 }
 

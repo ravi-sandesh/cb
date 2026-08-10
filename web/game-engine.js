@@ -100,13 +100,15 @@ function scoreCowryRoll(gridSize, shells) {
     let score, scoreText, isExtraRoll;
     if (gridSize === 5) {
         score = mouthUp === 4 ? 4 : mouthUp === 0 ? 8 : mouthUp;
-        scoreText = mouthUp === 4 ? 'CHOWKA (4) - EXTRA ROLL!' :
-                    mouthUp === 0 ? 'BAARA (8) - EXTRA ROLL!' : `SCORE: ${score}`;
+        // Label text is the SINGLE source of truth shared with the Kotlin engine
+        // (scoreShells) and the rules doc: "—" em-dash and "Score: N" casing (parity).
+        scoreText = mouthUp === 4 ? 'CHOWKA (4) — EXTRA ROLL!' :
+                    mouthUp === 0 ? 'BAARA (8) — EXTRA ROLL!' : `Score: ${score}`;
         isExtraRoll = (score === 4 || score === 8);
     } else {
         score = mouthUp === 6 ? 6 : mouthUp === 0 ? 12 : mouthUp;
-        scoreText = mouthUp === 6 ? 'CHOWKA (6) - EXTRA ROLL!' :
-                    mouthUp === 0 ? 'BAARA (12) - EXTRA ROLL!' : `SCORE: ${score}`;
+        scoreText = mouthUp === 6 ? 'CHOWKA (6) — EXTRA ROLL!' :
+                    mouthUp === 0 ? 'BAARA (12) — EXTRA ROLL!' : `Score: ${score}`;
         isExtraRoll = (score === 6 || score === 12);
     }
     const result = { shells, score, scoreText, isExtraRoll };

@@ -132,6 +132,17 @@ describe('Cowry Scoring', () => {
     expect(numShells(5)).toBe(4);
     expect(numShells(7)).toBe(6);
   });
+
+  test('label text matches the Kotlin engine / rules doc (parity)', () => {
+    // These exact strings are the shared display contract: Kotlin scoreShells
+    // and CHOWKA_BARA_TEST_CASES.md must agree (em-dash, "Score: N" casing).
+    expect(scoreCowryRoll(5, [true, true, true, true]).scoreText).toBe('CHOWKA (4) — EXTRA ROLL!');
+    expect(scoreCowryRoll(5, [false, false, false, false]).scoreText).toBe('BAARA (8) — EXTRA ROLL!');
+    expect(scoreCowryRoll(5, [true, true, false, false]).scoreText).toBe('Score: 2');
+    expect(scoreCowryRoll(7, [true, true, true, true, true, true]).scoreText).toBe('CHOWKA (6) — EXTRA ROLL!');
+    expect(scoreCowryRoll(7, [false, false, false, false, false, false]).scoreText).toBe('BAARA (12) — EXTRA ROLL!');
+    expect(scoreCowryRoll(7, [true, true, false, false, false, false]).scoreText).toBe('Score: 2');
+  });
 });
 
 describe('Pawn Helpers', () => {
