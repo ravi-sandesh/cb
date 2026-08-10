@@ -272,6 +272,7 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
 
     // Create new pawns array (immutable approach for testing)
     const newPawns = pawns.map(p => ({ ...p }));
+    const newHasCaptured = { ...hasCapturedOpponent }; // never mutate the caller's object
     const grpPawnIds = new Set(grpPawns.map(p => p.id));
 
     grpPawns.forEach(pawn => {
@@ -300,7 +301,7 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
                 }
             }
         });
-        hasCapturedOpponent[currentPlayerIndex] = true;
+        newHasCaptured[currentPlayerIndex] = true;
         extraTurn = true;
         T.info('engine.move', 'move.capture', `Player ${currentPlayerIndex} captured ${capturedCount} opponent pawn(s)`,
             { byPlayer: currentPlayerIndex, capturedCount, targetCoords });
@@ -338,7 +339,7 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
 
     const result = {
         pawns: newPawns,
-        hasCapturedOpponent: { ...hasCapturedOpponent, [currentPlayerIndex]: hasCapturedOpponent[currentPlayerIndex] },
+        hasCapturedOpponent: newHasCaptured,
         extraTurn,
         gattiFormed,
         capturedCount,

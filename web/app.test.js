@@ -420,6 +420,73 @@ describe('board canvas tap handling', () => {
   });
 });
 
+describe('BUG-17 roll display lifecycle (fresh roll = blank readout)', () => {
+  const tapCell = (canvas, r, c) => canvas.fireClick(c * 120 + 60, r * 120 + 60); // 600px canvas / 5x5
+  test('a Chowka extra-turn move wipes the prior roll readout/highlight', () => {
+    const { w, canvas } = fresh();
+    w.setGridSize(5);
+    w.setPlayers(2);
+    w.setGameMode('pnp');
+    w.startGame();
+    // 4 open shells = Chowka (score 4, isExtraRoll true).
+    useScriptedRandom([0.6, 0.6, 0.6, 0.6]);
+    w.handleRoll();
+    const disp = holder.docEls['roll-score-display'];
+    expect(disp._innerText).toContain('EXTRA ROLL');
+    expect(disp.classList._set['is-extra']).toBe(true);
+    // Execute the only kind of move available (HOME -> path[3] = (3,4)).
+    tapCell(canvas, 3, 4);
+    // Extra turn keeps the same player; the consumed roll is gone.
+    expect(holder.docEls['turn-text']._innerText).toContain('Red (South)');
+    expect(disp._innerText).toBe('');
+    expect(disp.classList._set['is-extra']).toBeUndefined();
+    expect(holder.docEls['btn-roll'].disabled).toBe(false);
+    expect(holder.docEls['game-log']._innerText).toContain('Extra roll!');
+  });
+
+  test('a normal move that advances the turn leaves a blank readout for the next player', () => {
+    const { w, canvas } = fresh();
+    w.setGridSize(5);
+    w.setPlayers(2);
+    w.setGameMode('pnp');
+    w.startGame();
+    useScriptedRandom([0.6, 0.1, 0.1, 0.1]); // score 1, no extra roll
+    w.handleRoll();
+    tapCell(canvas, 4, 2); // HOME -> path[0] = (4,2)
+    const disp = holder.docEls['roll-score-display'];
+    expect(holder.docEls['turn-text']._innerText).toContain('Green (North)');
+    expect(disp._innerText).toBe('');
+    expect(disp.classList._set['is-extra']).toBeUndefined();
+  });
+});
+
+describe('BUG-13 no-valid-moves reason survives the auto-advance', () => {
+  test('the next player banner explains why the turn came up', () => {
+    const { w } = fresh();
+    const timers = makeTimers();
+    globalThis.setTimeout = timers.setTimeout;
+    globalThis.clearTimeout = timers.clearTimeout;
+    w.setGridSize(5);
+    w.setPlayers(2);
+    w.setGameMode('pnp');
+    w.startGame();
+    // Force no valid moves for a NON-extra score (1 open shell => score 1).
+    const orig = w.ChokaBarahEngine.calculateValidMoves;
+    w.ChokaBarahEngine.calculateValidMoves = () => [];
+    try {
+      useScriptedRandom([0.6, 0.1, 0.1, 0.1]);
+      w.handleRoll();
+      expect(holder.docEls['game-log']._innerText).toContain('No valid moves');
+      timers.fireOne(); // the 1s auto-advance fires
+      const log = holder.docEls['game-log']._innerText;
+      expect(log).toContain("Green (North)'s turn");
+      expect(log).toContain('No valid moves');
+    } finally {
+      w.ChokaBarahEngine.calculateValidMoves = orig;
+    }
+  });
+});
+
 describe('full deterministic bot game to victory', () => {
   function driveFullGame(seed, cap) {
     const timers = makeTimers();
@@ -461,6 +528,9 @@ describe('full deterministic bot game to victory', () => {
     expect(holder.docEls['game-log']._innerText).toContain('VICTORY');
     expect(holder.docEls['btn-roll'].disabled).toBe(true);
     expect(steps).toBeLessThan(5000);
+    // BUG-17: the finished board keeps no lingering roll readout/highlight.
+    expect(holder.docEls['roll-score-display']._innerText).toBe('');
+    expect(holder.docEls['roll-score-display'].classList._set['is-extra']).toBeUndefined();
     // A tap after the game ended is a no-op (winner !== null guard).
     expect(() => booted.canvas.fireClick(300, 300)).not.toThrow();
   });

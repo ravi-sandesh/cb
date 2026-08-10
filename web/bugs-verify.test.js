@@ -246,9 +246,9 @@ describe('BUG-04 victory disables the roll button — FIXED', () => {
 describe('BUG-05 no-valid-moves roll leaves — FIXED', () => {
     test('non-extra no-valid branch disables btn-roll before the auto-advance', () => {
         const body = appSrc();
-        const fn = body.slice(body.indexOf('function handleRoll'), body.indexOf('function renderCowryShells')).slice(0, 3000);
+        const fn = body.slice(body.indexOf('function handleRoll'), body.indexOf('function renderCowryShells')).slice(0, 4000);
         // the non-extra no-valid path must disable the button and use the tracked timer
-        expect(fn).toMatch(/btn-roll[\s\S]{0,120}disabled = true[\s\S]{0,120}scheduleTurnTimer\(1000\)/);
+        expect(fn).toMatch(/btn-roll[\s\S]{0,120}disabled = true[\s\S]{0,300}scheduleTurnTimer\(1000\)/);
     });
 });
 
@@ -266,8 +266,9 @@ describe('BUG-06 bot turns keep btn-roll disabled (isBotTurn helper)', () => {
 
     test('extra-roll grant and extra-no-moves reset gate on isBotTurn()', () => {
         const body = appSrc();
-        // extra-roll grant keeps bot turns inert
-        expect(body).toMatch(/Extra roll![\s\S]{0,200}disabled = isBotTurn\(\)/);
+        // extra-roll grant keeps bot turns inert (cleanup + gating precede the
+        // button disable, so the window spans the whole extra-turn branch)
+        expect(body).toMatch(/Extra roll![\s\S]{0,400}disabled = isBotTurn\(\)/);
         // bot re-rolls are scheduled, not via a re-enabled button (roll-helper
         // assignment lands just before the no_moves_reset telemetry log)
         expect(body).toMatch(/disabled = isBotTurn\(\)[\s\S]{0,300}roll.extra_no_moves_reset/);

@@ -74,6 +74,7 @@ let gameActive = true;    // false once we leave the game screen (stops bot time
 let botTimer = null;      // handle of the scheduled bot turn
 let turnTimer = null;     // 1s auto-advance after a no-valid-moves roll (BUG-02)
 let victoryTimer = null;  // delayed victory banner after a win (BUG-03)
+let turnAdvanceLog = null; // "No valid moves" outcome preserved across the auto-advance (BUG-13)
 
 const canvas = document.getElementById('board-canvas');
 const ctx    = canvas.getContext('2d');
@@ -108,6 +109,8 @@ function showHomeScreen() {
     document.getElementById('game-screen').classList.remove('active');
 }
 function startGame() {
+    // Safety: no pending bot/no-move/victory timer may fire into the fresh game.
+    clearScheduledTimers();
     T.info('session', 'game.started', `Game started: ${currentGridSize}x${currentGridSize}, ${playerNum} players, mode=${gameMode}`,
         { gridSize: currentGridSize, playerNum, gameMode, sessionId: T.getSessionId ? T.getSessionId() : undefined });
     gameActive = true;
@@ -169,6 +172,18 @@ function clearScheduledTimers() {
     if (victoryTimer){ clearTimeout(victoryTimer); victoryTimer = null; }
 }
 
+// The roll-score display is a transient readout of the last roll. Any stale
+// text/extra-roll highlight must be wiped whenever a fresh roll is implied
+// (new turn, move completes, game resets), or the previous player's result
+// lingers for the next player (BUG-17).
+function clearRollDisplay() {
+    const scoreDisplay = document.getElementById('roll-score-display');
+    if (scoreDisplay) {
+        scoreDisplay.innerText = '';
+        scoreDisplay.classList.remove('is-extra');
+    }
+}
+
 // US-xx: the roll button must never be actionable for a bot turn. BUG-06:
 // advanceTurn re-enabled the button unconditionally, which exposed it on
 // bot-controlled players.
@@ -190,6 +205,7 @@ function initGameState() {
     currentRoll        = null;
     validMoves         = [];
     winner             = null;
+    turnAdvanceLog     = null; // fresh game: no carry-over no-move reason
 
     // Re-enable the roll button on every fresh game (BUG-06): a previous
     // victory banner disabled it, and reset must undo that for a new game.
@@ -201,6 +217,7 @@ function initGameState() {
 
     updateUI();
     setLog(`Game Started! Player ${playerColors[0].name}'s turn. Roll cowries!`);
+    clearRollDisplay();
 
     // Render correct number of cowry shells on first load
     renderCowryShells(null);
@@ -274,6 +291,10 @@ function handleRoll() {
             // math BEFORE auto-advancing. The roll button is pressed during this
             // window is a dead env-roll (no state), so reflect that (BUG-05).
             document.getElementById('btn-roll').disabled = true;
+            // BUG-13: keep the "why the turn advanced" reason visible on the new
+            // player's banner instead of advancing into a terse generic prompt.
+            turnAdvanceLog = `Rolled ${scoreText} — No valid moves!`;
+            setLog(turnAdvanceLog);
             scheduleTurnTimer(1000);
         }
     } else {
@@ -364,6 +385,11 @@ function executeMove(move) {
     if (winnerIdx !== null) {
         winner = playerColors[winnerIdx];
         T.info('game', 'game.victory', `Player ${currentPlayerIndex} (${winner.name}) won the game`, { winnerIndex: currentPlayerIndex, winnerName: winner.name, gridSize: currentGridSize, playerNum });
+        // No stale roll/highlight may remain on the finished board (BUG-17):
+        // the winner's block is terminal, so wipe the roll readout and moves.
+        currentRoll = null;
+        validMoves  = [];
+        clearRollDisplay();
         renderBoard();
         updateUI();
         // BUG-04: disable the roll button on EVERY victory path. A Gatti cannot
@@ -382,6 +408,8 @@ function executeMove(move) {
         const gl = document.getElementById('game-log');
         T.debug('engine', 'turn.extra', `Player ${currentPlayerIndex} gets an extra turn (${move.isCapture ? 'capture' : 'chowka/baara'})`, { playerIndex: currentPlayerIndex, reason: move.isCapture ? 'capture' : 'score' });
         setLog(`${gl.innerText} 🎲 Extra roll!`);
+        // The old roll is consumed by the move; the extra turn starts clean.
+        clearRollDisplay();
         // BUG-06: a bot granted an extra turn keeps the button inert.
         document.getElementById('btn-roll').disabled = isBotTurn();
         if (gameMode === 'bot' && currentPlayerIndex !== 0 && winner === null) {
@@ -418,12 +446,19 @@ function advanceTurn() {
     // BUG-06: keep the roll button non-actionable while it is a bot's turn;
     // only the human player (a botGame turn index 0) may interact with it.
     document.getElementById('btn-roll').disabled = isBotTurn();
-    document.getElementById('roll-score-display').innerText = '';
+    clearRollDisplay(); // stale roll text/highlight must not leak to the next player
 
     T.info('engine', 'turn.advanced', `Turn advanced from player ${from} to player ${currentPlayerIndex}`, { from, to: currentPlayerIndex, playerNum });
 
     updateUI();
-    setLog(`Player ${playerColors[currentPlayerIndex].name}'s turn. Roll cowries!`);
+    if (turnAdvanceLog !== null) {
+        // BUG-13: the no-valid-moves reason from the previous player's roll
+        // survives the auto-advance so the UI explains why the turn came up.
+        setLog(`Player ${playerColors[currentPlayerIndex].name}'s turn. ${turnAdvanceLog}`);
+        turnAdvanceLog = null;
+    } else {
+        setLog(`Player ${playerColors[currentPlayerIndex].name}'s turn. Roll cowries!`);
+    }
     renderCowryShells(null);
     renderBoard();
 

@@ -377,6 +377,22 @@ describe('executeMove – Core Execution', () => {
     expect(res.hasCapturedOpponent[0]).toBe(true); // gate unlocked
   });
 
+  test('BUG-17: executeMove does NOT mutate the caller hasCapturedOpponent object', () => {
+    const landing = getPlayerPath(5, 0)[3];
+    const p1path = getPlayerPath(5, 1);
+    const oppIdx = p1path.findIndex(([r,c]) => r===landing[0] && c===landing[1]);
+    const pawns = [
+      { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 2 },
+      { id: 5, playerIndex: 1, state: 'ON_TRACK', pathIndex: oppIdx }
+    ];
+    const move = { grpPawns:[pawns[0]], targetPathIndex: 3, targetCoords:landing, isCapture:true, reachesHome:false };
+    const captured = { 0: false, 1: true };
+    const res = executeMove(5, pawns, captured, 0, move, { isExtraRoll: false });
+    // The result carries the flag, but the caller's object is left untouched.
+    expect(res.hasCapturedOpponent[0]).toBe(true);
+    expect(captured[0]).toBe(false);
+  });
+
   test('BUG-01: executeMove tolerates an undefined currentRoll without crashing', () => {
     const pawns = [
       { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 5 },
