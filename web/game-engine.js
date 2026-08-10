@@ -100,13 +100,24 @@ function scoreCowryRoll(gridSize, shells) {
     let score, scoreText, isExtraRoll;
     if (gridSize === 5) {
         score = mouthUp === 4 ? 4 : mouthUp === 0 ? 8 : mouthUp;
-        // Label text is the SINGLE source of truth shared with the Kotlin engine
-        // (scoreShells) and the rules doc: "—" em-dash and "Score: N" casing (parity).
+        // P4 BUG-19 (label parity): scoreText is the SINGLE source of truth for
+        // how a roll is rendered everywhere. It MUST stay byte-identical to the
+        // Kotlin engine's scoreShells() label (engine/.../GameEngine.kt) and to
+        // the exact expectations in CHOWKA_BARA_TEST_CASES.md and GameModelsTest.
+        // Rules for touch-ups, to keep all surfaces in lockstep:
+        //   - The separator is an em dash "—", never a plain hyphen "-".
+        //   - Plain rolls are cased "Score: N" (title case), NOT "SCORE: N".
+        //   - Kotlin mirror: `label = when (score) { 4 -> "CHOWKA (4) — EXTRA
+        //     ROLL!" ... else -> "Score: $score" }` (GameEngine.kt scoreShells).
+        // If this string ever needs to change, update scoreShells() + its test
+        // pin in the same change (the diff coverage gate enforces it on CI).
         scoreText = mouthUp === 4 ? 'CHOWKA (4) — EXTRA ROLL!' :
                     mouthUp === 0 ? 'BAARA (8) — EXTRA ROLL!' : `Score: ${score}`;
         isExtraRoll = (score === 4 || score === 8);
     } else {
         score = mouthUp === 6 ? 6 : mouthUp === 0 ? 12 : mouthUp;
+        // Symmetric label contract for the 7x7 board (6 cowries). Chowka = all 6
+        // mouths (score 6), Baara = all closed (score 12). Same punctuation rule.
         scoreText = mouthUp === 6 ? 'CHOWKA (6) — EXTRA ROLL!' :
                     mouthUp === 0 ? 'BAARA (12) — EXTRA ROLL!' : `Score: ${score}`;
         isExtraRoll = (score === 6 || score === 12);
@@ -274,7 +285,14 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
 
     // Create new pawns array (immutable approach for testing)
     const newPawns = pawns.map(p => ({ ...p }));
-    const newHasCaptured = { ...hasCapturedOpponent }; // never mutate the caller's object
+    // BUG-17-FIX (observational purity): capture XORs the "gate unlocked" flag
+    // into hasCapturedOpponent. We must NEVER write into the caller's map object
+    // — app.js and parity tests reuse the array they pass in, and an in-place
+    // write hidden inside a "pure" function is the classic API surprise. Copy
+    // the map once up front (copy-on-write), mutate only the copy, and hand it
+    // back in `result`. Pre-fix code did `hasCapturedOpponent[i]=true` in place
+    // AND then re-spread the already-mutated original into the result.
+    const newHasCaptured = { ...hasCapturedOpponent };
     const grpPawnIds = new Set(grpPawns.map(p => p.id));
 
     grpPawns.forEach(pawn => {
@@ -285,8 +303,16 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
         }
     });
 
-    // BUG-01-FIX: safe when a caller omits currentRoll (undefined). A plain
-    // move must not grant an extra roll; capture still sets it explicitly below.
+    // BUG-01-FIX: tolerate a caller that omits currentRoll (undefined).
+    //   Why it breaks pre-fix: `currentRoll.isExtraRoll` threw a TypeError
+    //   (cannot read properties of undefined). That crashed the web app whenever
+    //   executeMove was invoked without a fresh requestContext — the app's
+    //   executeMove passes `currentRoll || { isExtraRoll: false }` as a guard,
+    //   but unit tests and older callers passed nothing at all.
+    //   Why the guard is correct: a plain move with no captured roll must NOT
+    //   silently grant an extra turn. `!!(x && x.isExtraRoll)` yields `true`
+    //   ONLY for an explicitly extra roll; a capture forces `extraTurn = true`
+    //   itself in the capture block below, so a capture can never be lost.
     let extraTurn = !!(currentRoll && currentRoll.isExtraRoll);
     let gattiFormed = false;
     let capturedCount = 0;
@@ -341,6 +367,8 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
 
     const result = {
         pawns: newPawns,
+        // See the newHasCaptured note at the top of executeMove: this is the
+        // COPY that was captured into, never the caller's original object.
         hasCapturedOpponent: newHasCaptured,
         extraTurn,
         gattiFormed,

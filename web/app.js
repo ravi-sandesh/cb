@@ -101,15 +101,20 @@ function openRules()  { T.info('ui', 'rules.opened', 'Rules modal opened', {}); 
 function closeRules() { T.info('ui', 'rules.closed', 'Rules modal closed', {}); document.getElementById('rules-modal').classList.add('hidden'); }
 function showHomeScreen() {
     T.info('ui', 'navigation.to_home', 'Navigated to home screen', { priorGameActive: gameActive });
-    // Stop any pending game timers (bot turn, no-move auto-advance, victory
-    // banner) so they don't leak onto the menu / next game (BUG-02/BUG-03).
+    // BUG-02/BUG-03: leaving the board must not strand a pending timer — a bot
+    // turn, the 1s no-move auto-advance, or the 200ms victory banner could
+    // otherwise fire into the menu or a fresh game (see clearScheduledTimers).
     gameActive = false;
     clearScheduledTimers();
     document.getElementById('home-screen').classList.add('active');
     document.getElementById('game-screen').classList.remove('active');
 }
 function startGame() {
-    // Safety: no pending bot/no-move/victory timer may fire into the fresh game.
+    // BUG-02/03/07 defense-in-depth: startGame can be reached without passing
+    // through showHomeScreen (e.g. first cold-load of the page), so clear any
+    // timers carried from a previous session before the fresh game begins. This
+    // is cheap and idempotent — clearScheduledTimers() just Cancels registered
+    // handles that may not exist.
     clearScheduledTimers();
     T.info('session', 'game.started', `Game started: ${currentGridSize}x${currentGridSize}, ${playerNum} players, mode=${gameMode}`,
         { gridSize: currentGridSize, playerNum, gameMode, sessionId: T.getSessionId ? T.getSessionId() : undefined });
@@ -139,7 +144,11 @@ function toggleMute() {
     return muted;
 }
 
-// Schedule the bot turn coalescing overlapping timers.
+// Schedule the bot turn coalescing overlapping timers. Only ever called for a
+// bot-controlled player (currentPlayerIndex !== 0 in 'bot' mode) and only while
+// a game is actually active. The pre-existing timer (if any) is cleared first,
+// so a rapid extra-turn chain can never stack two bot callbacks for the same
+// turn — a stale handle would double-advance the board.
 function scheduleBotTurn(ms) {
     if (!gameActive || gameMode !== 'bot' || winner !== null) return;
     clearTimeout(botTimer);
@@ -149,9 +158,21 @@ function scheduleBotTurn(ms) {
     }, ms);
 }
 
-// All auto-advance / victory-deferred timers are created exclusively through
-// these helpers so a single cancel path (used by restart/home/init) can never
-// miss one (BUG-02 / BUG-03 timer leaks).
+// ---------------------------------------------------------------
+// TRACKED TIMER HELPERS (BUG-02 / BUG-03 / BUG-07)
+// ---------------------------------------------------------------
+// Every game-flow timeout is created THE SAME WAY and stored in a module-level
+// handle so that ONE function (clearScheduledTimers) can cancel every pending
+// timer, no matter which path scheduled it. clearScheduledTimers runs from:
+//   - showHomeScreen()  — leaving the board mid-game
+//   - restartGame()     — "Restart" button (BUG-07)
+//   - startGame()       — defensive, cold-load safety
+// The alternative — ad-hoc raw timer calls scattered across handlers (e.g. the
+// no-move 1s auto-advance) — leaks handles: a player pressing Restart inside
+// that window would still advance a turn of the game they just discarded.
+// Timer handles are nulled both at schedule time (so a cancelled handle is
+// never double-adjusted by an already-firing callback) and inside the callback
+// before the action runs.
 function scheduleTurnTimer(ms) {
     clearTimeout(turnTimer);
     turnTimer = setTimeout(() => {
@@ -172,10 +193,15 @@ function clearScheduledTimers() {
     if (victoryTimer){ clearTimeout(victoryTimer); victoryTimer = null; }
 }
 
-// The roll-score display is a transient readout of the last roll. Any stale
-// text/extra-roll highlight must be wiped whenever a fresh roll is implied
-// (new turn, move completes, game resets), or the previous player's result
-// lingers for the next player (BUG-17).
+// BUG-17: the roll-score display is a transient readout of the LAST roll. Any
+// stale text or the "is-extra" highlight must be wiped the moment a fresh roll
+// becomes implied — i.e. (1) advanced to a new player, (2) a move completed
+// (extra turn or not), (3) the game was won, or (4) a reset/start. If any path
+// forgets, the previous player's "CHOWKA (4) — EXTRA ROLL!" text + green
+// highlight bleeds onto the next roll's area.
+// Note: this intentionally does NOT clear the text during the extra-roll-no-
+// moves re-roll window — there the player is about to REROLL an extra, so the
+// highlighted "EXTRA ROLL" readout is still semantically current.
 function clearRollDisplay() {
     const scoreDisplay = document.getElementById('roll-score-display');
     if (scoreDisplay) {
@@ -184,9 +210,12 @@ function clearRollDisplay() {
     }
 }
 
-// US-xx: the roll button must never be actionable for a bot turn. BUG-06:
-// advanceTurn re-enabled the button unconditionally, which exposed it on
-// bot-controlled players.
+// US-xx / BUG-06: in vs-bot mode player index 0 is ALWAYS the human; every
+// other index is bot-controlled. The roll button must never be actionable for a
+// bot turn because the bot's roll is dispatched by scheduleBotTurn(), and an
+// enabled button would let the human roll FOR the bot (double-consume a turn).
+// Before this fix, advanceTurn() unconditionally re-enabled the button, which
+// exposed it during every bot turn.
 function isBotTurn() {
     return gameMode === 'bot' && currentPlayerIndex !== 0;
 }
@@ -205,7 +234,10 @@ function initGameState() {
     currentRoll        = null;
     validMoves         = [];
     winner             = null;
-    turnAdvanceLog     = null; // fresh game: no carry-over no-move reason
+    // BUG-13: a freshly started game must not inherit the previous game's
+    // "No valid moves (Player X)" banner — that reason belonged to a finished
+    // game and would contradict the new "Game Started!" log.
+    turnAdvanceLog     = null;
 
     // Re-enable the roll button on every fresh game (BUG-06): a previous
     // victory banner disabled it, and reset must undo that for a new game.
@@ -217,6 +249,8 @@ function initGameState() {
 
     updateUI();
     setLog(`Game Started! Player ${playerColors[0].name}'s turn. Roll cowries!`);
+    // BUG-17: a reset/start must also blank the roll-score readout so the very
+    // first roll of the new game does not inherit the previous game's text.
     clearRollDisplay();
 
     // Render correct number of cowry shells on first load
@@ -279,17 +313,23 @@ function handleRoll() {
         T.info('engine', 'roll.no_valid_moves', `Player ${currentPlayerIndex} rolled ${score} with no valid moves`, { playerIndex: currentPlayerIndex, score, isExtraRoll });
         if (isExtraRoll) {
             currentRoll = null;
-            // BUG-06: only a human is allowed to immediately re-roll; a bot's
-            // next roll is dispatched through scheduleBotTurn instead.
+            // BUG-06: an extra roll (Chowka/Baara grant) that found NO valid
+            // moves resets the roll so the SAME player may roll again. Only the
+            // human may do so via the button; the bot's next roll flows through
+            // scheduleBotTurn() — hence isBotTurn() gates the button here. The
+            // 300ms (vs 700ms elsewhere) keeps a re-rolling bot snappy.
             document.getElementById('btn-roll').disabled = isBotTurn();
             T.info('engine', 'roll.extra_no_moves_reset', 'Extra roll had no moves; roll reset for re-roll', { playerIndex: currentPlayerIndex });
             if (gameMode === 'bot' && currentPlayerIndex !== 0 && winner === null) {
                 scheduleBotTurn(300);
             }
         } else {
-            // A roll with no valid moves gives the interface a beat to show the
-            // math BEFORE auto-advancing. The roll button is pressed during this
-            // window is a dead env-roll (no state), so reflect that (BUG-05).
+            // BUG-02 / BUG-05: a NON-extra roll with no valid moves is a dead
+            // env-roll that must pass the turn. We (a) pause 1s so the player can
+            // SEE the "No valid moves" math, (b) disable the roll button for that
+            // window so a hurried second tap cannot produce a phantom env-roll on
+            // no state, and (c) auto-advance via the tracked scheduleTurnTimer
+            // (not a raw setTimeout — restart/home must be able to cancel it).
             document.getElementById('btn-roll').disabled = true;
             // BUG-13: keep the "why the turn advanced" reason visible on the new
             // player's banner instead of advancing into a terse generic prompt.
@@ -354,10 +394,15 @@ function executeMove(move) {
         hasCapturedOpponent,
         currentPlayerIndex,
         move,
+        // BUG-01 (caller-side): engine executes multi-roll-tolerant; hand it an
+        // explicit non-extra roll instead of letting `undefined` crash it.
         currentRoll || { isExtraRoll: false }
     );
 
     pawns               = result.pawns;
+    // BUG-17: executeMove is now pure — it returns a NEW hasCapturedOpponent map
+    // (a capture flips the flag on the copy). We MUST take the returned object:
+    // the pre-fix engine mutated our map in place, making this line a no-op.
     hasCapturedOpponent = result.hasCapturedOpponent;
     const extraTurn     = result.extraTurn;
     const gattiFormed   = result.gattiFormed;
@@ -385,16 +430,22 @@ function executeMove(move) {
     if (winnerIdx !== null) {
         winner = playerColors[winnerIdx];
         T.info('game', 'game.victory', `Player ${currentPlayerIndex} (${winner.name}) won the game`, { winnerIndex: currentPlayerIndex, winnerName: winner.name, gridSize: currentGridSize, playerNum });
-        // No stale roll/highlight may remain on the finished board (BUG-17):
-        // the winner's block is terminal, so wipe the roll readout and moves.
+        // BUG-17: the victory block is TERMINAL — no further roll, move, or
+        // highlight may be presented on top of the finished board. So purge the
+        // consumed roll and its move options BEFORE re-rendering, and blank the
+        // roll-score readout + its "is-extra" highlight. Left uncleaned, the
+        // renderer would keep drawing the winning move's green target circle and
+        // the stale "EXTRA ROLL" text over the victory screen.
         currentRoll = null;
         validMoves  = [];
         clearRollDisplay();
         renderBoard();
         updateUI();
-        // BUG-04: disable the roll button on EVERY victory path. A Gatti cannot
-        // coincide with this move (a Gatti needs a pawn to remain ON_TRACK while
-        // a win finishes the last pawn), so there is only the single banner path.
+        // BUG-04: disable the roll button on EVERY victory path — previously the
+        // victory shortcuts left it ENABLED when the winning move formed a Gatti
+        // (the engine can't form a Gatti AND finish the last pawn in one move, so
+        // that old branch was dead code hiding the unguarded button). The roll
+        // button is dead from here on; restart/home re-enables it via initGameState().
         document.getElementById('btn-roll').disabled = true;
         scheduleVictoryBanner(200);
         if (spanId && T.endSpan) T.endSpan(spanId, { outcome: 'victory', reachesHome: true, gattiFormed });
@@ -408,7 +459,9 @@ function executeMove(move) {
         const gl = document.getElementById('game-log');
         T.debug('engine', 'turn.extra', `Player ${currentPlayerIndex} gets an extra turn (${move.isCapture ? 'capture' : 'chowka/baara'})`, { playerIndex: currentPlayerIndex, reason: move.isCapture ? 'capture' : 'score' });
         setLog(`${gl.innerText} 🎲 Extra roll!`);
-        // The old roll is consumed by the move; the extra turn starts clean.
+        // BUG-17: the extra turn starts with the SAME player but a NEW roll — the
+        // score just consumed by the move is stale here, so wipe the readout (text
+        // + highlight). The "🎲 Extra roll!" game-log carries the context instead.
         clearRollDisplay();
         // BUG-06: a bot granted an extra turn keeps the button inert.
         document.getElementById('btn-roll').disabled = isBotTurn();
@@ -425,8 +478,12 @@ function executeMove(move) {
 }
 
 function showVictoryBanner() {
-    // BUG-01 (UI-side): a deferred banner must never render after the game was
-    // reset (winner cleared) — guard against the stale-timer crash path.
+    // BUG-01 (UI-side): the banner is DELAYED by scheduleVictoryBanner(200) —
+    // a full frame for the renderer + player ephemera. If the user hits
+    // Restart/Home inside that 200ms window, resetGame clears `winner` but the
+    // pending callback still runs afterwards. Guarding on `winner` (and reading
+    // `.name` only after the check) both (a) prevents rendering a stale victory
+    // line onto the fresh board and (b) prevents a TypeError on a null winner.
     if (!winner || !winner.name) return;
     const name = winner.name;
     document.getElementById('game-log').innerText =
@@ -441,19 +498,23 @@ function showVictoryBanner() {
 function advanceTurn() {
     const from = currentPlayerIndex;
     currentPlayerIndex = (currentPlayerIndex + 1) % playerNum;
-    currentRoll        = null;
-    validMoves         = [];
+    currentRoll        = null;  // the previous roll is spent once the turn passes
+    validMoves         = [];    // its move options are meaningless for a new player
     // BUG-06: keep the roll button non-actionable while it is a bot's turn;
     // only the human player (a botGame turn index 0) may interact with it.
     document.getElementById('btn-roll').disabled = isBotTurn();
-    clearRollDisplay(); // stale roll text/highlight must not leak to the next player
+    // BUG-17: the readout belongs to the previous player's roll — blank it
+    // (text + highlight) so the next player starts with a clean roll area.
+    clearRollDisplay();
 
     T.info('engine', 'turn.advanced', `Turn advanced from player ${from} to player ${currentPlayerIndex}`, { from, to: currentPlayerIndex, playerNum });
 
     updateUI();
     if (turnAdvanceLog !== null) {
-        // BUG-13: the no-valid-moves reason from the previous player's roll
-        // survives the auto-advance so the UI explains why the turn came up.
+        // BUG-13: handleRoll() stashed the previous player's "No valid moves"
+        // reason here; consume it into the new banner so the turn transfer still
+        // EXPLAINS ITSELF, then clear the latch. Without this the auto-advance
+        // would replace "Rolled 3 — No valid moves!" with a terse generic prompt.
         setLog(`Player ${playerColors[currentPlayerIndex].name}'s turn. ${turnAdvanceLog}`);
         turnAdvanceLog = null;
     } else {

@@ -127,7 +127,12 @@ fun calculateValidMoves(
             )
             return@forEach
         }
-        // Cannot enter the inner (gate) region until the player has made a cut.
+        // Cannot enter the inner (gate) region until the player has made a cut:
+        // the gate index (16 for 5x5, 24 for 7x7) is the entry to the inner loop
+        // of the track. Only a successful capture flips hasCapturedOpponent (see
+        // executeMove) — with `hasInner == false` every candidate that would land
+        // on or past the gate is dropped here, so players can never shortcut the
+        // center before earning the cut with an opponent's pawn.
         if (!hasInner && nextIdx >= innerGate) {
             Telemetry.trace("engine", "move.gate_blocked",
                 "Group cannot enter inner path (no cut yet)",
