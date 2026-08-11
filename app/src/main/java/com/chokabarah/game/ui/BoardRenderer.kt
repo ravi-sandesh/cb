@@ -25,9 +25,14 @@ fun BoardCanvas(
     gameEngine: GameEngine,
     selectedPawn: Pawn?,
     onCellClicked: (row: Int, col: Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    seniorMode: Boolean = false
 ) {
     val gridSize = gameEngine.gridSize.columns
+    // Senior mode keeps the board square (cells scale naturally) but thickens
+    // the grid strokes and enlarges pawn/safe-cell markings so each cell reads
+    // more clearly (low-vision accessibility profile).
+    val gridStroke = if (seniorMode) 5f else 3f
     Canvas(
         modifier = modifier
             .fillMaxWidth()
@@ -72,10 +77,10 @@ fun BoardCanvas(
                     Color(0xFF5D4037),
                     topLeft = topLeft,
                     size = Size(cellSize, cellSize),
-                    style = Stroke(3f)
+                    style = Stroke(gridStroke)
                 )
                 if (isSafe && !isCenter) {
-                    drawSafeCellMarking(row, col, cellSize)
+                    drawSafeCellMarking(row, col, cellSize, seniorMode)
                 }
                 if (isCenter) {
                     drawCenterHomeMarking(row, col, cellSize)
@@ -88,7 +93,7 @@ fun BoardCanvas(
             val highlightColor = if (move.isCapture) Color(0xFFFF5252) else Color(0xFF76FF03)
             val center = Offset(target.second * cellSize + cellSize / 2f, target.first * cellSize + cellSize / 2f)
             drawCircle(highlightColor.copy(alpha = 0.45f), cellSize * 0.38f, center)
-            drawCircle(highlightColor, cellSize * 0.38f, center, style = Stroke(6f))
+            drawCircle(highlightColor, cellSize * 0.38f, center, style = Stroke(if (seniorMode) 9f else 6f))
         }
 
         val cellPawnsMap = mutableMapOf<Pair<Int, Int>, MutableList<Pawn>>()
@@ -105,15 +110,15 @@ fun BoardCanvas(
             val col = coords.second
             val cellCenterX = col * cellSize + cellSize / 2f
             val cellCenterY = row * cellSize + cellSize / 2f
-            drawPawnsGroup(pawnsOnCell, cellCenterX, cellCenterY, cellSize, selectedPawn, gameEngine)
+            drawPawnsGroup(pawnsOnCell, cellCenterX, cellCenterY, cellSize, selectedPawn, gameEngine, seniorMode)
         }
-        drawHomeBasePawns(gameEngine, cellSize, selectedPawn)
+        drawHomeBasePawns(gameEngine, cellSize, selectedPawn, seniorMode)
     }
 }
 
-private fun DrawScope.drawSafeCellMarking(row: Int, col: Int, cellSize: Float) {
+private fun DrawScope.drawSafeCellMarking(row: Int, col: Int, cellSize: Float, seniorMode: Boolean) {
     val margin = cellSize * 0.15f
-    val strokeWidth = 5f
+    val strokeWidth = if (seniorMode) 8f else 5f
     val color = Color(0xFF8D6E63)
     val left = col * cellSize + margin
     val right = (col + 1) * cellSize - margin
@@ -144,9 +149,11 @@ private fun DrawScope.drawPawnsGroup(
     centerY: Float,
     cellSize: Float,
     selectedPawn: Pawn?,
-    gameEngine: GameEngine
+    gameEngine: GameEngine,
+    seniorMode: Boolean = false
 ) {
-    val pawnRadius = cellSize * 0.18f
+    val pawnRadius = cellSize * (if (seniorMode) 0.22f else 0.18f)
+    val pawnStroke = if (seniorMode) 6f else 4f
     val count = pawnsOnCell.size
     for (i in 0 until count) {
         val pawn = pawnsOnCell[i]
@@ -170,20 +177,20 @@ private fun DrawScope.drawPawnsGroup(
         val pawnCenterX = centerX + offset.x
         val pawnCenterY = centerY + offset.y
         drawCircle(Color(pColor.hexColor), pawnRadius, Offset(pawnCenterX, pawnCenterY))
-        drawCircle(Color.White, pawnRadius, Offset(pawnCenterX, pawnCenterY), style = Stroke(4f))
+        drawCircle(Color.White, pawnRadius, Offset(pawnCenterX, pawnCenterY), style = Stroke(pawnStroke))
         if (isSelected) {
-            drawCircle(Color(0xFFFFD54F), pawnRadius + 6f, Offset(pawnCenterX, pawnCenterY), style = Stroke(6f))
+            drawCircle(Color(0xFFFFD54F), pawnRadius + (if (seniorMode) 9f else 6f), Offset(pawnCenterX, pawnCenterY), style = Stroke(if (seniorMode) 9f else 6f))
         }
     }
 }
 
-private fun DrawScope.drawHomeBasePawns(gameEngine: GameEngine, cellSize: Float, selectedPawn: Pawn?) {
+private fun DrawScope.drawHomeBasePawns(gameEngine: GameEngine, cellSize: Float, selectedPawn: Pawn?, seniorMode: Boolean = false) {
     for (pIndex in 0 until gameEngine.playerColors.size) {
         val startCoords = TrackBuilder.getPlayerPath(gameEngine.gridSize, pIndex)[0]
         val homePawns = gameEngine.pawns.filter { it.playerIndex == pIndex && it.state == PawnState.HOME_BASE }
         if (homePawns.isEmpty()) continue
         val cellCenterX = startCoords.second * cellSize + cellSize / 2f
         val cellCenterY = startCoords.first * cellSize + cellSize / 2f
-        drawPawnsGroup(homePawns, cellCenterX, cellCenterY, cellSize, selectedPawn, gameEngine)
+        drawPawnsGroup(homePawns, cellCenterX, cellCenterY, cellSize, selectedPawn, gameEngine, seniorMode)
     }
 }

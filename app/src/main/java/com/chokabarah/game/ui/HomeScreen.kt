@@ -42,7 +42,9 @@ import com.chokabarah.game.telemetry.Telemetry
 
 @Composable
 fun HomeScreen(
-    onStartGame: (GridSize, Int, GameMode) -> Unit
+    onStartGame: (GridSize, Int, GameMode) -> Unit,
+    seniorMode: Boolean = false,
+    onSeniorModeChanged: (Boolean) -> Unit = {}
 ) {
     var selectedGridSize by remember { mutableStateOf(GridSize.FIVE_BY_FIVE) }
     var playerCount by remember { mutableStateOf(2) }
@@ -84,7 +86,7 @@ fun HomeScreen(
             Text(
                 text = "TRADITIONAL INDIAN STRATEGY BOARD GAME",
                 color = accentColor,
-                fontSize = 12.sp,
+                fontSize = if (seniorMode) 16.sp else 12.sp,
                 fontWeight = FontWeight.Medium,
                 textAlign = TextAlign.Center
             )
@@ -94,11 +96,11 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = cardColor)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(if (seniorMode) 20.dp else 16.dp)) {
                     Text(
                         text = "1. SELECT BOARD SIZE",
                         modifier = Modifier.fillMaxWidth(),
-                        fontSize = 16.sp,
+                        fontSize = if (seniorMode) 20.sp else 16.sp,
                         fontWeight = FontWeight.Bold,
                         style = TextStyle(color = titleColor)
                     )
@@ -108,6 +110,7 @@ fun HomeScreen(
                             text = "5-Column (5x5)",
                             subtext = "Classic Board",
                             isSelected = selectedGridSize == GridSize.FIVE_BY_FIVE,
+                            seniorMode = seniorMode,
                             onClick = {
                                 selectedGridSize = GridSize.FIVE_BY_FIVE
                                 if (lastLoggedGrid != GridSize.FIVE_BY_FIVE) {
@@ -126,6 +129,7 @@ fun HomeScreen(
                             text = "7-Column (7x7)",
                             subtext = "Ashta Chamma",
                             isSelected = selectedGridSize == GridSize.SEVEN_BY_SEVEN,
+                            seniorMode = seniorMode,
                             onClick = {
                                 selectedGridSize = GridSize.SEVEN_BY_SEVEN
                                 if (lastLoggedGrid != GridSize.SEVEN_BY_SEVEN) {
@@ -150,11 +154,11 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = cardColor)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(if (seniorMode) 20.dp else 16.dp)) {
                     Text(
                         text = "2. NUMBER OF PLAYERS",
                         modifier = Modifier.fillMaxWidth(),
-                        fontSize = 16.sp,
+                        fontSize = if (seniorMode) 20.sp else 16.sp,
                         fontWeight = FontWeight.Bold,
                         style = TextStyle(color = titleColor)
                     )
@@ -165,6 +169,7 @@ fun HomeScreen(
                                 text = "$count Players",
                                 subtext = if (count == 2) "1v1 Duel" else "$count Way",
                                 isSelected = playerCount == count,
+                                seniorMode = seniorMode,
                                 onClick = {
                                     playerCount = count
                                     if (lastLoggedPlayers != count) {
@@ -190,11 +195,11 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = cardColor)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(if (seniorMode) 20.dp else 16.dp)) {
                     Text(
                         text = "3. GAME MODE",
                         modifier = Modifier.fillMaxWidth(),
-                        fontSize = 16.sp,
+                        fontSize = if (seniorMode) 20.sp else 16.sp,
                         fontWeight = FontWeight.Bold,
                         style = TextStyle(color = titleColor)
                     )
@@ -204,6 +209,7 @@ fun HomeScreen(
                             text = "Pass & Play",
                             subtext = "Local Friends",
                             isSelected = gameMode == GameMode.PASS_AND_PLAY,
+                            seniorMode = seniorMode,
                             onClick = {
                                 gameMode = GameMode.PASS_AND_PLAY
                                 if (lastLoggedMode != GameMode.PASS_AND_PLAY) {
@@ -222,6 +228,7 @@ fun HomeScreen(
                             text = "vs Bot (AI)",
                             subtext = "Single Player",
                             isSelected = gameMode == GameMode.VS_BOT,
+                            seniorMode = seniorMode,
                             onClick = {
                                 gameMode = GameMode.VS_BOT
                                 if (lastLoggedMode != GameMode.VS_BOT) {
@@ -233,6 +240,54 @@ fun HomeScreen(
                                         mapOf("gameMode" to "VS_BOT")
                                     )
                                 }
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // Accessibility card: the "easy reading" (senior) mode toggle. Mirrors
+            // the web app's toggle; persisted by the caller so the choice sticks.
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = cardColor)
+            ) {
+                Column(modifier = Modifier.padding(if (seniorMode) 20.dp else 16.dp)) {
+                    Text(
+                        text = "4. ACCESSIBILITY \u2014 EASY READING",
+                        modifier = Modifier.fillMaxWidth(),
+                        fontSize = if (seniorMode) 20.sp else 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        style = TextStyle(color = titleColor)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Larger text, larger buttons, higher contrast and slower pacing for comfortable play.",
+                        color = Color(0xFFD7CCC8),
+                        fontSize = if (seniorMode) 17.sp else 13.sp
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OptionChip(
+                            text = "Standard",
+                            subtext = "Default size",
+                            isSelected = !seniorMode,
+                            seniorMode = seniorMode,
+                            onClick = {
+                                if (seniorMode) onSeniorModeChanged(false)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OptionChip(
+                            text = "Senior Mode",
+                            subtext = "Bigger & slower",
+                            isSelected = seniorMode,
+                            seniorMode = seniorMode,
+                            onClick = {
+                                if (!seniorMode) onSeniorModeChanged(true)
                             },
                             modifier = Modifier.weight(1f)
                         )
@@ -259,7 +314,7 @@ fun HomeScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
+                    .height(if (seniorMode) 64.dp else 56.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF5D4037),
                     contentColor = titleColor
@@ -268,7 +323,7 @@ fun HomeScreen(
             ) {
                 Text(
                     text = "\u25B6 START GAME",
-                    fontSize = 18.sp,
+                    fontSize = if (seniorMode) 22.sp else 18.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -287,12 +342,12 @@ fun HomeScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp),
+                    .height(if (seniorMode) 60.dp else 52.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
                     text = "\uD83D\uDCD6 HOW TO PLAY RULES",
-                    fontSize = 16.sp,
+                    fontSize = if (seniorMode) 19.sp else 16.sp,
                     fontWeight = FontWeight.Bold,
                     style = TextStyle(color = accentColor)
                 )
@@ -321,7 +376,8 @@ private fun OptionChip(
     subtext: String,
     isSelected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    seniorMode: Boolean = false
 ) {
     val selectedBg = Color(0xFF5D4037)
     val unselectedBg = Color(0xFF1E1B18)
@@ -340,13 +396,13 @@ private fun OptionChip(
                 shape = RoundedCornerShape(12.dp)
             )
             .clickable(onClick = onClick)
-            .padding(12.dp),
+            .padding(if (seniorMode) 16.dp else 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = text,
             color = if (isSelected) selectedBorder else Color(0xFFFFF8D6),
-            fontSize = 14.sp,
+            fontSize = if (seniorMode) 18.sp else 14.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
         )
@@ -354,7 +410,7 @@ private fun OptionChip(
         Text(
             text = subtext,
             color = if (isSelected) selectedBorder else Color(0xFFB59F7A),
-            fontSize = 11.sp,
+            fontSize = if (seniorMode) 15.sp else 11.sp,
             textAlign = TextAlign.Center
         )
     }

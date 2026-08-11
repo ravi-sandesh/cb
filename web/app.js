@@ -75,6 +75,7 @@ let botTimer = null;      // handle of the scheduled bot turn
 let turnTimer = null;     // 1s auto-advance after a no-valid-moves roll (BUG-02)
 let victoryTimer = null;  // delayed victory banner after a win (BUG-03)
 let turnAdvanceLog = null; // "No valid moves" outcome preserved across the auto-advance (BUG-13)
+let seniorMode = false;   // accessibility "Senior Mode" (bigger UI + relaxed pacing)
 
 const canvas = document.getElementById('board-canvas');
 const ctx    = canvas.getContext('2d');
@@ -144,6 +145,81 @@ function toggleMute() {
     return muted;
 }
 
+// ============================================================
+// SENIOR MODE (accessibility)
+// ------------------------------------------------------------
+// A global "easier reading" toggle for senior players:
+//   - Bigger text/buttons AND bigger board cells (CSS `body.senior-mode`
+//     override + a wider .app-container in styles.css).
+//   - Higher contrast text and a stronger disabled-button style.
+//   - Reduced motion (CSS kills animations/transitions).
+//   - Relaxed pacing: relaxedDelay() stretches every game-flow timeout
+//     (bot turns, the no-move auto-advance, the victory banner) so a slower
+//     reader is never rushed off the screen.
+// Value is persisted in localStorage and re-applied at boot.
+// ============================================================
+const SENIOR_MODE_KEY = 'cb_senior_mode';
+
+// STYLE/FONT details live in styles.css under `body.senior-mode ...`.
+// relaxedDelay(NO_MULT) is only about timing; the 2.5x factor above still
+// leaves the UI responsive while giving about 2x the human reaction window.
+function relaxedDelay(ms) {
+    return seniorMode ? Math.round(ms * 2.5) : ms;
+}
+
+function loadSeniorMode() {
+    let saved = null;
+    try {
+        if (typeof localStorage !== 'undefined') {
+            saved = localStorage.getItem(SENIOR_MODE_KEY);
+        }
+    } catch (e) { /* storage unavailable (SSR/CI) — default off */ }
+    return saved === '1';
+}
+
+function saveSeniorMode() {
+    try {
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(SENIOR_MODE_KEY, seniorMode ? '1' : '0');
+        }
+    } catch (e) { /* ignore storage failures */ }
+}
+
+// Reflect seniorMode on the DOM: the body class drives every CSS override,
+// and the home-screen toggle button mirrors the state (active chip + text).
+function applySeniorModeVisuals() {
+    const bodyEl = (typeof document !== 'undefined') ? document.body : null;
+    if (bodyEl) bodyEl.classList.toggle('senior-mode', seniorMode);
+    const btn = document.getElementById('btn-senior');
+    if (btn) btn.classList.toggle('active', seniorMode);
+    const title = document.getElementById('senior-title');
+    if (title) title.innerText = seniorMode ? 'Senior Mode: ON' : 'Senior Mode: OFF';
+    const sub = document.getElementById('senior-sub');
+    if (sub) sub.innerText = seniorMode ? 'Bigger text & bigger buttons' : 'Tap to turn ON';
+}
+
+function setSeniorMode(flag) {
+    seniorMode = !!flag;
+    saveSeniorMode();
+    applySeniorModeVisuals();
+    T.info('ui', 'config.senior_mode_changed', `Senior mode ${seniorMode ? 'enabled' : 'disabled'}`, { seniorMode });
+    // The player may toggle it mid-game; a pending paced action should keep the
+    // new pace (re-render so the board uses the thicker senior strokes).
+    if (gameActive) {
+        renderBoard();
+        updateUI();
+    }
+}
+
+function toggleSeniorMode() {
+    setSeniorMode(!seniorMode);
+    return seniorMode;
+}
+
+// Boot: restore the persistent setting and apply it to the DOM immediately.
+seniorMode = loadSeniorMode();
+applySeniorModeVisuals();
+
 // Schedule the bot turn coalescing overlapping timers. Only ever called for a
 // bot-controlled player (currentPlayerIndex !== 0 in 'bot' mode) and only while
 // a game is actually active. The pre-existing timer (if any) is cleared first,
@@ -155,7 +231,7 @@ function scheduleBotTurn(ms) {
     botTimer = setTimeout(() => {
         botTimer = null;
         if (gameActive) handleBotTurn();
-    }, ms);
+    }, relaxedDelay(ms)); // senior mode stretches the bot's "thinking" time
 }
 
 // ---------------------------------------------------------------
@@ -178,14 +254,14 @@ function scheduleTurnTimer(ms) {
     turnTimer = setTimeout(() => {
         turnTimer = null;
         advanceTurn();
-    }, ms);
+    }, relaxedDelay(ms)); // senior mode slows the no-move auto-advance pause
 }
 function scheduleVictoryBanner(ms) {
     clearTimeout(victoryTimer);
     victoryTimer = setTimeout(() => {
         victoryTimer = null;
         showVictoryBanner();
-    }, ms);
+    }, relaxedDelay(ms)); // senior mode keeps the victory banner on screen longer
 }
 function clearScheduledTimers() {
     if (botTimer)    { clearTimeout(botTimer);     botTimer = null; }
@@ -666,7 +742,7 @@ function renderBoard() {
             ctx.fillRect(c * cs, r * cs, cs, cs);
 
             ctx.strokeStyle = '#5D4037';
-            ctx.lineWidth   = 2;
+            ctx.lineWidth   = seniorMode ? 3 : 2; // senior mode: bolder grid lines
             ctx.strokeRect(c * cs, r * cs, cs, cs);
 
             if (safe && !center) {
@@ -736,7 +812,8 @@ function renderBoard() {
         const [r, c] = key.split(',').map(Number);
         const cx0 = c * cs + cs / 2;
         const cy0 = r * cs + cs / 2;
-        const pr  = cs * 0.17;
+        const pr  = cs * (seniorMode ? 0.20 : 0.17); // senior mode: chunkier pawns
+        const pw  = seniorMode ? 4 : 3;              // and bolder pawn outlines
 
         const samePlayer = list.every(p => p.playerIndex === list[0].playerIndex);
         const isGattiCell = samePlayer && list.length >= 2;
@@ -773,7 +850,7 @@ function renderBoard() {
             ctx.fill();
 
             ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth   = 3;
+            ctx.lineWidth   = pw;
             ctx.stroke();
 
             ctx.fillStyle   = '#FFFFFF';
@@ -835,5 +912,7 @@ window.startGame      = startGame;
 window.restartGame    = restartGame;
 window.toggleMute     = toggleMute;
 window.handleRoll     = handleRoll;
+window.setSeniorMode  = setSeniorMode;
+window.toggleSeniorMode = toggleSeniorMode;
 
 })();

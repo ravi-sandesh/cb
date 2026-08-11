@@ -42,23 +42,27 @@ fun CowryRollSection(
     canRoll: Boolean,
     onRollRequested: () -> Unit,
     gridSize: GridSize = GridSize.FIVE_BY_FIVE,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    seniorMode: Boolean = false
 ) {
     val rotation = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val numShells = if (gridSize == GridSize.SEVEN_BY_SEVEN) 6 else 4
+    // Senior mode enlarges the roll area (width/height of shells + label fonts)
+    // for the "low vision / fine-motor" accessibility profile.
+    val shellWidth = if (numShells >= 6) (if (seniorMode) 52.dp else 42.dp) else (if (seniorMode) 68.dp else 54.dp)
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(Color(0xFF2C241E), RoundedCornerShape(16.dp))
-            .padding(16.dp),
+            .padding(if (seniorMode) 20.dp else 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = "COWRY SHELLS ROLL",
             color = Color(0xFFFFD54F),
-            fontSize = 14.sp,
+            fontSize = if (seniorMode) 18.sp else 14.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 1.sp
         )
@@ -69,13 +73,12 @@ fun CowryRollSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             val shells = currentRoll?.shells ?: List(numShells) { it % 2 == 0 }
-            val shellWidth = if (numShells >= 6) 42.dp else 54.dp
             for (i in 0 until numShells) {
                 val isOpen = shells.getOrElse(i) { false }
                 CowryShellView(
                     isOpen = isOpen,
                     rotationAngle = rotation.value,
-                    modifier = Modifier.padding(horizontal = 3.dp),
+                    modifier = Modifier.padding(horizontal = if (seniorMode) 4.dp else 3.dp),
                     shellWidth = shellWidth
                 )
             }
@@ -100,7 +103,9 @@ fun CowryRollSection(
                 }
                 onRollRequested()
             },
-            modifier = Modifier.fillMaxWidth(0.7f),
+            modifier = Modifier
+                .fillMaxWidth(if (seniorMode) 0.9f else 0.7f)
+                .height(if (seniorMode) 64.dp else 48.dp),
             enabled = canRoll,
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(
@@ -113,7 +118,7 @@ fun CowryRollSection(
             Text(
                 text = if (canRoll) "\uD83C\uDFB2 ROLL COWRIES" else "MOVE PAWN",
                 fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
+                fontSize = if (seniorMode) 20.sp else 16.sp
             )
         }
 
@@ -127,7 +132,7 @@ fun CowryRollSection(
                 text = currentRoll.label,
                 color = if (currentRoll.isExtraRoll) Color(0xFF76FF03) else Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
+                fontSize = if (seniorMode) 20.sp else 16.sp
             )
         }
     }

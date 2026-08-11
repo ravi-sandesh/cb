@@ -51,7 +51,8 @@ fun GameScreen(
     gridSize: GridSize,
     playerCount: Int,
     gameMode: GameMode,
-    onBackToMenu: () -> Unit
+    onBackToMenu: () -> Unit,
+    seniorMode: Boolean = false
 ) {
     val activeColors = remember(playerCount) {
         // Defensive: the engine requires 2..4 players. If an entry point ever
@@ -90,11 +91,14 @@ fun GameScreen(
         }
         if (isBotTurn && gameEngine.winner == null && !botProcessing) {
             botProcessing = true
-            delay(700)
+            // Senior mode gives the bot a longer "thinking" beat so a slower
+            // player can follow what happened turn by turn (700ms -> 1500ms).
+            val botDelayMs = if (seniorMode) 1500L else 700L
+            delay(botDelayMs)
             if (gameEngine.currentRoll == null) {
                 gameEngine.rollCowries()
             }
-            delay(700)
+            delay(botDelayMs)
             val botMove = gameEngine.getBestBotMove()
             if (botMove != null) {
                 gameEngine.executeMove(botMove)
@@ -152,7 +156,7 @@ fun GameScreen(
                 Text(
                     text = "${gridSize.columns}x${gridSize.columns} CHOKA BARAH",
                     color = headerColor,
-                    fontSize = 16.sp,
+                    fontSize = if (seniorMode) 20.sp else 16.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
@@ -200,7 +204,7 @@ fun GameScreen(
                             text = "TURN: ${currentPlayer.displayName}" +
                                 (if (isBotTurn) " \uD83E\uDD16 (BOT)" else ""),
                             color = Color.White,
-                            fontSize = 16.sp,
+                            fontSize = if (seniorMode) 21.sp else 16.sp,
                             fontWeight = FontWeight.Bold
                         )
 
@@ -209,7 +213,7 @@ fun GameScreen(
                         Text(
                             text = if (isCutUnlocked) "\uD83D\uDD13 INNER UNLOCKED" else "\uD83D\uDD12 CUT REQUIRED",
                             color = if (isCutUnlocked) unlockedColor else headerColor,
-                            fontSize = 12.sp,
+                            fontSize = if (seniorMode) 15.sp else 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -219,6 +223,7 @@ fun GameScreen(
                     BoardCanvas(
                         gameEngine = gameEngine,
                         selectedPawn = selectedPawn,
+                        seniorMode = seniorMode,
                         onCellClicked = { row, col ->
                             if (!isBotTurn && gameEngine.winner == null) {
                                 val matchingMove = gameEngine.validMoves.firstOrNull {
@@ -294,7 +299,7 @@ fun GameScreen(
                     Text(
                         text = "SELECT PAWN TO ADVANCE:",
                         color = headerColor,
-                        fontSize = 14.sp,
+                        fontSize = if (seniorMode) 18.sp else 14.sp,
                         fontWeight = FontWeight.Bold
                     )
 
@@ -323,7 +328,9 @@ fun GameScreen(
                                         selectedPawn = null
                                         stateTrigger++
                                     },
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(if (seniorMode) 56.dp else 40.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = if (isSelected) Color(0xFFFFD54F) else Color(0xFF5D4037),
                                         contentColor = Color(0xFF1E1B18)
@@ -332,7 +339,7 @@ fun GameScreen(
                                 ) {
                                     Text(
                                         text = pawnName + (if (move.grpPawns.size > 1) " [GATTI]" else ""),
-                                        fontSize = 13.sp,
+                                        fontSize = if (seniorMode) 17.sp else 13.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -358,7 +365,8 @@ fun GameScreen(
                     selectedPawn = null
                     stateTrigger++
                 },
-                gridSize = gridSize
+                gridSize = gridSize,
+                seniorMode = seniorMode
             )
 
             Spacer(Modifier.height(16.dp))
@@ -368,7 +376,7 @@ fun GameScreen(
                     "Players: $playerCount   " +
                     "Mode: ${if (gameMode == GameMode.PASS_AND_PLAY) "Pass & Play" else "vs Bot"}",
                 color = Color.White,
-                fontSize = 12.sp,
+                fontSize = if (seniorMode) 15.sp else 12.sp,
                 textAlign = TextAlign.Center
             )
         }
@@ -451,7 +459,7 @@ fun GameScreen(
                 Text(
                     text = "Player ${winner.displayName} has navigated all pawns to the Center Home!",
                     color = Color.White,
-                    fontSize = 16.sp
+                    fontSize = if (seniorMode) 19.sp else 16.sp
                 )
             },
             containerColor = cardColor,

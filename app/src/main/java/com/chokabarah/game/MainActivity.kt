@@ -1,5 +1,6 @@
 package com.chokabarah.game
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -8,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import com.chokabarah.game.engine.GameMode
 import com.chokabarah.game.engine.GridSize
 import com.chokabarah.game.telemetry.Telemetry
@@ -66,8 +68,29 @@ enum class ScreenState {
     PLAYING
 }
 
+// Senior mode ("easy reading") persistence keys and helpers. The setting is
+// shared with nothing else in the app; a simple SharedPreferences boolean is
+// enough and survives activity recreation / app restarts.
+private const val PREFS_NAME = "cb_prefs"
+private const val KEY_SENIOR_MODE = "cb_senior_mode"
+
+private fun readSeniorMode(context: Context): Boolean =
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .getBoolean(KEY_SENIOR_MODE, false)
+
+private fun writeSeniorMode(context: Context, enabled: Boolean) {
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean(KEY_SENIOR_MODE, enabled)
+        .apply()
+}
+
 @Composable
 fun ChokaBarahApp() {
+    val context = LocalContext.current
+    // Restore the persisted accessibility preference so a player who enabled it
+    // never has to hunt for the toggle again on the next launch.
+    var seniorMode by remember { mutableStateOf(readSeniorMode(context)) }
     var screenState by remember { mutableStateOf(ScreenState.HOME) }
     var selectedGridSize by remember { mutableStateOf(GridSize.FIVE_BY_FIVE) }
     var selectedPlayerCount by remember { mutableStateOf(2) }
@@ -76,6 +99,19 @@ fun ChokaBarahApp() {
     when (screenState) {
         ScreenState.HOME -> {
             HomeScreen(
+                seniorMode = seniorMode,
+                onSeniorModeChanged = { flag ->
+                    // Persist immediately so the choice sticks even if the app
+                    // is closed from the home screen.
+                    seniorMode = flag
+                    writeSeniorMode(context, flag)
+                    Telemetry.info(
+                        "ui.config",
+                        "config.senior_mode_changed",
+                        "Senior mode ${if (flag) "enabled" else "disabled"}",
+                        mapOf("seniorMode" to flag)
+                    )
+                },
                 onStartGame = { gridSize, playerCount, gameMode ->
                     selectedGridSize = gridSize
                     selectedPlayerCount = playerCount
@@ -90,6 +126,7 @@ fun ChokaBarahApp() {
                 gridSize = selectedGridSize,
                 playerCount = selectedPlayerCount,
                 gameMode = selectedGameMode,
+                seniorMode = seniorMode,
                 onBackToMenu = {
                     screenState = ScreenState.HOME
                 }

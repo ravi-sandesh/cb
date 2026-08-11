@@ -15,12 +15,13 @@ class GameScreenTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private fun setGameScreen(gridSize: GridSize = GridSize.FIVE_BY_FIVE, mode: GameMode = GameMode.PASS_AND_PLAY) {
+    private fun setGameScreen(gridSize: GridSize = GridSize.FIVE_BY_FIVE, mode: GameMode = GameMode.PASS_AND_PLAY, seniorMode: Boolean = false) {
         composeRule.setContent {
             GameScreen(
                 gridSize = gridSize,
                 playerCount = 2,
                 gameMode = mode,
+                seniorMode = seniorMode,
                 onBackToMenu = {}
             )
         }
@@ -71,6 +72,17 @@ class GameScreenTest {
             )
         }
         composeRule.onNodeWithText("5x5 CHOKA BARAH").assertIsDisplayed()
+    }
+
+    @Test
+    fun testGameScreenRendersInSeniorMode() {
+        // Senior mode is a scaling profile (larger fonts/targets, slower bot);
+        // the core screen content must stay intact and identical when enabled.
+        setGameScreen(seniorMode = true)
+        composeRule.onNodeWithText("5x5 CHOKA BARAH").assertIsDisplayed()
+        composeRule.onNodeWithText("TURN: Red (South)").assertIsDisplayed()
+        composeRule.onNodeWithText("COWRY SHELLS ROLL").assertIsDisplayed()
+        composeRule.onNodeWithText("⚙ MENU").assertIsDisplayed()
     }
 
     @Test

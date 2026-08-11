@@ -64,3 +64,38 @@ test.describe('Gameplay interaction', () => {
     expect(box.x).toBeGreaterThanOrEqual(0);
   });
 });
+
+test.describe('Senior mode accessibility toggle', () => {
+  test('toggles the body class, updates the chip, and persists across reload', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#btn-senior')).toBeVisible();
+    await expect(page.locator('#senior-title')).toHaveText('Senior Mode: OFF');
+
+    // Turn senior mode on: body gets the class and the chip label flips.
+    await page.click('#btn-senior');
+    await expect(page.locator('#senior-title')).toHaveText('Senior Mode: ON');
+    let on = await page.evaluate(() => document.body.classList.contains('senior-mode'));
+    expect(on).toBe(true);
+
+    // The choice is persisted, so a full reload restores it.
+    await page.reload();
+    on = await page.evaluate(() => document.body.classList.contains('senior-mode'));
+    expect(on).toBe(true);
+
+    // And the toggle still turns it back off.
+    await page.click('#btn-senior');
+    await expect(page.locator('#senior-title')).toHaveText('Senior Mode: OFF');
+    on = await page.evaluate(() => document.body.classList.contains('senior-mode'));
+    expect(on).toBe(false);
+  });
+
+  test('senior mode keeps the game playable end-to-end', async ({ page }) => {
+    await page.goto('/');
+    await page.click('#btn-senior');
+    await page.click('#btn-start');
+    await expect(page.locator('#game-screen')).toHaveClass(/active/);
+    await expect(page.locator('#board-canvas')).toBeVisible();
+    await page.click('#btn-roll');
+    await expect(page.locator('#roll-score-display')).not.toHaveText('');
+  });
+});

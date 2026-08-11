@@ -62,4 +62,17 @@ class HomeScreenTest {
         composeRule.onNodeWithText("▶ START GAME").assertIsDisplayed()
         composeRule.onNodeWithText("📖 HOW TO PLAY RULES").assertIsDisplayed()
     }
+
+    @Test
+    fun testHomeScreenDisplaysAccessibilitySection() {
+        composeRule.setContent {
+            ChokaBarahApp()
+        }
+
+        // Senior mode card: the accessibility section (added with Senior Mode)
+        // must render its header plus the Standard / Senior Mode toggle chips.
+        composeRule.onNodeWithText("4. ACCESSIBILITY — EASY READING").assertIsDisplayed()
+        composeRule.onNodeWithText("Standard").assertIsDisplayed()
+        composeRule.onNodeWithText("Senior Mode").assertIsDisplayed()
+    }
 }

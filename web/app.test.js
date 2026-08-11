@@ -104,6 +104,19 @@ function useRealTimers() {
   globalThis.clearTimeout = realClearTimeout;
 }
 
+// Minimal localStorage mock: Node has none, but app.js guards with
+// `typeof localStorage !== 'undefined'`. Providing it exercises the
+// persistence branches (load/save senior mode).
+const fakeStorage = (() => {
+  let store = {};
+  return {
+    getItem(k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+    setItem(k, v) { store[k] = String(v); },
+    _reset() { store = {}; }
+  };
+})();
+globalThis.localStorage = fakeStorage;
+
 // app.js calls the engine's global `T` (a shared-script top-level const in
 // game-engine.js). In CommonJS that binding isn't visible, so provide it on
 // globalThis for the app IIFE.
@@ -120,6 +133,7 @@ function boot() {
 
   const w = {};
   const document = {
+    body: makeElement('body'),
     getElementById: (id) => holder.docEls[id] || (holder.docEls[id] = makeElement(id)),
     createElement: (tag) => makeElement(`${tag}_${holder._eltSeq++}`)
   };
@@ -160,11 +174,13 @@ function fresh() {
 afterEach(() => {
   useRealTimers();
   restoreMathRandom();
+  fakeStorage._reset();
 });
 
 describe('app.js UI bootstrap (browser harness)', () => {
   const handlers = ['setGridSize','setPlayers','setGameMode','openRules','closeRules',
-    'showHomeScreen','startGame','restartGame','toggleMute','handleRoll'];
+    'showHomeScreen','startGame','restartGame','toggleMute','handleRoll',
+    'setSeniorMode','toggleSeniorMode'];
 
   test('exposes all inline onclick handlers on window', () => {
     const { w } = fresh();
@@ -484,6 +500,127 @@ describe('BUG-13 no-valid-moves reason survives the auto-advance', () => {
     } finally {
       w.ChokaBarahEngine.calculateValidMoves = orig;
     }
+  });
+});
+
+describe('senior mode (accessibility)', () => {
+  test('toggleSeniorMode flips the body class and the home-screen toggle chip', () => {
+    const { w, document } = fresh();
+    w.setSeniorMode(false); // normalize after any earlier test left it on
+    expect(document.body.classList._set['senior-mode']).toBe(false);
+
+    expect(w.toggleSeniorMode()).toBe(true);
+    expect(document.body.classList._set['senior-mode']).toBe(true);
+    expect(holder.docEls['btn-senior'].classList._set.active).toBe(true);
+    expect(holder.docEls['senior-title']._innerText).toBe('Senior Mode: ON');
+    expect(holder.docEls['senior-sub']._innerText).toContain('Bigger');
+
+    expect(w.toggleSeniorMode()).toBe(false);
+    expect(document.body.classList._set['senior-mode']).toBe(false);
+    expect(holder.docEls['senior-title']._innerText).toBe('Senior Mode: OFF');
+  });
+
+  test('no-move auto-advance keeps the standard 1000ms delay when senior mode is OFF', () => {
+    let lastMs = 0;
+    globalThis.setTimeout = (fn, ms) => { lastMs = ms; return 1; };
+    globalThis.clearTimeout = () => {};
+    const { w } = fresh();
+    w.setGridSize(5);
+    w.setPlayers(2);
+    w.setGameMode('pnp');
+    w.setSeniorMode(false);
+    w.startGame();
+    const orig = w.ChokaBarahEngine.calculateValidMoves;
+    w.ChokaBarahEngine.calculateValidMoves = () => [];
+    try {
+      useScriptedRandom([0.6, 0.1, 0.1, 0.1]); // score 1 (non-extra)
+      w.handleRoll();
+      expect(lastMs).toBe(1000);
+    } finally {
+      w.ChokaBarahEngine.calculateValidMoves = orig;
+    }
+  });
+
+  test('senior mode relaxes the no-move auto-advance delay to 2.5x (1000 -> 2500)', () => {
+    let lastMs = 0;
+    globalThis.setTimeout = (fn, ms) => { lastMs = ms; return 1; };
+    globalThis.clearTimeout = () => {};
+    const { w } = fresh();
+    w.setGridSize(5);
+    w.setPlayers(2);
+    w.setGameMode('pnp');
+    w.setSeniorMode(true);
+    w.startGame();
+    const orig = w.ChokaBarahEngine.calculateValidMoves;
+    w.ChokaBarahEngine.calculateValidMoves = () => [];
+    try {
+      useScriptedRandom([0.6, 0.1, 0.1, 0.1]);
+      w.handleRoll();
+      expect(lastMs).toBe(2500);
+    } finally {
+      w.ChokaBarahEngine.calculateValidMoves = orig;
+    }
+  });
+
+  test('setSeniorMode mid-game re-renders the board without throwing', () => {
+    const { w } = fresh();
+    w.startGame();
+    expect(() => w.setSeniorMode(true)).not.toThrow();
+    expect(() => w.setSeniorMode(false)).not.toThrow();
+  });
+
+  test('setSeniorMode off the board (game inactive) skips the live re-render', () => {
+    const { w } = fresh();
+    w.startGame();
+    w.showHomeScreen(); // sets gameActive = false
+    expect(() => w.setSeniorMode(true)).not.toThrow();
+    expect(() => w.setSeniorMode(false)).not.toThrow();
+  });
+
+  test('boot restores a persisted senior-mode setting and tolerates a missing toggle chip', () => {
+    jest.isolateModules(() => {
+      fakeStorage._reset();
+      fakeStorage.setItem('cb_senior_mode', '1'); // persisted ON before boot
+      const prevWin = globalThis.window;
+      const prevDoc = globalThis.document;
+      const mkEl = () => ({
+        className: '', style: {}, disabled: false, innerText: '', children: [],
+        classList: { _set: {}, add(c){ this._set[c]=true; }, remove(c){ delete this._set[c]; }, toggle(c, on){ this._set[c] = on === undefined ? !this._set[c] : !!on; } },
+        addEventListener() {}, appendChild() {},
+        getContext: () => new Proxy({}, { get(t,p){ if(p in t) return t[p]; return ()=>{}; }, set(t,p,v){ t[p]=v; return true; } })
+      });
+      const doc = {
+        body: mkEl(),
+        getElementById: (id) => {
+          if (id === 'board-canvas') { const c = mkEl(); c.width = 400; c.height = 400; return c; }
+          // 'btn-senior' / 'senior-title' / 'senior-sub' absent -> null (boot
+          // visuals must not throw when the toggle chip is missing from the page).
+          if (id === 'btn-senior' || id === 'senior-title' || id === 'senior-sub') return null;
+          return mkEl();
+        },
+        createElement: () => mkEl()
+      };
+      globalThis.window = {};
+      globalThis.document = doc;
+      // app.js delegates board maths to engine globals; give it a real engine so
+      // setSeniorMode's mid-game re-render (renderBoard/updateUI) can run.
+      globalThis.window.ChokaBarahEngine = require('./game-engine.js');
+      try {
+        expect(() => require('./app.js')).not.toThrow();
+        const w = globalThis.window;
+        expect(typeof w.setSeniorMode).toBe('function');
+        expect(typeof w.toggleSeniorMode).toBe('function');
+        // The persisted '1' was applied at boot -> senior visuals are live.
+        expect(doc.body.classList._set['senior-mode']).toBe(true);
+        // Toggling off with a null-returning document is tolerated.
+        expect(() => w.setSeniorMode(false)).not.toThrow();
+        expect(doc.body.classList._set['senior-mode']).toBe(false);
+      } finally {
+        if (prevWin !== undefined) globalThis.window = prevWin; else delete globalThis.window;
+        if (prevDoc !== undefined) globalThis.document = prevDoc; else delete globalThis.document;
+        fakeStorage._reset();
+      }
+    });
   });
 });
 

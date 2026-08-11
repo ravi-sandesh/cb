@@ -457,3 +457,71 @@ body {
     border-radius: 4px;
     letter-spacing: 1px;
 }
+
+/* ============================================================
+   SENIOR MODE (accessibility)
+   ------------------------------------------------------------
+   Driven by `body.senior-mode` (toggled in app.js). Goes back to a
+   larger canvas, bigger type/buttons, higher contrast and reduced
+   motion so the game is comfortable for senior players.
+   ============================================================ */
+
+body.senior-mode {
+    background-color: #000000;
+    font-size: 20px;
+}
+
+body.senior-mode .app-container {
+    max-width: 640px;               /* wider board -> bigger cells */
+    background-color: #141210;
+}
+
+/* Reduced motion: strip the roll glow + hover/motion transforms. */
+body.senior-mode .app-container * {
+    animation: none !important;
+    transition: none !important;
+}
+
+/* Help text that explains the toggle. */
+.senior-desc {
+    color: #D7CCC8;
+    font-size: 13px;
+    line-height: 1.5;
+    margin-bottom: 10px;
+}
+
+/* Home screen sizing */
+body.senior-mode .logo-area h1    { font-size: 42px; }
+body.senior-mode .tagline         { font-size: 15px; }
+body.senior-mode .card-section h2 { font-size: 18px; }
+body.senior-mode .senior-desc     { font-size: 17px; }
+body.senior-mode .chip             { padding: 18px 8px; }
+body.senior-mode .chip-title       { font-size: 19px; }
+body.senior-mode .chip-sub         { font-size: 16px; }
+body.senior-mode .btn-primary      { padding: 22px; font-size: 22px; }
+body.senior-mode .btn-secondary    { padding: 18px; font-size: 18px; }
+
+/* Game screen sizing */
+body.senior-mode .btn-sm           { padding: 10px 16px; font-size: 16px; }
+body.senior-mode .header-bar h1    { font-size: 20px; }
+body.senior-mode .turn-banner      { font-size: 19px; padding: 14px 18px; }
+body.senior-mode .badge            { font-size: 15px; }
+body.senior-mode .game-log         { font-size: 18px; line-height: 1.5; }
+body.senior-mode .select-label     { font-size: 16px; }
+body.senior-mode .pawn-btn         { padding: 12px 16px; font-size: 16px; }
+body.senior-mode .cowry-title      { font-size: 16px; }
+body.senior-mode .shell            { width: 58px; height: 68px; }
+body.senior-mode .btn-roll         { padding: 18px; font-size: 20px; width: 92%; }
+body.senior-mode .roll-score-display { font-size: 24px; }
+body.senior-mode .player-chip      { font-size: 16px; padding: 8px 16px; }
+
+/* Higher contrast microcopy that is otherwise dim. */
+body.senior-mode .game-log         { color: #FFF1E6; }
+body.senior-mode .chip-sub         { color: #E0CFC0; }
+body.senior-mode .btn-roll:disabled {
+    background: #6D4C41;
+    color: #F0E4DA;                 /* readable, not grey-on-brown */
+}
+body.senior-mode .modal-content h2 { font-size: 24px; }
+body.senior-mode .rules-body p     { font-size: 18px; line-height: 1.7; }
+body.senior-mode .modal-content .btn-primary { padding: 18px; font-size: 18px; }
