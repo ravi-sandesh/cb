@@ -30,6 +30,7 @@ web/coverage/
 web/test-results/
 web/playwright-report/
 web/.env
+web/online-dev.db
 npm-debug.log*
 
 # OS

@@ -246,7 +246,7 @@ describe('BUG-04 victory disables the roll button — FIXED', () => {
 describe('BUG-05 no-valid-moves roll leaves — FIXED', () => {
     test('non-extra no-valid branch disables btn-roll before the auto-advance', () => {
         const body = appSrc();
-        const fn = body.slice(body.indexOf('function handleRoll'), body.indexOf('function renderCowryShells')).slice(0, 4000);
+        const fn = body.slice(body.indexOf('function handleRoll'), body.indexOf('function renderCowryShells')).slice(0, 6000);
         // the non-extra no-valid path must disable the button and use the tracked timer
         expect(fn).toMatch(/btn-roll[\s\S]{0,120}disabled = true[\s\S]{0,300}scheduleTurnTimer\(1000\)/);
     });

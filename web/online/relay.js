@@ -52,7 +52,11 @@ class Relay {
       'Upgrade: websocket\r\n' +
       'Connection: Upgrade\r\n' +
       `Sec-WebSocket-Accept: ${acceptKey(key)}\r\n` +
-      `Sec-WebSocket-Protocol: chokabarah\r\n\r\n`
+      // RFC 6455: echo the subprotocol only if the client offered it.
+      (req.headers['sec-websocket-protocol']
+        ? 'Sec-WebSocket-Protocol: chokabarah\r\n'
+        : '') +
+      '\r\n'
     );
 
     socket.on('data', (chunk) => {

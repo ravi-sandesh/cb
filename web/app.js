@@ -77,6 +77,12 @@ let victoryTimer = null;  // delayed victory banner after a win (BUG-03)
 let turnAdvanceLog = null; // "No valid moves" outcome preserved across the auto-advance (BUG-13)
 let seniorMode = false;   // accessibility "Senior Mode" (bigger UI + relaxed pacing)
 
+// ---- Online mode state (web/online-client.js transport) ----
+let onlineSeat = -1;          // my server seat: 0 host / 1 guest, -1 until joined
+let onlineMemberCount = 0;    // players currently seated in the room
+let onlineLocked = false;     // a server move/roll is in flight; block local input
+let onlineBoardReady = false; // at least one authoritative board has been applied
+
 const canvas = document.getElementById('board-canvas');
 const ctx    = canvas.getContext('2d');
 
@@ -97,6 +103,10 @@ function setGameMode(m) {
     gameMode = m;
     document.getElementById('btn-mode-pnp').classList.toggle('active', m === 'pnp');
     document.getElementById('btn-mode-bot').classList.toggle('active', m === 'bot');
+    document.getElementById('btn-mode-online').classList.toggle('active', m === 'online');
+    const card = document.getElementById('online-card');
+    if (card) card.style.display = m === 'online' ? '' : 'none';
+    if (m === 'online') refreshOnlineSections();
 }
 function openRules()  { T.info('ui', 'rules.opened', 'Rules modal opened', {}); document.getElementById('rules-modal').classList.remove('hidden'); }
 function closeRules() { T.info('ui', 'rules.closed', 'Rules modal closed', {}); document.getElementById('rules-modal').classList.add('hidden'); }
@@ -111,12 +121,22 @@ function showHomeScreen() {
     document.getElementById('game-screen').classList.remove('active');
 }
 function startGame() {
+    clearScheduledTimers();
+    // Online: state is server-authoritative. If we aren't seated yet, direct
+    // the player to the lobby; otherwise the board broadcast drives the screen.
+    if (gameMode === 'online') {
+        if (onlineSeat === -1) {
+            setOnlineStatus('Create or join a room from the Online panel first.', true);
+            return;
+        }
+        startOnlineGame();
+        return;
+    }
     // BUG-02/03/07 defense-in-depth: startGame can be reached without passing
     // through showHomeScreen (e.g. first cold-load of the page), so clear any
     // timers carried from a previous session before the fresh game begins. This
     // is cheap and idempotent — clearScheduledTimers() just Cancels registered
     // handles that may not exist.
-    clearScheduledTimers();
     T.info('session', 'game.started', `Game started: ${currentGridSize}x${currentGridSize}, ${playerNum} players, mode=${gameMode}`,
         { gridSize: currentGridSize, playerNum, gameMode, sessionId: T.getSessionId ? T.getSessionId() : undefined });
     gameActive = true;
@@ -132,6 +152,11 @@ function restartGame() {
     // Cancel any scheduled game timers (bot turn, no-move advance, victory
     // banner) so none can fire into the fresh game (BUG-02/BUG-03/BUG-07).
     clearScheduledTimers();
+    // Online matches cannot be locally reset — the server owns the game state.
+    if (gameMode === 'online') {
+        setOnlineStatus(gameActive ? 'This online match cannot be restarted locally.' : '', true);
+        return;
+    }
     initGameState();
     renderBoard();
 }
@@ -144,6 +169,200 @@ function toggleMute() {
     T.info('ui', 'sound.toggled', `Sound ${muted ? 'muted' : 'unmuted'}`, { muted });
     return muted;
 }
+
+// ============================================================
+// ONLINE MODE (auth + lobby + server-authoritative play)
+// ------------------------------------------------------------
+// Transport lives in web/online-client.js (window.OnlineClient).
+// The app delegates every ROLL / MOVE to the server relay; the
+// authoritative board is applied back through applyServerBoard().
+// Local game-state mutations (initGameState / local roll / local
+// executeMove) are bypassed while online so the two clients can
+// never diverge. Telemetry events still fire for analytics.
+// ============================================================
+
+function onlineClient() {
+    return (typeof window !== 'undefined' && window.OnlineClient) || null;
+}
+
+function setOnlineStatus(msg, isError) {
+    const el = document.getElementById('online-status');
+    if (el) {
+        el.innerText = String(msg);
+        el.classList.toggle('error', !!isError);
+    }
+}
+
+function refreshOnlineSections() {
+    const oc = onlineClient();
+    const authed = !!oc && !!oc.token;
+    const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+    show('online-auth', !authed);
+    show('online-authed', authed && onlineSeat !== 1);
+    show('online-guest', authed && onlineSeat === 1);
+}
+
+function showOnlineWaiting(on) {
+    const el = document.getElementById('online-waiting');
+    if (el) el.style.display = on ? '' : 'none';
+    if (on) {
+        const oc = onlineClient();
+        const codeEl = document.getElementById('online-room-code-display');
+        if (codeEl && oc) codeEl.innerText = oc.code || '??????';
+    }
+}
+
+async function onlineLogin() {
+    const oc = onlineClient();
+    if (!oc) { setOnlineStatus('Online is unavailable.', true); return; }
+    const u = document.getElementById('online-username');
+    const p = document.getElementById('online-password');
+    const ok = await oc.login(u ? u.value : '', p ? p.value : '');
+    if (ok) refreshOnlineSections();
+}
+
+async function onlineRegister() {
+    const oc = onlineClient();
+    if (!oc) { setOnlineStatus('Online is unavailable.', true); return; }
+    const u = document.getElementById('online-username');
+    const p = document.getElementById('online-password');
+    const ok = await oc.register(u ? u.value : '', p ? p.value : '');
+    if (ok) refreshOnlineSections();
+}
+
+async function onlineLogout() {
+    const oc = onlineClient();
+    if (oc) await oc.logout();
+    onlineSeat = -1;
+    onlineMemberCount = 0;
+    refreshOnlineSections();
+}
+
+async function onlineCreateRoom() {
+    const oc = onlineClient();
+    if (!oc) { setOnlineStatus('Online is unavailable.', true); return; }
+    const code = await oc.createRoom(currentGridSize);
+    if (code) showOnlineWaiting(true);
+}
+
+async function onlineJoinRoom() {
+    const oc = onlineClient();
+    if (!oc) { setOnlineStatus('Online is unavailable.', true); return; }
+    const input = document.getElementById('online-room-code');
+    await oc.joinRoom(input ? input.value : '');
+}
+
+// Flip to the game screen once both players are seated.
+function startOnlineGame() {
+    if (onlineSeat === -1) return;
+    onlineMemberCount = 2; // both seated; relay confirmed
+    gameActive = true;
+    clearScheduledTimers();
+    document.getElementById('home-screen').classList.remove('active');
+    document.getElementById('game-screen').classList.add('active');
+    document.getElementById('board-title').innerText = `${currentGridSize}x${currentGridSize} CHOKA BARAH — ONLINE`;
+    Sound.play('game_start');
+    renderBoard();
+    updateUI();
+}
+
+// Apply a server-authoritative board to the local view. No game rules are
+// run here — the relay already rolled/moved and the result is trusted.
+function applyServerBoard(board) {
+    if (!board) return;
+    onlineBoardReady = true;
+    currentGridSize = board.gridSize || currentGridSize;
+    playerNum = board.playerNum || 2;
+    pawns = (board.pawns || []).map(p => Object.assign({}, p));
+    hasCapturedOpponent = Object.assign({}, board.hasCapturedOpponent || {});
+    currentPlayerIndex = (board.currentPlayerIndex === undefined) ? 0 : board.currentPlayerIndex;
+    const scText = board.currentRoll ? (board.currentRoll.scoreText || board.currentRoll.score) : '';
+    currentRoll = board.currentRoll ? {
+        shells: board.currentRoll.shells || [],
+        score: board.currentRoll.score,
+        isExtraRoll: !!board.currentRoll.isExtraRoll,
+        scoreText: scText
+    } : null;
+    validMoves = (board.validMoves || []).map(m => ({
+        grpPawns: (m.pawnIds || []).map(id => pawns.find(p => p.id === id)).filter(Boolean),
+        targetCoords: m.targetCoords,
+        isCapture: m.isCapture,
+        reachesHome: m.reachesHome,
+        isGattiGroup: !!m.isGattiGroup
+    }));
+    winner = (board.winner === null || board.winner === undefined) ? null : playerColors[board.winner];
+
+    if (winner !== null) {
+        currentRoll = null;
+        validMoves = [];
+        clearRollDisplay();
+        document.getElementById('btn-roll').disabled = true;
+    } else {
+        // Roll stays gated: only the seated player, on their turn, BEFORE a
+        // roll exists, may roll. When a roll is pending they must move instead.
+        const canRoll = (onlineSeat === currentPlayerIndex && currentRoll === null);
+        document.getElementById('btn-roll').disabled = !canRoll;
+        if (currentRoll !== null) {
+            renderCowryShells(currentRoll.shells);
+            const sd = document.getElementById('roll-score-display');
+            sd.innerText = String(currentRoll.scoreText);
+            sd.classList.toggle('is-extra', !!currentRoll.isExtraRoll);
+        } else {
+            renderCowryShells(null);
+            clearRollDisplay();
+        }
+    }
+
+    renderBoard();
+    updateUI();
+
+    const myTurn = (onlineSeat === currentPlayerIndex && winner === null);
+    if (winner !== null) {
+        setLog(`🎉 VICTORY! ${winner.name} has moved all 4 pawns to Center Home!`);
+    } else if (myTurn) {
+        setLog(currentRoll !== null ? `Rolled ${currentRoll.scoreText}! Select a pawn to move.` : `Your turn! Roll cowries!`);
+    } else {
+        setLog(`${playerColors[currentPlayerIndex].name}'s turn. Waiting for the opponent…`);
+    }
+}
+
+// ---- OnlineClient delegate registration (idempotent at boot) ----
+function setupOnlineClient() {
+    const oc = onlineClient();
+    if (!oc) return;
+
+    oc.onStatus((msg, isErr) => setOnlineStatus(msg, isErr));
+    oc.onJoined(({ playerIndex, gridSize }) => {
+        onlineSeat = playerIndex;
+        if (gridSize) currentGridSize = gridSize;
+        refreshOnlineSections();
+        if (playerIndex === 0) {
+            showOnlineWaiting(true);
+            setOnlineStatus('Room created! Share the code above — waiting for an opponent…');
+        } else {
+            showOnlineWaiting(false);
+            setOnlineStatus('Joined the room! Waiting for the host…');
+        }
+    });
+    oc.onPeerCount(({ count, playerNum }) => {
+        onlineMemberCount = count;
+        if (count >= (playerNum || 2)) startOnlineGame();
+    });
+    oc.onBoard(board => applyServerBoard(board));
+    oc.onError(() => { /* status is already surfaced via onStatus */ });
+    oc.onPeerLeft(() => {
+        setOnlineStatus(gameActive ? 'Opponent left the game.' : 'Opponent left the lobby.', true);
+        if (gameActive) showHomeScreen();
+    });
+    oc.onGameOver(() => { /* victory is rendered from the final board */ });
+    oc.onClosed(() => {
+        setOnlineStatus(gameActive ? 'Disconnected from the match.' : 'Disconnected.', true);
+        refreshOnlineSections();
+    });
+}
+
+setupOnlineClient();
+refreshOnlineSections();
 
 // ============================================================
 // SENIOR MODE (accessibility)
@@ -357,6 +576,14 @@ function handleRoll() {
         if (spanId && T.endSpan) T.endSpan(spanId, { outcome: 'ignored' });
         return;
     }
+    if (gameMode === 'online') {
+        // The relay owns the dice; we only surface intent and wait for the board.
+        const oc = onlineClient();
+        if (!oc) return;
+        oc.roll();
+        if (spanId && T.endSpan) T.endSpan(spanId, { outcome: 'sent' });
+        return;
+    }
 
     const n = numShells();
     const shells = Array.from({length: n}, () => Math.random() > 0.5);
@@ -458,6 +685,13 @@ function calculateValidMoves(score) {
 // rule engine identical to the code covered by the test suite.
 // ============================================================
 function executeMove(move) {
+    if (gameMode === 'online') {
+        // The relay validates and applies the move; the result returns as a
+        // board broadcast. Nothing is mutated locally (server-authoritative).
+        const oc = onlineClient();
+        oc && oc.move(move);
+        return;
+    }
     const spanId = T.startSpan ? T.startSpan('move', { player: currentPlayerIndex, target: move.targetCoords }) : null;
     const [tr, tc] = move.targetCoords;
 
@@ -694,7 +928,11 @@ function updateUI() {
     const btnContainer = document.getElementById('pawn-buttons-container');
     btnContainer.innerHTML = '';
 
-    if (validMoves.length > 0 && !isBot && winner === null) {
+    // In online mode buttons render only for the seated player's turn — the
+    // authoritative validMoves belong to whoever the relay says is moving.
+    const onlineMyTurn = (gameMode === 'online') ? (currentPlayerIndex === onlineSeat) : true;
+
+    if (validMoves.length > 0 && !isBot && winner === null && onlineMyTurn) {
         selectBar.classList.remove('hidden');
         validMoves.forEach(move => {
             const btn = document.createElement('button');
@@ -876,6 +1114,7 @@ function renderBoard() {
 canvas.addEventListener('click', e => {
     if (!gameActive || winner !== null) return;
     if (gameMode === 'bot' && currentPlayerIndex !== 0) return;
+    if (gameMode === 'online' && currentPlayerIndex !== onlineSeat) return;
 
     const rect   = canvas.getBoundingClientRect();
     const scaleX = canvas.width  / rect.width;
@@ -914,5 +1153,11 @@ window.toggleMute     = toggleMute;
 window.handleRoll     = handleRoll;
 window.setSeniorMode  = setSeniorMode;
 window.toggleSeniorMode = toggleSeniorMode;
+// Online lobby (auth + rooms). Transport is window.OnlineClient (online-client.js).
+window.onlineLogin     = onlineLogin;
+window.onlineRegister  = onlineRegister;
+window.onlineLogout    = onlineLogout;
+window.onlineCreateRoom = onlineCreateRoom;
+window.onlineJoinRoom  = onlineJoinRoom;
 
 })();

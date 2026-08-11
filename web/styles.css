@@ -153,6 +153,72 @@ body {
     margin-top: 10px;
 }
 
+/* ---- Online lobby (auth + room create/join) ---- */
+.online-chip-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+.online-join-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+.online-join-row .online-input {
+    flex: 1;
+}
+.online-input {
+    background: #1E1B18;
+    border: 1px solid #4E342E;
+    border-radius: 12px;
+    padding: 12px;
+    color: #FFFFFF;
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    outline: none;
+}
+.online-input::placeholder {
+    color: #8D6E63;
+    font-weight: 400;
+    letter-spacing: 0.5px;
+}
+.online-input:focus {
+    border-color: #FFD54F;
+}
+.online-status {
+    font-size: 13px;
+    font-weight: 700;
+    color: #76FF03;
+    margin-top: 10px;
+    min-height: 16px;
+}
+.online-status.error {
+    color: #FF8A65;
+}
+.online-wait-text {
+    font-size: 14px;
+    font-weight: 700;
+    color: #FFD54F;
+    margin-top: 10px;
+}
+.online-code-display {
+    font-size: 14px;
+    font-weight: 700;
+    color: #D7CCC8;
+    margin-top: 6px;
+}
+.online-code-display b {
+    color: #FFD54F;
+    font-size: 20px;
+    letter-spacing: 3px;
+}
+body.senior-mode .online-input      { font-size: 17px; padding: 14px; }
+body.senior-mode .online-status     { font-size: 16px; }
+body.senior-mode .online-wait-text  { font-size: 17px; }
+body.senior-mode .online-code-display { font-size: 16px; }
+
 .btn-sm {
     background: #2C241E;
     border: 1px solid #FFB74D;

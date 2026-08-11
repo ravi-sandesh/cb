@@ -31,6 +31,7 @@
       "server.js",
       "sound.js",
       "telemetry.js",
+      "online-client.js",
       "online/**/*.js",
       "!online/**/*.test.js"
     ],
@@ -106,13 +107,20 @@
         "branches": 70,
         "functions": 75,
         "lines": 82
+      },
+      "online-client.js": {
+        "statements": 90,
+        "branches": 78,
+        "functions": 90,
+        "lines": 90
       }
     },
     "coverageDirectory": "coverage",
     "coverageReporters": [
       "text",
       "html",
-      "lcov"
+      "lcov",
+      "json"
     ]
   }
 }

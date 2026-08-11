@@ -60,11 +60,61 @@
                         <span class="chip-title">vs Bot (AI)</span>
                         <span class="chip-sub">Single Player</span>
                     </button>
+                    <button class="chip" id="btn-mode-online" onclick="setGameMode('online')">
+                        <span class="chip-title">Online</span>
+                        <span class="chip-sub">Play a Friend</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="card-section" id="online-card" style="display:none">
+                <h2>4. ONLINE — PLAY A FRIEND</h2>
+                <p class="senior-desc">Sign in, create a room and share its 6-letter code — or enter a friend's code to join. Games play over a server-authoritative WebSocket.</p>
+
+                <div id="online-authed" style="display:none">
+                    <div class="online-chip-row">
+                        <button class="chip" id="btn-create-room" onclick="onlineCreateRoom()">
+                            <span class="chip-title">CREATE ROOM</span>
+                            <span class="chip-sub">Host a 6-letter code</span>
+                        </button>
+                        <button class="chip" id="btn-logout" onclick="onlineLogout()">
+                            <span class="chip-title">LOG OUT</span>
+                        </button>
+                    </div>
+                    <div class="online-join-row">
+                        <input id="online-room-code" class="online-input" placeholder="ROOM CODE" maxlength="6" autocomplete="off">
+                        <button class="btn-secondary" id="btn-join-room" onclick="onlineJoinRoom()">JOIN ROOM</button>
+                    </div>
+                    <p id="online-status" class="online-status"></p>
+                    <div id="online-waiting" style="display:none">
+                        <p class="online-wait-text" id="online-wait-text">Waiting for opponent…</p>
+                        <p class="online-code-display">Your room code: <b id="online-room-code-display"></b></p>
+                    </div>
+                </div>
+
+                <div id="online-guest" style="display:none">
+                    <p class="online-wait-text">You are a guest. Waiting for the host to start…</p>
+                </div>
+
+                <div id="online-auth" style="display:none">
+                    <div class="online-join-row">
+                        <input id="online-username" class="online-input" placeholder="USERNAME" autocomplete="username">
+                        <input id="online-password" class="online-input" type="password" placeholder="PASSWORD" autocomplete="current-password">
+                    </div>
+                    <div class="online-chip-row">
+                        <button class="chip" id="btn-login" onclick="onlineLogin()">
+                            <span class="chip-title">LOG IN</span>
+                        </button>
+                        <button class="chip" id="btn-register" onclick="onlineRegister()">
+                            <span class="chip-title">REGISTER</span>
+                        </button>
+                    </div>
+                    <p id="online-auth-status" class="online-status"></p>
                 </div>
             </div>
 
             <div class="card-section" id="senior-card">
-                <h2>4. ACCESSIBILITY — EASY READING</h2>
+                <h2>5. ACCESSIBILITY — EASY READING</h2>
                 <p class="senior-desc">Bigger text, bigger buttons, higher contrast and slower pacing for comfortable play.</p>
                 <button class="chip" id="btn-senior" onclick="toggleSeniorMode()">
                     <span class="chip-title" id="senior-title">Senior Mode: OFF</span>
@@ -149,6 +199,8 @@
     <script src="game-engine.js"></script>
     <!-- Sound feedback (US-27); must load before app.js -->
     <script src="sound.js"></script>
+    <!-- Online transport (auth + lobby + WS); must load before app.js -->
+    <script src="online-client.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

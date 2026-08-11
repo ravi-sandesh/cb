@@ -1,6 +1,7 @@
 // ============================================================
 // CHOKA BARAH – Playwright config (Web E2E + Accessibility)
-// Phase 5. Runs against the local static server (server.js).
+// Phase 5. Runs against the online server (online-server.js),
+// which also serves the static app on the same port (3111).
 // Only e2e/**/*.spec.js are picked up; Jest keeps *.test.js.
 // ============================================================
 'use strict';
@@ -24,7 +25,7 @@ module.exports = defineConfig({
     screenshot: 'only-on-failure'
   },
   webServer: {
-    command: 'node server.js',
+    command: 'node online/online-server.js',
     url: 'http://localhost:3111/index.html',
     reuseExistingServer: !process.env.CI,
     timeout: 30_000

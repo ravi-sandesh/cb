@@ -50,11 +50,12 @@ function resolveBase() {
 function changedSourceFiles(base) {
   const out = sh(`git diff --name-only ${base} -- "web/*.js" "web/**/*.js"`);
   if (!out) return [];
+  const prefix = 'web' + path.sep;
   const gated = new Set();
   for (const raw of out.split(/\r?\n/)) {
     const rel = raw.replace(/\//g, path.sep);
-    if (!rel.startsWith('web' + path.sep)) continue;          // only web sources
-    const file = rel.slice('web' + path.sep.length);            // e.g. app.js
+    if (!rel.startsWith(prefix)) continue;          // only web sources
+    const file = rel.slice(prefix.length);            // e.g. app.js
     if (file.includes(path.sep + 'node_modules') || file.startsWith('coverage' + path.sep)) continue;
     const baseName = path.basename(file);
     // A source is gated if its repo-relative name (web/online/auth.js ->
