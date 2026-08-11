@@ -26,7 +26,9 @@ const ROOT = path.resolve(__dirname, '..');          // web/
 const REPO = path.resolve(__dirname, '..', '..');    // repo root
 const BRANCH_MIN = Number(process.env.CB_GATE_BRANCH || 90);
 const STMT_MIN = Number(process.env.CB_GATE_STMTS || 90);
-const GATED_SOURCES = ['app.js', 'game-engine.js', 'server.js', 'sound.js', 'telemetry.js'];
+const GATED_SOURCES = ['app.js', 'game-engine.js', 'server.js', 'sound.js', 'telemetry.js',
+  'online/auth.js', 'online/game-server.js', 'online/online-db.js', 'online/online-server.js',
+  'online/relay.js', 'online/ws.js'];
 
 function sh(cmd) {
   return execSync(cmd, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -55,12 +57,16 @@ function changedSourceFiles(base) {
     const file = rel.slice('web' + path.sep.length);            // e.g. app.js
     if (file.includes(path.sep + 'node_modules') || file.startsWith('coverage' + path.sep)) continue;
     const baseName = path.basename(file);
+    // A source is gated if its repo-relative name (web/online/auth.js ->
+    // online/auth.js) OR its basename appears in GATED_SOURCES.
+    const isGated = (name) => GATED_SOURCES.includes(name.replace(/\\/g, '/'));
     if (baseName.endsWith('.test.js')) {
       // A changed test gates its module-under-test.
       const mod = baseName.slice(0, -'.test.js'.length) + '.js';
-      if (GATED_SOURCES.includes(mod)) gated.add(mod);
-    } else if (GATED_SOURCES.includes(baseName)) {
-      gated.add(baseName);
+      if (['app.js', 'game-engine.js', 'server.js', 'sound.js', 'telemetry.js'].includes(mod) ||
+          isGated(`online/${mod}`)) gated.add(mod);
+    } else if (GATED_SOURCES.includes(baseName) || isGated(file)) {
+      gated.add(file);
     }
     // scripts/ and other non-unit modules (e.g. gen-parity-corpus.js) are out of scope.
   }

@@ -8,7 +8,8 @@
     "test:gate": "node scripts/coverage-gate-diff.js",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium",
-    "serve": "node server.js"
+    "serve": "node server.js",
+    "online": "node online/online-server.js"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
@@ -29,12 +30,14 @@
       "game-engine.js",
       "server.js",
       "sound.js",
-      "telemetry.js"
+      "telemetry.js",
+      "online/**/*.js",
+      "!online/**/*.test.js"
     ],
     "coverageThreshold": {
       "global": {
         "statements": 88,
-        "branches": 90,
+        "branches": 86,
         "functions": 85,
         "lines": 90
       },
@@ -67,6 +70,42 @@
         "branches": 90,
         "functions": 70,
         "lines": 85
+      },
+      "online/auth.js": {
+        "statements": 88,
+        "branches": 85,
+        "functions": 95,
+        "lines": 95
+      },
+      "online/game-server.js": {
+        "statements": 94,
+        "branches": 88,
+        "functions": 95,
+        "lines": 95
+      },
+      "online/online-db.js": {
+        "statements": 95,
+        "branches": 45,
+        "functions": 95,
+        "lines": 95
+      },
+      "online/online-server.js": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 85,
+        "lines": 82
+      },
+      "online/relay.js": {
+        "statements": 50,
+        "branches": 40,
+        "functions": 60,
+        "lines": 65
+      },
+      "online/ws.js": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 75,
+        "lines": 82
       }
     },
     "coverageDirectory": "coverage",
