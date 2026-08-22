@@ -159,14 +159,14 @@ afterEach(() => {
 });
 
 async function makeUser(name) {
-  const res = registerUser(store, name, 'secret123');
+  const res = await registerUser(store, name, 'secret123');
   if (!res.ok) throw new Error(`register failed: ${res.error}`);
   return res;
 }
 
 function openRoom(code, hostUserId) {
   store.createMatch({ code, gridSize: 5, playerCount: 2, hostUserId });
-  relay.openRoom({ matchId: store.getMatchByCode(code).id, code, gridSize: 5 });
+  relay.openRoom({ matchId: store.getMatchByCode(code).id, code, gridSize: 5, hostUserId });
   return relay.rooms.get(code);
 }
 
@@ -227,6 +227,18 @@ describe('Relay handshake', () => {
     const protoText = Buffer.concat(withProto.writes).toString('utf8');
     expect(protoText).toContain('Sec-WebSocket-Protocol: chokabarah');
     expect(protoText).toContain(acceptKey('dGhlIHNhbXBsZSBub25jZQ=='));
+  });
+  test('caps concurrent sockets per account', async () => {
+    const u = await makeUser('alice');
+    relay = freshRelay();
+    const s1 = connect(u.token);
+    const s2 = connect(u.token);
+    const s3 = connect(u.token);
+    expect(relay.conns.size).toBe(3);
+    const s4 = connect(u.token); // beyond MAX_SOCKETS_PER_USER -> destroyed
+    expect(s4.destroyed).toBe(true);
+    expect(s1.destroyed).toBe(false);
+    expect(relay.conns.size).toBe(3);
   });
 });
 
@@ -295,6 +307,9 @@ describe('Relay room attach', () => {
     const sock = connect(u.token);
     sock.emit('data', clientText({ type: 'join', code: 'NOPE99' }));
     expect(received(sock).at(-1)).toEqual({ type: 'error', code: 'no-such-room' });
+    // A join message with no code at all takes the same path.
+    sock.emit('data', clientText({ type: 'join' }));
+    expect(received(sock).at(-1)).toEqual({ type: 'error', code: 'no-such-room' });
   });
 
   test('host joins first as player 0, guest second as player 1', async () => {
@@ -342,6 +357,74 @@ describe('Relay room attach', () => {
     expect(received(again).at(-1)).toEqual({ type: 'error', code: 'already-in-room' });
   });
 
+  test('guest attaching before the host still takes seat 1', async () => {
+    const alice = await makeUser('alice');
+    const bob = await makeUser('bob');
+    relay = freshRelay();
+    openRoom('ROOM01', alice.user.id);
+
+    // Guest connects FIRST — the host seat must stay reserved for the host.
+    const guest = connect(bob.token);
+    guest.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(received(guest).some((m) => m.type === 'joined' && m.playerIndex === 1)).toBe(true);
+    expect(store.getMatchByCode('ROOM01').guest_user_id).toBe(bob.user.id);
+
+    const host = connect(alice.token);
+    host.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(received(host).some((m) => m.type === 'joined' && m.playerIndex === 0)).toBe(true);
+    expect(store.getMatchByCode('ROOM01').status).toBe('PLAYING');
+
+    // Turn authority follows identity, not arrival order.
+    guest.emit('data', clientText({ type: 'roll' }));
+    expect(received(guest).at(-1)).toEqual({ type: 'error', code: 'not-your-turn' });
+  });
+
+  test('a reconnecting host keeps seat 0 and never overwrites the guest record', async () => {
+    const alice = await makeUser('alice');
+    const bob = await makeUser('bob');
+    relay = freshRelay();
+    openRoom('ROOM01', alice.user.id);
+
+    const host = connect(alice.token);
+    host.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    const guest = connect(bob.token);
+    guest.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+
+    // Host's socket drops; the guest keeps the room alive.
+    host.emit('close');
+    expect(relay.rooms.get('ROOM01')).toBeTruthy();
+
+    const hostAgain = connect(alice.token);
+    hostAgain.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(received(hostAgain).some((m) => m.type === 'joined' && m.playerIndex === 0)).toBe(true);
+
+    const match = store.getMatchByCode('ROOM01');
+    expect(match.guest_user_id).toBe(bob.user.id); // not overwritten by the host
+    expect(match.host_user_id).toBe(alice.user.id);
+
+    // And the restored host is player 0 for turn purposes.
+    const room = relay.rooms.get('ROOM01');
+    expect(relay.playerIndexOf(room, alice.user.id)).toBe(0);
+    expect(relay.playerIndexOf(room, bob.user.id)).toBe(1);
+  });
+
+  test('a second non-host cannot steal the vacant host seat', async () => {
+    const alice = await makeUser('alice');
+    const bob = await makeUser('bob');
+    const carol = await makeUser('carol');
+    relay = freshRelay();
+    openRoom('ROOM01', alice.user.id);
+
+    const guest = connect(bob.token);
+    guest.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(received(guest).some((m) => m.type === 'joined')).toBe(true);
+
+    // Host never attached; carol must NOT be seated as "player 0".
+    const intruder = connect(carol.token);
+    intruder.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(received(intruder).at(-1)).toEqual({ type: 'error', code: 'room-full' });
+  });
+
   test('rejects a third player when the room is full', async () => {
     const alice = await makeUser('alice');
     const bob = await makeUser('bob');
@@ -364,6 +447,27 @@ describe('Relay room attach', () => {
     const a = relay.openRoom({ matchId: 1, code: 'ROOM01', gridSize: 5 });
     const b = relay.openRoom({ matchId: 1, code: 'ROOM01', gridSize: 5 });
     expect(a).toBe(b);
+  });
+
+  test('rooms opened without a known host fall back to arrival-order seating', async () => {
+    const alice = await makeUser('alice');
+    const bob = await makeUser('bob');
+    relay = freshRelay();
+    relay.openRoom({ matchId: 1, code: 'LEGACY1', gridSize: 5 }); // no hostUserId
+    const first = connect(alice.token);
+    first.emit('data', clientText({ type: 'join', code: 'LEGACY1' }));
+    expect(received(first).some((m) => m.type === 'joined' && m.playerIndex === 0)).toBe(true);
+    const second = connect(bob.token);
+    second.emit('data', clientText({ type: 'join', code: 'LEGACY1' }));
+    expect(received(second).some((m) => m.type === 'joined' && m.playerIndex === 1)).toBe(true);
+  });
+
+  test('playerIndexOf yields -1 for a user without a seat', async () => {
+    const alice = await makeUser('alice');
+    relay = freshRelay();
+    const room = openRoom('ROOM01', alice.user.id);
+    expect(relay.playerIndexOf(room, alice.user.id)).toBe(-1);
+    expect(relay.playerIndexOf(room, 99999)).toBe(-1);
   });
 });
 
@@ -388,6 +492,8 @@ describe('Relay roll/move enforcement', () => {
     const guest = connect(bob.token);
     guest.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
     guest.emit('data', clientText({ type: 'roll' }));
+    expect(received(guest).at(-1)).toEqual({ type: 'error', code: 'not-your-turn' });
+    guest.emit('data', clientText({ type: 'move', move: { pawnIds: [0], targetCoords: [1, 1] } }));
     expect(received(guest).at(-1)).toEqual({ type: 'error', code: 'not-your-turn' });
   });
 
@@ -481,6 +587,36 @@ describe('Relay roll/move enforcement', () => {
     expect(received(host).at(-1)).toEqual({ type: 'error', code: 'illegal-move' });
   });
 
+  test('a legal non-winning move applies without ending the game', async () => {
+    const alice = await makeUser('alice');
+    relay = freshRelay();
+    const room = openRoom('ROOM01', alice.user.id);
+
+    // Player 0 has one pawn mid-track; a score-1 roll advances it to path
+    // index 6 — well short of home, so no winner is set.
+    room.state.pawns[0].state = 'ON_TRACK';
+    room.state.pawns[0].pathIndex = 5;
+    room.state.hasCapturedOpponent = { 0: true, 1: false };
+    room.state.currentRoll = { shells: [true, false, false, false], score: 1, isExtraRoll: false, scoreText: 'Score: 1' };
+    room.state.validMoves = EG.calculateValidMoves(5, room.state.pawns, 0, room.state.hasCapturedOpponent, 1);
+    expect(room.state.validMoves.length).toBeGreaterThan(0);
+
+    const host = connect(alice.token);
+    host.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    const mv = room.state.validMoves[0];
+    host.emit('data', clientText({
+      type: 'move',
+      move: { pawnIds: mv.grpPawns.map((p) => p.id), targetCoords: mv.targetCoords }
+    }));
+
+    const msgs = received(host);
+    expect(msgs.some((m) => m.type === 'game-over')).toBe(false);
+    const board = msgs.filter((m) => m.type === 'board').at(-1);
+    expect(board.board.winner).toBeNull();
+    // No capture / no extra roll -> turn passed to player 1.
+    expect(board.board.currentPlayerIndex).toBe(1);
+  });
+
   test('persistence failures do not break the game flow', async () => {
     const alice = await makeUser('alice');
     const bob = await makeUser('bob');
@@ -539,6 +675,37 @@ describe('Relay teardown', () => {
     const sock = connect(alice.token);
     sock.emit('close');
     expect(relay.conns.size).toBe(0);
+  });
+
+  test('error followed by close tears down exactly once without crashing', async () => {
+    const alice = await makeUser('alice');
+    relay = freshRelay();
+    const sock = connect(alice.token);
+    sock.emit('error', new Error('boom')); // detach #1: clears the heartbeat timer
+    sock.emit('close');                    // detach #2: heartbeat already gone
+    expect(relay.conns.size).toBe(0);
+  });
+
+  test('close without an explicit code defaults to 1000', async () => {
+    const alice = await makeUser('alice');
+    relay = freshRelay();
+    const sock = connect(alice.token);
+    const conn = [...relay.conns.keys()][0];
+    relay.close(conn);
+    expect(lastCloseCode(sock)).toBe(1000);
+  });
+
+  test('shutdown tolerates a conn whose heartbeat timer is already gone', async () => {
+    const alice = await makeUser('alice');
+    relay = freshRelay();
+    const sock = connect(alice.token);
+    const conn = [...relay.conns.keys()][0];
+    // Simulate a detached-then-reused conn: kill the real timer, keep the
+    // membership, and let shutdown handle the missing handle gracefully.
+    clearInterval(conn._heartbeat);
+    conn._heartbeat = null;
+    relay.shutdown();
+    expect(sock.destroyed).toBe(true);
   });
 
   test('closing the last member removes the room', async () => {

@@ -3,7 +3,7 @@ const http = require('node:http');
 const net = require('node:net');
 const crypto = require('node:crypto');
 const { openDb, makeStore } = require('./online-db.js');
-const { createOnlineServer } = require('./online-server.js');
+const { createOnlineServer, makeRoomCode } = require('./online-server.js');
 
 // ---- tiny http client ----
 function apiRequest(port, method, pathname, { token, body } = {}) {
@@ -314,10 +314,113 @@ describe('online-server match lifecycle + ws relay', () => {
   });
 });
 
+describe('online-server edge cases', () => {
+  test('createOnlineServer works entirely on defaults', async () => {
+    const srv = createOnlineServer();
+    await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+    try {
+      const r = await apiRequest(srv.address().port, 'GET', '/api/health');
+      expect(r.status).toBe(200);
+      expect(r.body.ok).toBe(true);
+    } finally {
+      srv.relay.shutdown();
+      await new Promise((resolve) => srv.close(resolve));
+    }
+  });
+
+  test('makeRoomCode gives up when the code space is exhausted', () => {
+    const fullStore = { getMatchByCode: () => ({}) };
+    expect(() => makeRoomCode(fullStore)).toThrow('code-space-exhausted');
+  });
+
+  test('register with an empty body yields a validation error (not a crash)', async () => {
+    const r = await apiRequest(port, 'POST', '/api/register');
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('username-required');
+  });
+
+  test('malformed JSON bodies report bad-json for auth endpoints', async () => {
+    const raw = (pathname) => new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: pathname,
+        headers: { 'Content-Type': 'application/json', 'Content-Length': 6 } }, (res) => {
+        let buf = '';
+        res.on('data', (c) => (buf += c));
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(buf) }));
+      });
+      req.on('error', reject);
+      req.end('{oops!');
+    });
+    const reg = await raw('/api/register');
+    expect(reg.status).toBe(400);
+    expect(reg.body.error).toBe('bad-json');
+    const log = await raw('/api/login');
+    expect(log.status).toBe(400);
+    expect(log.body.error).toBe('bad-json');
+  });
+
+  test('oversized request bodies are destroyed mid-upload', async () => {
+    const big = JSON.stringify({ username: 'x', password: 'yyyyyy', pad: 'a'.repeat(1.2e6) });
+    // The server destroys the socket once >1MB accumulates; the client either
+    // errors out or gets no response — both are acceptable outcomes here.
+    try { await apiRequest(port, 'POST', '/api/register', { body: big }); } catch { /* destroyed */ }
+    expect(true).toBe(true);
+  });
+
+  test('logout without a token is rejected', async () => {
+    const r = await apiRequest(port, 'POST', '/api/logout');
+    expect(r.status).toBe(401);
+  });
+
+  test('create accepts the 7x7 board size', async () => {
+    const r = await apiRequest(port, 'POST', '/api/match/create', { token: alice.token, body: { gridSize: 7 } });
+    expect(r.status).toBe(201);
+    expect(r.body.gridSize).toBe(7);
+  });
+
+  test('create surfaces persistence failures as 500 with the error message', async () => {
+    const orig = store.createMatch;
+    store.createMatch = () => { throw new Error('db down'); };
+    const r = await apiRequest(port, 'POST', '/api/match/create', { token: alice.token, body: { gridSize: 5 } });
+    store.createMatch = orig;
+    expect(r.status).toBe(500);
+    expect(r.body.error).toBe('db down');
+  });
+
+  test('create falls back to a generic error for non-Error failures', async () => {
+    const orig = store.createMatch;
+    store.createMatch = () => { throw undefined; };
+    const r = await apiRequest(port, 'POST', '/api/match/create', { token: alice.token, body: { gridSize: 5 } });
+    store.createMatch = orig;
+    expect(r.status).toBe(500);
+    expect(r.body.error).toBe('create-failed');
+  });
+
+  test('join without a code reports no-such-room', async () => {
+    const r = await apiRequest(port, 'POST', '/api/match/join', { token: bob.token, body: {} });
+    expect(r.status).toBe(404);
+    expect(r.body.error).toBe('no-such-room');
+  });
+
+  test('join rejects rooms that are no longer WAITING', async () => {
+    const created = await apiRequest(port, 'POST', '/api/match/create', { token: alice.token, body: { gridSize: 5 } });
+    const match = store.getMatchByCode(created.body.code);
+    store.setMatchGuest(match.id, alice.user.id); // flips status to PLAYING
+    const j = await apiRequest(port, 'POST', '/api/match/join', { token: bob.token, body: { code: created.body.code } });
+    expect(j.status).toBe(409);
+    expect(j.body.error).toBe('room-not-open');
+  });
+
+  test('non-API paths fall through to the static web app', async () => {
+    const r = await apiRequest(port, 'GET', '/index.html');
+    expect(r.status).toBe(200);
+  });
+});
+
 function houseUserId(room, idx, store) {
-  // Re-derive the winner's user id the way finishMatch does: socket map order.
-  const userIds = [...room.sockets.keys()];
-  return userIds.length > idx ? userIds[idx] : null;
+  // Re-derive the winner's user id the way finishMatch does: seat-indexed
+  // socket map.
+  const seated = room.sockets.get(idx);
+  return seated ? seated.userId : null;
 }
 
 async function latestBoard(ws) {

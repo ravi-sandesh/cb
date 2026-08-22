@@ -5,8 +5,9 @@
 //  - every socket authenticates via ?token=... at upgrade (auth.js)
 //  - the host creates a room through HTTP (openRoom) then attaches
 //    over the socket; an invitee attaches with a room code
-//  - the first attached member is player 0 (host), the second is
-//    player 1 (guest -> setMatchGuest, status -> PLAYING)
+//  - seats are identity-based: host_user_id always owns seat 0, the
+//    first non-host to attach takes seat 1 (setMatchGuest, status ->
+//    PLAYING); a reconnecting player keeps their original seat
 //  - ROLL / MOVE messages are validated server-side through
 //    game-server.js and the resulting board is broadcast to all
 //    room members; the move ledger and finished results persist in
@@ -15,6 +16,9 @@
 'use strict';
 
 const { newGame, doRoll, doMove, serializeBoard } = require('./game-server.js');
+
+// Concurrent WebSocket connections allowed per authenticated account.
+const MAX_SOCKETS_PER_USER = 3;
 
 class Relay {
   constructor(httpServer, { db, auth, buildRooms = true }) {
@@ -42,6 +46,16 @@ class Relay {
     const key = req.headers['sec-websocket-key'];
     const { acceptKey, encodeFrame, encodeText, encodeClose, OP, Framer } = require('./ws.js');
     if (!key) { socket.destroy(); return; }
+
+    // Resource guard: bound concurrent sockets per account so one user cannot
+    // farm unauthenticated-looking connections and grow this.conns forever.
+    let socketsForUser = 0;
+    for (const info of this.conns.values()) {
+      if (info.userId === session.user.id && ++socketsForUser >= MAX_SOCKETS_PER_USER) {
+        socket.destroy();
+        return;
+      }
+    }
 
     const conn = {
       socket, framer: new Framer(), alive: true,
@@ -147,35 +161,45 @@ class Relay {
 
   // ---- Room management (called from HTTP layer) ----
 
-  openRoom({ matchId, code, gridSize }) {
+  openRoom({ matchId, code, gridSize, hostUserId }) {
     if (this.rooms.has(code)) return this.rooms.get(code);
     const room = {
       matchId, code, gridSize,
+      hostUserId: hostUserId === undefined ? null : hostUserId,
       state: newGame({ gridSize, playerNum: 2 }),
-      sockets: new Map(), // userId -> conn
+      sockets: new Map(), // playerIndex (0=host seat, 1=guest seat) -> conn
       seq: 0
     };
     this.rooms.set(code, room);
     return room;
   }
 
-  // Attach an authenticated conn to a room as host or guest:
-  // host = first attach, guest = second.
+  // Attach an authenticated conn to a room. Seats are IDENTITY-based: the
+  // match's host_user_id always owns seat 0, everyone else competes for
+  // seat 1 — so a reconnecting host can never be demoted to guest just
+  // because their socket re-attached after someone else's.
   attach(conn, room) {
     if (conn.room) { this.sendErr(conn, 'already-in-room'); return; }
-    if (room.sockets.has(conn.userId)) { this.sendErr(conn, 'already-in-room'); return; }
+    // Same user already seated from another (still-live) socket.
+    for (const [, seated] of room.sockets) {
+      if (seated.userId === conn.userId) { this.sendErr(conn, 'already-in-room'); return; }
+    }
     if (room.sockets.size >= room.state.playerNum) { this.sendErr(conn, 'room-full'); return; }
 
-    const isHost = room.sockets.size === 0;
-    conn.room = room;
-    room.sockets.set(conn.userId, conn);
+    // Legacy fallback when a room was opened without a known host: whoever
+    // arrives first takes seat 0 (old arrival-order behavior).
+    const seat = room.hostUserId == null && !room.sockets.has(0)
+      ? 0
+      : (conn.userId === room.hostUserId ? 0 : 1);
+    if (room.sockets.has(seat)) { this.sendErr(conn, 'room-full'); return; }
 
-    if (isHost) {
-      // Host spreads the room code; guest arrives later over the same room.
-      this.send(conn, { type: 'joined', code: room.code, playerIndex: 0, gridSize: room.gridSize });
-    } else {
-      // First guest is player 1; persist the seat in the DB (WAITING -> PLAYING).
-      this.send(conn, { type: 'joined', code: room.code, playerIndex: 1, gridSize: room.gridSize });
+    conn.room = room;
+    conn.seat = seat;
+    room.sockets.set(seat, conn);
+
+    this.send(conn, { type: 'joined', code: room.code, playerIndex: seat, gridSize: room.gridSize });
+    if (seat === 1) {
+      // Guest claimed the invitee seat; persist it in the DB (WAITING -> PLAYING).
       try {
         this.db.setMatchGuest(room.matchId, conn.userId);
       } catch {}
@@ -192,7 +216,10 @@ class Relay {
   }
 
   playerIndexOf(room, userId) {
-    return [...room.sockets.keys()].indexOf(userId);
+    for (const [seat, seated] of room.sockets) {
+      if (seated.userId === userId) return seat;
+    }
+    return -1;
   }
 
   storeBoard(room) {
@@ -203,8 +230,8 @@ class Relay {
 
   finishMatch(room) {
     const idx = room.state.winner;
-    const userIds = [...room.sockets.keys()];
-    const winnerUserId = userIds.length > idx ? userIds[idx] : null;
+    const seatConn = room.sockets.get(idx);
+    const winnerUserId = seatConn ? seatConn.userId : null;
     try {
       this.db.finishMatch(room.matchId, winnerUserId);
     } catch {}
@@ -222,8 +249,9 @@ class Relay {
     this.conns.delete(conn);
     const room = conn.room;
     if (!room) return;
-    room.sockets.delete(conn.userId);
+    room.sockets.delete(conn.seat);
     conn.room = null;
+    conn.seat = null;
     if (room.sockets.size === 0) {
       this.rooms.delete(room.code);
     } else {

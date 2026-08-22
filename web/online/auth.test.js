@@ -4,6 +4,9 @@ const auth = require('./auth.js');
 
 function freshStore() { return makeStore(openDb(':memory:')); }
 
+beforeEach(() => auth.resetLoginThrottle());
+afterEach(() => auth.resetLoginThrottle());
+
 describe('auth hashing', () => {
   test('verifyPassword round-trips and rejects wrong input', () => {
     const hash = auth.hashPassword('correct horse');
@@ -12,60 +15,124 @@ describe('auth hashing', () => {
     expect(auth.verifyPassword('battery staple', hash)).toBe(false);
   });
 
+  test('async verifyPasswordAsync matches the sync twin', async () => {
+    const hash = await auth.hashPasswordAsync('correct horse');
+    expect(hash.startsWith('scrypt$')).toBe(true);
+    await expect(auth.verifyPasswordAsync('correct horse', hash)).resolves.toBe(true);
+    await expect(auth.verifyPasswordAsync('battery staple', hash)).resolves.toBe(false);
+  });
+
+  test('async verification rejects malformed stored hashes without hashing', async () => {
+    for (const bad of ['', 'md5$abc', 'scrypt$x$y$z$a$b', 'scrypt$0$0$0$!!$!!']) {
+      await expect(auth.verifyPasswordAsync('pw', bad)).resolves.toBe(false);
+    }
+  });
+
   test('salts are unique so equal passwords hash differently', () => {
     expect(auth.hashPassword('same')).not.toBe(auth.hashPassword('same'));
   });
 });
 
 describe('auth register / login / logout', () => {
-  test('register returns a user + usable session token', () => {
-    const out = auth.registerUser(freshStore(), 'alice', 'secret123');
+  test('register returns a user + usable session token', async () => {
+    const out = await auth.registerUser(freshStore(), 'alice', 'secret123');
     expect(out.ok).toBe(true);
     expect(out.user.username).toBe('alice');
     expect(out.token).toMatch(/^[0-9a-f]{64}$/);
     expect(auth.authenticateToken(freshStore(), out.token).ok).toBe(false); // token tied to its store's db
   });
 
-  test('register validates inputs', () => {
+  test('register validates inputs', async () => {
     const db = freshStore();
-    expect(auth.registerUser(db, '', 'secret123').error).toBe('username-required');
-    expect(auth.registerUser(db, 'ab', 'secret123').error).toBe('username-length');
-    expect(auth.registerUser(db, 'ok user!', 'secret123').error).toBe('username-invalid');
-    expect(auth.registerUser(db, 'okuser', '').error).toBe('password-required');
-    expect(auth.registerUser(db, 'okuser', 'short').error).toBe('password-length');
+    expect((await auth.registerUser(db, '', 'secret123')).error).toBe('username-required');
+    expect((await auth.registerUser(db, 'ab', 'secret123')).error).toBe('username-length');
+    expect((await auth.registerUser(db, 'ok user!', 'secret123')).error).toBe('username-invalid');
+    expect((await auth.registerUser(db, 'okuser', '')).error).toBe('password-required');
+    expect((await auth.registerUser(db, 'okuser', 'short')).error).toBe('password-length');
   });
 
-  test('duplicate username is rejected', () => {
+  test('duplicate username is rejected', async () => {
     const db = freshStore();
-    expect(auth.registerUser(db, 'taken', 'secret123').ok).toBe(true);
-    expect(auth.registerUser(db, 'taken', 'secret123').error).toBe('username-taken');
+    expect((await auth.registerUser(db, 'taken', 'secret123')).ok).toBe(true);
+    expect((await auth.registerUser(db, 'taken', 'secret123')).error).toBe('username-taken');
   });
 
-  test('login with credentials issues a token that authenticates', () => {
+  test('login with credentials issues a token that authenticates', async () => {
     const db = freshStore();
-    auth.registerUser(db, 'bob', 'secret123');
-    const lg = auth.loginUser(db, 'bob', 'secret123');
+    await auth.registerUser(db, 'bob', 'secret123');
+    const lg = await auth.loginUser(db, 'bob', 'secret123');
     expect(lg.ok).toBe(true);
     const authd = auth.authenticateToken(db, lg.token);
     expect(authd.ok).toBe(true);
     expect(authd.user.id).toBe(lg.user.id);
     // Re-login rotates: old token dies, new one works.
-    const lg2 = auth.loginUser(db, 'bob', 'secret123');
+    const lg2 = await auth.loginUser(db, 'bob', 'secret123');
     expect(auth.authenticateToken(db, lg.token).ok).toBe(false);
     expect(auth.authenticateToken(db, lg2.token).ok).toBe(true);
   });
 
-  test('login rejects bad password and unknown user', () => {
+  test('login rejects bad password and unknown user', async () => {
     const db = freshStore();
-    auth.registerUser(db, 'bob', 'secret123');
-    expect(auth.loginUser(db, 'bob', 'nope').error).toBe('credentials');
-    expect(auth.loginUser(db, 'nobody', 'secret123').error).toBe('credentials');
+    await auth.registerUser(db, 'bob', 'secret123');
+    expect((await auth.loginUser(db, 'bob', 'nope')).error).toBe('credentials');
+    // Unknown users get the same generic error — and still cost one scrypt
+    // run against the dummy hash so timing cannot enumerate accounts.
+    expect((await auth.loginUser(db, 'nobody', 'secret123')).error).toBe('credentials');
   });
 
-  test('logout invalidates the token', () => {
+  test('repeated failures lock the account before any hashing happens', async () => {
     const db = freshStore();
-    auth.registerUser(db, 'carol', 'secret123');
-    const lg = auth.loginUser(db, 'carol', 'secret123');
+    await auth.registerUser(db, 'mallory', 'secret123');
+    for (let i = 0; i < auth.LOGIN_MAX_FAILURES; i++) {
+      expect((await auth.loginUser(db, 'mallory', `wrong${i}`)).error).toBe('credentials');
+    }
+    // Locked: even the CORRECT password is refused while the window runs.
+    expect(await auth.loginUser(db, 'mallory', 'secret123'))
+      .toEqual({ ok: false, error: 'try-again-later' });
+    expect(auth.isLockedOut('mallory')).toBe(true);
+
+    // A success clears the failure record.
+    auth.resetLoginThrottle();
+    expect((await auth.loginUser(db, 'mallory', 'secret123')).ok).toBe(true);
+    expect(auth.isLockedOut('mallory')).toBe(false);
+  });
+
+  test('lockout expires after the failure window', async () => {
+    const db = freshStore();
+    await auth.registerUser(db, 'erin', 'secret123');
+    jest.useFakeTimers({ now: Date.now() });
+    try {
+      for (let i = 0; i < auth.LOGIN_MAX_FAILURES; i++) {
+        await auth.loginUser(db, 'erin', `wrong${i}`);
+      }
+      expect(await auth.loginUser(db, 'erin', 'secret123'))
+        .toEqual({ ok: false, error: 'try-again-later' });
+
+      // Advance past the window: the counter resets, failures start over.
+      jest.advanceTimersByTime(auth.LOGIN_WINDOW_MS + 1);
+      expect((await auth.loginUser(db, 'erin', 'still-wrong')).error).toBe('credentials');
+      expect(auth.isLockedOut('erin')).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('lockouts are strictly per-account', async () => {
+    const db = freshStore();
+    await auth.registerUser(db, 'frank', 'secret123');
+    await auth.registerUser(db, 'gina', 'secret123');
+    for (let i = 0; i < auth.LOGIN_MAX_FAILURES; i++) {
+      await auth.loginUser(db, 'frank', `wrong${i}`);
+    }
+    expect(auth.isLockedOut('frank')).toBe(true);
+    expect(auth.isLockedOut('gina')).toBe(false); // bystander unaffected
+    expect((await auth.loginUser(db, 'gina', 'secret123')).ok).toBe(true);
+  });
+
+  test('logout invalidates the token', async () => {
+    const db = freshStore();
+    await auth.registerUser(db, 'carol', 'secret123');
+    const lg = await auth.loginUser(db, 'carol', 'secret123');
     auth.logoutUser(db, lg.token);
     expect(auth.authenticateToken(db, lg.token).ok).toBe(false);
   });

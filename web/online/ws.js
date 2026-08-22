@@ -15,7 +15,13 @@ const crypto = require('node:crypto');
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const OP = { CONT: 0x0, TEXT: 0x1, BINARY: 0x2, CLOSE: 0x8, PING: 0x9, PONG: 0xa };
 
-const MAX_FRAME = 64 * 1024 * 1024;
+// Protocol limits sized for this application: every legal message is a small
+// JSON document (<1KB). Anything larger is a resource-exhaustion attempt, so
+// the caps are tight — a hostile frame can never make the process allocate
+// tens of megabytes from a single socket.
+const MAX_FRAME = 16 * 1024;              // largest single allowed frame
+const MAX_BUFFERED_BYTES = 64 * 1024;     // hard ceiling (defense-in-depth)
+const MAX_FRAMES_PER_PUSH = 64;           // anti-burst: pipelined tiny frames
 
 function acceptKey(key) {
   return crypto.createHash('sha1').update(key + GUID).digest('base64');
@@ -45,7 +51,7 @@ function decodeFrame(buf, offset) {
     len = Number(big);
     cursor += 8;
   }
-  if (len > MAX_FRAME) throw new Error('ws: frame exceeds 64MB limit');
+  if (len > MAX_FRAME) throw new Error('ws: frame exceeds 16KB limit');
 
   const isControl = opcode >= 0x8;
   if (isControl && (len > 125 || !fin)) throw new Error('ws: malformed control frame');
@@ -102,11 +108,21 @@ class Framer {
   }
   push(chunk) {
     this.buf = Buffer.concat([this.buf, chunk]);
+    // Hard ceiling on buffered bytes (belt-and-braces: a single frame is
+    // capped well below this by MAX_FRAME).
+    if (this.buf.length > MAX_BUFFERED_BYTES) {
+      throw new Error('ws: buffered data exceeds limit');
+    }
     const out = [];
     for (;;) {
       const frame = decodeFrame(this.buf, 0);
       if (!frame) break;
       out.push(frame);
+      // A flood of tiny pipelined valid frames must not balloon the decoded
+      // queue (and the handler work it triggers) from a single socket read.
+      if (out.length > MAX_FRAMES_PER_PUSH) {
+        throw new Error('ws: too many frames in one burst');
+      }
       this.buf = this.buf.subarray(frame.bytes);
     }
     return out;
@@ -114,6 +130,6 @@ class Framer {
 }
 
 module.exports = {
-  GUID, OP, MAX_FRAME,
+  GUID, OP, MAX_FRAME, MAX_BUFFERED_BYTES, MAX_FRAMES_PER_PUSH,
   acceptKey, decodeFrame, encodeFrame, encodeText, encodePing, encodePong, encodeClose, Framer
 };
