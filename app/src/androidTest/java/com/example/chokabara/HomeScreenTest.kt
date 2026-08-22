@@ -1,9 +1,12 @@
 package com.example.chokabara
 
+import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.lifecycle.SavedStateHandle
 import com.chokabarah.game.ChokaBarahApp
+import com.chokabarah.game.ui.GameViewModel
 import org.junit.Rule
 import org.junit.Test
 
@@ -12,11 +15,16 @@ class HomeScreenTest {
     @get:Rule
     val composeRule = createComposeRule()
 
+    private fun setAppContent() {
+        composeRule.setContent {
+            val session = remember { GameViewModel(SavedStateHandle()) }
+            ChokaBarahApp(session)
+        }
+    }
+
     @Test
     fun testHomeScreenDisplaysTitle() {
-        composeRule.setContent {
-            ChokaBarahApp()
-        }
+        setAppContent()
 
         composeRule.onNodeWithText("CHOKA BARAH").assertIsDisplayed()
         composeRule.onNodeWithText("TRADITIONAL INDIAN STRATEGY BOARD GAME").assertIsDisplayed()
@@ -24,9 +32,7 @@ class HomeScreenTest {
 
     @Test
     fun testHomeScreenDisplaysBoardSizeOptions() {
-        composeRule.setContent {
-            ChokaBarahApp()
-        }
+        setAppContent()
 
         composeRule.onNodeWithText("5-Column (5x5)").assertIsDisplayed()
         composeRule.onNodeWithText("7-Column (7x7)").assertIsDisplayed()
@@ -34,9 +40,7 @@ class HomeScreenTest {
 
     @Test
     fun testHomeScreenDisplaysPlayerCountOptions() {
-        composeRule.setContent {
-            ChokaBarahApp()
-        }
+        setAppContent()
 
         composeRule.onNodeWithText("2 Players").assertIsDisplayed()
         composeRule.onNodeWithText("3 Players").assertIsDisplayed()
@@ -45,9 +49,7 @@ class HomeScreenTest {
 
     @Test
     fun testHomeScreenDisplaysGameModeOptions() {
-        composeRule.setContent {
-            ChokaBarahApp()
-        }
+        setAppContent()
 
         composeRule.onNodeWithText("Pass & Play").assertIsDisplayed()
         composeRule.onNodeWithText("vs Bot (AI)").assertIsDisplayed()
@@ -55,9 +57,7 @@ class HomeScreenTest {
 
     @Test
     fun testHomeScreenHasStartAndRulesButtons() {
-        composeRule.setContent {
-            ChokaBarahApp()
-        }
+        setAppContent()
 
         composeRule.onNodeWithText("▶ START GAME").assertIsDisplayed()
         composeRule.onNodeWithText("📖 HOW TO PLAY RULES").assertIsDisplayed()
@@ -65,9 +65,7 @@ class HomeScreenTest {
 
     @Test
     fun testHomeScreenDisplaysAccessibilitySection() {
-        composeRule.setContent {
-            ChokaBarahApp()
-        }
+        setAppContent()
 
         // Senior mode card: the accessibility section (added with Senior Mode)
         // must render its header plus the Standard / Senior Mode toggle chips.

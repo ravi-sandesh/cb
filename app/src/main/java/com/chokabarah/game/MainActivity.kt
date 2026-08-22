@@ -9,11 +9,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
-import com.chokabarah.game.engine.GameMode
-import com.chokabarah.game.engine.GridSize
 import com.chokabarah.game.telemetry.Telemetry
 import com.chokabarah.game.ui.GameScreen
+import com.chokabarah.game.ui.GameViewModel
 import com.chokabarah.game.ui.HomeScreen
 
 class MainActivity : ComponentActivity() {
@@ -33,7 +33,7 @@ class MainActivity : ComponentActivity() {
         )
 
         setContent {
-            ChokaBarahApp()
+            ChokaBarahApp(viewModel())
         }
     }
 
@@ -86,17 +86,13 @@ private fun writeSeniorMode(context: Context, enabled: Boolean) {
 }
 
 @Composable
-fun ChokaBarahApp() {
+fun ChokaBarahApp(session: GameViewModel) {
     val context = LocalContext.current
     // Restore the persisted accessibility preference so a player who enabled it
     // never has to hunt for the toggle again on the next launch.
     var seniorMode by remember { mutableStateOf(readSeniorMode(context)) }
-    var screenState by remember { mutableStateOf(ScreenState.HOME) }
-    var selectedGridSize by remember { mutableStateOf(GridSize.FIVE_BY_FIVE) }
-    var selectedPlayerCount by remember { mutableStateOf(2) }
-    var selectedGameMode by remember { mutableStateOf(GameMode.PASS_AND_PLAY) }
 
-    when (screenState) {
+    when (session.screen) {
         ScreenState.HOME -> {
             HomeScreen(
                 seniorMode = seniorMode,
@@ -113,23 +109,16 @@ fun ChokaBarahApp() {
                     )
                 },
                 onStartGame = { gridSize, playerCount, gameMode ->
-                    selectedGridSize = gridSize
-                    selectedPlayerCount = playerCount
-                    selectedGameMode = gameMode
-                    screenState = ScreenState.PLAYING
+                    session.startGame(gridSize, playerCount, gameMode)
                 }
             )
         }
 
         ScreenState.PLAYING -> {
             GameScreen(
-                gridSize = selectedGridSize,
-                playerCount = selectedPlayerCount,
-                gameMode = selectedGameMode,
+                state = session,
                 seniorMode = seniorMode,
-                onBackToMenu = {
-                    screenState = ScreenState.HOME
-                }
+                onBackToMenu = { session.exitToMenu() }
             )
         }
     }

@@ -262,6 +262,83 @@ class GameEngine(
             stateContext(gridSize, playerColors.size, currentPlayerIndex, null, validMoves.size, winner, hasCapturedOpponent))
     }
 
+    // =========================================================
+    // STATE SNAPSHOTS — process-death / configuration-change survival
+    // =========================================================
+
+    /** A complete copy of the match state; see [restore]. */
+    fun snapshot(): GameSnapshot = GameSnapshot(
+        currentPlayerIndex = currentPlayerIndex,
+        rollActorIndex = rollActor,
+        winnerIndex = winner?.let { playerColors.indexOf(it) } ?: -1,
+        pawns = pawns.map { PawnSnapshot(it.id, it.state, it.pathIndex) },
+        hasCapturedOpponent = hasCapturedOpponent.toMap(),
+        currentRoll = currentRoll?.let { RollSnapshot(it.shells.toList()) }
+    )
+
+    /**
+     * Rebuild this engine's state from a [GameSnapshot] produced by [snapshot]
+     * of an engine with the SAME board size and seat count. Valid moves are
+     * recomputed from the restored board (never trusted from the snapshot) and
+     * the pending roll is re-scored through scoreShells(), so a tampered
+     * snapshot can at worst produce a rejected restore — never illegal play.
+     *
+     * @return true when the snapshot was applied; false leaves this engine
+     *         untouched so callers can fall back to a fresh game.
+     */
+    fun restore(snapshot: GameSnapshot): Boolean {
+        // ---- Validate EVERYTHING before touching state so a rejected
+        // snapshot truly leaves this engine untouched. ----
+        val rebuilt = runCatching {
+            require(snapshot.pawns.size == playerColors.size * 4) {
+                "Pawn count mismatch: ${snapshot.pawns.size} for ${playerColors.size} players"
+            }
+            val pawns = snapshot.pawns.map { p ->
+                require(p.id in 0 until playerColors.size * 4) { "Pawn id out of range: ${p.id}" }
+                Pawn(id = p.id, playerIndex = p.id / 4, state = p.state, pathIndex = p.pathIndex)
+            }
+            require(snapshot.currentPlayerIndex in playerColors.indices) { "Bad current player ${snapshot.currentPlayerIndex}" }
+            require(snapshot.rollActorIndex in -1..playerColors.lastIndex) { "Bad roll actor ${snapshot.rollActorIndex}" }
+            require(snapshot.winnerIndex == -1 || snapshot.winnerIndex in playerColors.indices) {
+                "Bad winner index ${snapshot.winnerIndex}"
+            }
+            val roll = snapshot.currentRoll?.let {
+                require(it.shells.size == numCowries) { "Bad shell count ${it.shells.size}" }
+                scoreShells(it.shells).let { res -> CowryResult(res.shells, res.score, res.isExtraRoll, res.label) }
+            }
+            pawns to roll
+        }.onFailure {
+            Telemetry.warn("engine", "state.restore_failed", "Snapshot rejected; engine state left unchanged",
+                mapOf("gridSize" to gridSize.columns, "playerCount" to playerColors.size))
+        }.getOrNull() ?: return false
+
+        val (restoredPawns, restoredRoll) = rebuilt
+        // ---- Apply ----
+        pawns.clear()
+        pawns.addAll(restoredPawns)
+        hasCapturedOpponent.clear()
+        snapshot.hasCapturedOpponent.forEach { (idx, flag) ->
+            if (idx in playerColors.indices) hasCapturedOpponent[idx] = flag
+        }
+        playerColors.indices.forEach { idx -> hasCapturedOpponent.putIfAbsent(idx, false) }
+
+        currentPlayerIndex = snapshot.currentPlayerIndex
+        winner = if (snapshot.winnerIndex == -1) null else playerColors[snapshot.winnerIndex]
+        currentRoll = if (winner != null) null else restoredRoll
+        rollActor = if (currentRoll == null) -1 else snapshot.rollActorIndex
+        validMoves = if (currentRoll == null) emptyList() else calculateValidMoves(
+            gridSize, pawns, currentPlayerIndex, hasCapturedOpponent, currentRoll!!.score
+        )
+        gameLogMessage = if (winner != null) {
+            "\uD83C\uDF89 VICTORY! ${winner?.displayName} wins!"
+        } else {
+            "Player ${playerColors[currentPlayerIndex].displayName}'s turn! Roll cowries."
+        }
+        Telemetry.info("engine", "state.restored", "Game state restored from snapshot",
+            stateContext(gridSize, playerColors.size, currentPlayerIndex, currentRoll, validMoves.size, winner, hasCapturedOpponent))
+        return true
+    }
+
     fun rollCowries(): CowryResult {
         val spanId = Telemetry.startSpan("roll", mapOf("player" to currentPlayerIndex))
         // A pending roll only belongs to the player whose turn produced it
