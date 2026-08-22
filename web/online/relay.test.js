@@ -66,6 +66,7 @@ function clientClose(code) {
   return clientFrame(0x8, p);
 }
 function clientPing() { return clientFrame(0x9, Buffer.alloc(0)); }
+function clientPong() { return clientFrame(0xa, Buffer.alloc(0)); }
 function clientBinary() { return clientFrame(0x2, Buffer.from('x')); }
 
 // ---- decode server frames (never masked) ----
@@ -614,6 +615,33 @@ describe('Relay teardown', () => {
       const first = frameBytes(sock);
       expect(decodeServer(first).some((f) => f.opcode === 0x9)).toBe(true);
       jest.advanceTimersByTime(30000);
+      expect(lastCloseCode(sock)).toBe(1001);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('a PONG reply keeps the conn alive across heartbeat ticks', async () => {
+    jest.useFakeTimers();
+    try {
+      const alice = await makeUser('alice');
+      relay = freshRelay();
+      const sock = connect(alice.token);
+
+      // Tick 1: server pings, conn marked stale; browser auto-replies PONG.
+      jest.advanceTimersByTime(30000);
+      sock.emit('data', clientPong());
+
+      // Tick 2 would have closed the conn before the PONG fix — it must not.
+      for (let i = 0; i < 5; i++) {
+        jest.advanceTimersByTime(30000);
+        sock.emit('data', clientPong());
+      }
+      const msgs = received(sock);
+      expect(msgs[0].type).toBe('authed');
+
+      // Once the replies stop, the next tick tears the conn down.
+      jest.advanceTimersByTime(60000);
       expect(lastCloseCode(sock)).toBe(1001);
     } finally {
       jest.useRealTimers();

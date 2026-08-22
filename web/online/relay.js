@@ -87,6 +87,9 @@ class Relay {
     const { OP, encodeFrame, encodeText } = require('./ws.js');
     if (fr.opcode === OP.CLOSE) { this.close(conn, 1000); return; }
     if (fr.opcode === OP.PING) { conn.socket.write(encodeFrame(OP.PONG, Buffer.alloc(0), true)); return; }
+    // Browsers auto-reply to our heartbeat PING with a PONG frame; keep the
+    // conn alive so the next tick does not tear down a healthy socket.
+    if (fr.opcode === OP.PONG) { conn.alive = true; return; }
     if (fr.opcode !== OP.TEXT) return;
     let msg;
     try { msg = JSON.parse(fr.payload.toString('utf8')); }
