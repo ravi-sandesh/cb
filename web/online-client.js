@@ -4,7 +4,7 @@
 // Browser-side companion to web/online/online-server.js. Handles:
 //   - register / login / logout via fetch (credentials: scrypt server-side)
 //   - room create / join (room code) via the HTTP API
-//   - a WebSocket connection authenticated by the session token at upgrade
+//   - a WebSocket connection authenticated by a first-message token exchange
 //   - the ROLL / MOVE protocol with the server-authoritative relay
 // Server state is applied through DELEGATES (window.* hooks set by app.js),
 // so this module stays transport-only and is unit-testable with fake
@@ -173,11 +173,11 @@ function connect(wsPath, roomCode) {
     state.ws = ws;
     ws.onopen = () => {
       state.connected = true;
-      // Once attached to the room over the socket, the relay seats us
-      // (player 0 host / player 1 guest) and broadcasts the board.
-      if (roomCode) {
-        try { ws.send(JSON.stringify({ type: 'join', code: roomCode })); } catch (e) { /* ignore */ }
-      }
+      // First-message authentication: the session token travels as a normal
+      // text frame instead of a query string (which leaks into logs). The
+      // relay rejects every other frame until we are authenticated, so any
+      // pending join waits for the 'authed' reply below.
+      try { ws.send(JSON.stringify({ type: 'auth', token: loadToken() || '' })); } catch (e) { /* ignore */ }
     };
     ws.onmessage = (ev) => {
       let msg;
@@ -187,8 +187,14 @@ function connect(wsPath, roomCode) {
     ws.onerror = () => fireStatus('Connection error.', true);
     ws.onclose = (ev) => {
       state.connected = false;
-      if (closedFn) closedFn(ev.code || 0);
-      fireStatus(ev.code === 4301 ? 'Disconnected.' : 'Disconnected from server.', true);
+      if (ev.code === 1008) {
+        // Server refused our credentials — the stored token is dead.
+        saveToken('', '');
+        fireStatus('Session expired. Please log in again.', true);
+      } else {
+        if (closedFn) closedFn(ev.code || 0);
+        fireStatus(ev.code === 4301 ? 'Disconnected.' : 'Disconnected from server.', true);
+      }
     };
   } catch (e) {
     fireStatus('WebSocket unavailable in this browser/dev context.', true);
@@ -197,7 +203,12 @@ function connect(wsPath, roomCode) {
 
 function dispatch(msg) {
   switch (msg.type) {
-    case 'authed': break; // identity known at the socket layer
+    case 'authed':
+      // Authenticated; attach to the pending room, if any.
+      if (state.code && state.ws && state.ws.readyState === 1) {
+        try { state.ws.send(JSON.stringify({ type: 'join', code: state.code })); } catch (e) { /* ignore */ }
+      }
+      break;
     case 'joined':
       state.playerIndex = msg.playerIndex;
       state.gridSize = msg.gridSize;

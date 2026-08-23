@@ -133,10 +133,13 @@ describe('online-client room lobby + WebSocket', () => {
     }));
     expect(wsInstances.length).toBe(1);
     const ws = wsInstances[0];
-    expect(ws.url).toContain('/ws?token=T');
+    expect(ws.url).toContain('/ws');
     ws.open();
     expect(oc().connected).toBe(true);
-    expect(ws.sent).toEqual([JSON.stringify({ type: 'join', code: 'ABCDEF' })]);
+    // First-message auth goes out immediately; join waits for the reply.
+    expect(ws.sent).toEqual([JSON.stringify({ type: 'auth', token: 'T-REG' })]);
+    ws.server({ type: 'authed', user: { id: 1, username: 'amy' } });
+    expect(ws.sent[1]).toBe(JSON.stringify({ type: 'join', code: 'ABCDEF' }));
     expect(oc().code).toBe('ABCDEF');
   });
 
@@ -147,6 +150,8 @@ describe('online-client room lobby + WebSocket', () => {
     expect(code).toBe('ABCDEF');
     expect(wsInstances.length).toBe(1);
     wsInstances[0].open();
+    expect(wsInstances[0].sent).toContain(JSON.stringify({ type: 'auth', token: 'T-REG' }));
+    wsInstances[0].server({ type: 'authed', user: { id: 1, username: 'amy' } });
     expect(wsInstances[0].sent).toContain(JSON.stringify({ type: 'join', code: 'ABCDEF' }));
   });
 

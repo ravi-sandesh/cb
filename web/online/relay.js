@@ -25,7 +25,8 @@ class Relay {
     this.db = db;
     this.auth = auth;
     this.rooms = new Map(); // code -> room
-    this.conns = new Map(); // conn -> { userId, username }
+    this.conns = new Map(); // authenticated conn -> { userId, username }
+    this.allConns = new Set(); // every accepted socket incl. pre-auth (teardown)
     if (buildRooms) {
       httpServer.on('upgrade', (req, socket, head) => this.handleUpgrade(req, socket, head));
     }
@@ -35,31 +36,21 @@ class Relay {
 
   handleUpgrade(req, socket, head) {
     if (!(req.headers.upgrade || '').toLowerCase().includes('websocket')) { socket.destroy(); return; }
-    const url = new URL(req.url, 'http://local');
-    const token = url.searchParams.get('token');
-    const session = token && this.auth.authenticateToken(this.db, token);
-    if (!session || !session.ok) { socket.destroy(); return; }
-    this.acceptSocket(req, socket, head, session);
+    this.acceptSocket(req, socket, head);
   }
 
-  acceptSocket(req, socket, head, session) {
+  // The handshake completes WITHOUT credentials; identity arrives as the
+  // first text frame ({type:'auth', token}). This keeps bearer tokens out of
+  // upgrade URLs, where they leak into proxy and access logs.
+  acceptSocket(req, socket, head) {
     const key = req.headers['sec-websocket-key'];
     const { acceptKey, encodeFrame, encodeText, encodeClose, OP, Framer } = require('./ws.js');
     if (!key) { socket.destroy(); return; }
 
-    // Resource guard: bound concurrent sockets per account so one user cannot
-    // farm unauthenticated-looking connections and grow this.conns forever.
-    let socketsForUser = 0;
-    for (const info of this.conns.values()) {
-      if (info.userId === session.user.id && ++socketsForUser >= MAX_SOCKETS_PER_USER) {
-        socket.destroy();
-        return;
-      }
-    }
-
     const conn = {
       socket, framer: new Framer(), alive: true,
-      userId: session.user.id, username: session.user.username, room: null
+      authed: false,
+      userId: null, username: null, room: null
     };
     socket.write(
       'HTTP/1.1 101 Switching Protocols\r\n' +
@@ -93,8 +84,32 @@ class Relay {
     socket.on('pong', () => { conn.alive = true; });
     conn._heartbeat = heartbeat;
 
+    // Unauthenticated conns are tracked for teardown but do not occupy the
+    // authenticated per-user socket budget until their token checks out.
+    this.allConns.add(conn);
+  }
+
+  // First-message authentication. Returns true when the conn is now trusted.
+  authenticateConn(conn, msg) {
+    const token = msg && typeof msg.token === 'string' ? msg.token : null;
+    const session = token && this.auth.authenticateToken(this.db, token);
+    if (!session || !session.ok) return false;
+
+    // Resource guard: bound concurrent sockets per account so one user cannot
+    // farm connections and grow this.conns forever.
+    let socketsForUser = 0;
+    for (const info of this.conns.values()) {
+      if (info.userId === session.user.id && ++socketsForUser >= MAX_SOCKETS_PER_USER) {
+        this.close(conn, 1013); // try again later
+        return false;
+      }
+    }
+    conn.authed = true;
+    conn.userId = session.user.id;
+    conn.username = session.user.username;
     this.conns.set(conn, { userId: conn.userId, username: conn.username });
     this.send(conn, { type: 'authed', user: { id: conn.userId, username: conn.username } });
+    return true;
   }
 
   onFrame(conn, fr) {
@@ -107,7 +122,19 @@ class Relay {
     if (fr.opcode !== OP.TEXT) return;
     let msg;
     try { msg = JSON.parse(fr.payload.toString('utf8')); }
-    catch { this.sendErr(conn, 'bad-json'); return; }
+    catch {
+      if (!conn.authed) { this.close(conn, 1008); return; }
+      this.sendErr(conn, 'bad-json');
+      return;
+    }
+
+    // Pre-auth: the ONLY accepted message is the auth handshake. Anything
+    // else — including malformed JSON — is a protocol violation.
+    if (!conn.authed) {
+      if (msg && typeof msg === 'object' && msg.type === 'auth' && this.authenticateConn(conn, msg)) return;
+      this.close(conn, 1008); // policy violation: unauthenticated
+      return;
+    }
     if (!msg || typeof msg.type !== 'string') { this.sendErr(conn, 'bad-message'); return; }
     this.handle(conn, msg);
   }
@@ -256,6 +283,7 @@ class Relay {
   detach(conn) {
     if (conn._heartbeat) { clearInterval(conn._heartbeat); conn._heartbeat = null; }
     this.conns.delete(conn);
+    this.allConns.delete(conn);
     const room = conn.room;
     if (!room) return;
     room.sockets.delete(conn.seat);
@@ -271,7 +299,8 @@ class Relay {
 
   close(conn, code) {
     const { encodeClose } = require('./ws.js');
-    if (conn.socket.destroyed) return;
+    if (conn.closed || conn.socket.destroyed) return;
+    conn.closed = true;
     try { conn.socket.write(encodeClose(code || 1000, '')); } catch {}
     this.detach(conn);
     setTimeout(() => { try { conn.socket.end(); } catch {} }, 30);
@@ -280,11 +309,12 @@ class Relay {
   // Hard teardown: kill every connection and clear all timers. Used by tests
   // so no heartbeat interval survives past the mocked http server.
   shutdown() {
-    for (const conn of [...this.conns.keys()]) {
+    for (const conn of [...this.allConns]) {
       if (conn._heartbeat) { clearInterval(conn._heartbeat); conn._heartbeat = null; }
       try { conn.socket.destroy(); } catch {}
     }
     this.conns.clear();
+    this.allConns.clear();
     this.rooms.clear();
   }
 

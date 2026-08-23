@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 const http = require('node:http');
 const net = require('node:net');
 const crypto = require('node:crypto');
@@ -29,7 +29,7 @@ function apiRequest(port, method, pathname, { token, body } = {}) {
 }
 
 // ---- minimal raw WS client over a TCP socket ----
-function openSocket(port, path) {
+ function openSocket(port, path, token) {
   return new Promise((resolve, reject) => {
     const sock = net.connect(port, '127.0.0.1', () => {
       const key = crypto.randomBytes(16).toString('base64');
@@ -55,6 +55,8 @@ function openSocket(port, path) {
         buf = buf.subarray(i + 4);
         handshake = true;
         if (!/101/.test(head.split('\r\n')[0])) { sock.destroy(); return reject(new Error('handshake failed')); }
+        // First-message auth (mirrors the browser client) before returning.
+        if (token) sock.write(encodeClientFrame(JSON.stringify({ type: 'auth', token })));
         resolve(wsHandle(sock, messages, waiters));
         drain();
         return;
@@ -203,19 +205,19 @@ describe('online-server match lifecycle + ws relay', () => {
     const created = await apiRequest(port, 'POST', '/api/match/create', { token: alice.token, body: { gridSize: 5 } });
     expect(created.status).toBe(201);
     expect(created.body.code).toMatch(/^[A-Z0-9]{6}$/);
-    expect(created.body.wsPath).toContain('/ws?token=');
+        expect(created.body.wsPath).toBe('/ws');
 
     const joined = await apiRequest(port, 'POST', '/api/match/join', { token: bob.token, body: { code: created.body.code } });
     expect(joined.status).toBe(200);
     expect(joined.body.gridSize).toBe(5);
 
-    // HTTP join alone NEVER seats the guest — seating + PLAYING flip happens on
+    // HTTP join alone NEVER seats the guest â€” seating + PLAYING flip happens on
     // the websocket attach, so the DB is still WAITING here (authority lives
     // in the relay, not the HTTP layer).
     expect(store.getMatchByCode(created.body.code).status).toBe('WAITING');
 
-    const host = await openSocket(port, created.body.wsPath);
-    const guest = await openSocket(port, joined.body.wsPath);
+    const host = await openSocket(port, created.body.wsPath, alice.token);
+    const guest = await openSocket(port, joined.body.wsPath, bob.token);
 
     host.send({ type: 'join', code: created.body.code });
     const hostJoined = await host.next((m) => m.type === 'joined');
@@ -299,8 +301,8 @@ describe('online-server match lifecycle + ws relay', () => {
   test('moves round-trip over the wire and persist to the ledger board', async () => {
     const created = await apiRequest(port, 'POST', '/api/match/create', { token: alice.token, body: { gridSize: 5 } });
     const joined = await apiRequest(port, 'POST', '/api/match/join', { token: bob.token, body: { code: created.body.code } });
-    const host = await openSocket(port, created.body.wsPath);
-    const guest = await openSocket(port, joined.body.wsPath);
+    const host = await openSocket(port, created.body.wsPath, alice.token);
+    const guest = await openSocket(port, joined.body.wsPath, bob.token);
     host.send({ type: 'join', code: created.body.code });
     guest.send({ type: 'join', code: created.body.code });
     await host.next((m) => m.type === 'joined');
@@ -328,8 +330,8 @@ describe('online-server match lifecycle + ws relay', () => {
   test('a finished match broadcasts game-over and persists the winner', async () => {
     const created = await apiRequest(port, 'POST', '/api/match/create', { token: alice.token, body: { gridSize: 5 } });
     const joined = await apiRequest(port, 'POST', '/api/match/join', { token: bob.token, body: { code: created.body.code } });
-    const host = await openSocket(port, created.body.wsPath);
-    const guest = await openSocket(port, joined.body.wsPath);
+    const host = await openSocket(port, created.body.wsPath, alice.token);
+    const guest = await openSocket(port, joined.body.wsPath, bob.token);
     host.send({ type: 'join', code: created.body.code });
     guest.send({ type: 'join', code: created.body.code });
     await host.next((m) => m.type === 'joined');
@@ -403,7 +405,7 @@ describe('online-server edge cases', () => {
   test('oversized request bodies are destroyed mid-upload', async () => {
     const big = JSON.stringify({ username: 'x', password: 'yyyyyy', pad: 'a'.repeat(1.2e6) });
     // The server destroys the socket once >1MB accumulates; the client either
-    // errors out or gets no response — both are acceptable outcomes here.
+    // errors out or gets no response â€” both are acceptable outcomes here.
     try { await apiRequest(port, 'POST', '/api/register', { body: big }); } catch { /* destroyed */ }
     expect(true).toBe(true);
   });
@@ -492,7 +494,7 @@ describe('online-server lifecycle (sweeper + graceful shutdown)', () => {
     const instance = startOnlineServer({ port: 0, dbPath: dbFile });
     await new Promise((resolve) => instance.server.on('listening', resolve));
     await instance.stop();
-    // Reopening the same file must succeed — proves no handle was leaked.
+    // Reopening the same file must succeed â€” proves no handle was leaked.
     const { openDb: reopen } = require('./online-db.js');
     const again = reopen(dbFile);
     expect(again.prepare('SELECT COUNT(*) AS n FROM matches').get().n).toBe(0);

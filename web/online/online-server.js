@@ -97,7 +97,7 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
         const gridSize = body.gridSize === 7 ? 7 : 5;
         const desc = store.createMatch({ code: makeRoomCode(store), gridSize, playerCount: 2, hostUserId: session.user.id });
         const room = relay.openRoom({ matchId: desc.id, code: desc.code, gridSize, hostUserId: session.user.id });
-        return send(res, 201, { code: desc.code, gridSize, playerCount: 2, matchId: desc.id, wsPath: `/ws?token=${token}` });
+        return send(res, 201, { code: desc.code, gridSize, playerCount: 2, matchId: desc.id, wsPath: '/ws' });
       } catch (e) {
         return send(res, 500, { error: String(e && e.message || 'create-failed') });
       }
@@ -124,7 +124,7 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
         }
         store.setMatchInvited(desc.id, session.user.id);
         const room = relay.openRoom({ matchId: desc.id, code: desc.code, gridSize: desc.grid_size, hostUserId: desc.host_user_id, invitedUserId: session.user.id });
-        return send(res, 200, { code: desc.code, gridSize: desc.grid_size, wsPath: `/ws?token=${token}`, matchId: desc.id });
+        return send(res, 200, { code: desc.code, gridSize: desc.grid_size, wsPath: '/ws', matchId: desc.id });
       } catch { return send(res, 500, { error: 'join-failed' }); }
     }
 

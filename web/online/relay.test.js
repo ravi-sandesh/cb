@@ -129,13 +129,14 @@ function handshakeOk(socket) {
   return socket.writes.some((w) => w.toString('utf8').includes('101 Switching Protocols'));
 }
 
-// Build an upgrade request for a given token.
-function upgradeReq(token, { upgrade = true, key = true, protocol = false } = {}) {
+// Build an upgrade request. Tokens are NOT part of the URL anymore; identity
+// arrives as the first message after the handshake completes.
+function upgradeReq({ upgrade = true, key = true, protocol = false } = {}) {
   const headers = {};
   if (upgrade) headers.upgrade = 'websocket';
   if (key) headers['sec-websocket-key'] = 'dGhlIHNhbXBsZSBub25jZQ==';
   if (protocol) headers['sec-websocket-protocol'] = 'chokabarah';
-  return { headers, url: `/ws?token=${token}` };
+  return { headers, url: '/ws' };
 }
 
 // ---- suite ----
@@ -170,9 +171,14 @@ function openRoom(code, hostUserId, invitedUserId = null) {
   return relay.rooms.get(code);
 }
 
+// Connect + authenticate in one step (mirrors the browser client). Pass
+// token = null to keep the conn unauthenticated for pre-auth protocol tests.
 function connect(token, SocketImpl = FakeSocket, opts) {
   const sock = new SocketImpl();
-  relay.handleUpgrade(upgradeReq(token, opts), sock, null);
+  relay.handleUpgrade(upgradeReq(opts), sock, null);
+  if (token != null) {
+    sock.emit('data', clientText({ type: 'auth', token }));
+  }
   return sock;
 }
 
@@ -186,22 +192,52 @@ describe('Relay handshake', () => {
     expect(sock.writes).toHaveLength(0);
   });
 
-  test('rejects an invalid or missing token', async () => {
+  test('handshakes without tokens are accepted, then closed 1008 on bad auth', async () => {
     relay = freshRelay();
-    const bad = new FakeSocket();
-    relay.handleUpgrade(upgradeReq('not-a-real-token'), bad, null);
-    expect(bad.destroyed).toBe(true);
 
-    const missing = new FakeSocket();
-    relay.handleUpgrade(upgradeReq(''), missing, null);
-    expect(missing.destroyed).toBe(true);
+    // No URL credentials anymore: the upgrade itself succeeds.
+    const bad = new FakeSocket();
+    relay.handleUpgrade(upgradeReq(), bad, null);
+    expect(bad.destroyed).toBe(false);
+    expect(handshakeOk(bad)).toBe(true);
+
+    // A garbage token in the first message closes the conn (policy 1008).
+    bad.emit('data', clientText({ type: 'auth', token: 'not-a-real-token' }));
+    expect(lastCloseCode(bad)).toBe(1008);
+    expect(relay.conns.size).toBe(0);
+  });
+
+  test('pre-auth frames other than auth close the conn with 1008', async () => {
+    const u = await makeUser('alice');
+    relay = freshRelay();
+    const sock = connect(null); // unauthenticated
+    expect(handshakeOk(sock)).toBe(true);
+
+    // A join attempt before authenticating is a protocol violation.
+    sock.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(lastCloseCode(sock)).toBe(1008);
+
+    // Malformed JSON pre-auth likewise.
+    const sock2 = connect(null);
+    sock2.emit('data', clientText('{not json'));
+    expect(lastCloseCode(sock2)).toBe(1008);
+  });
+
+  test('valid first-message auth yields the authed identity', async () => {
+    const u = await makeUser('alice');
+    relay = freshRelay();
+    const sock = connect(u.token);
+    const msgs = received(sock);
+    expect(msgs[0].type).toBe('authed');
+    expect(msgs[0].user.username).toBe('alice');
+    expect(relay.conns.size).toBe(1);
   });
 
   test('rejects a request without a Sec-WebSocket-Key', async () => {
     const u = await makeUser('alice');
     relay = freshRelay();
     const sock = new FakeSocket();
-    relay.handleUpgrade(upgradeReq(u.token, { key: false }), sock, null);
+    relay.handleUpgrade(upgradeReq({ key: false }), sock, null);
     expect(sock.destroyed).toBe(true);
   });
 
@@ -235,8 +271,8 @@ describe('Relay handshake', () => {
     const s2 = connect(u.token);
     const s3 = connect(u.token);
     expect(relay.conns.size).toBe(3);
-    const s4 = connect(u.token); // beyond MAX_SOCKETS_PER_USER -> destroyed
-    expect(s4.destroyed).toBe(true);
+    const s4 = connect(u.token); // beyond MAX_SOCKETS_PER_USER -> closed 1013
+    expect(lastCloseCode(s4)).toBe(1013);
     expect(s1.destroyed).toBe(false);
     expect(relay.conns.size).toBe(3);
   });
