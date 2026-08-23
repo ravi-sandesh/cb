@@ -143,11 +143,12 @@
             <!-- Player names/colors legend, current turn highlighted (US-04/US-24) -->
             <div id="player-strip" class="player-strip"></div>
 
-            <div id="game-log" class="game-log">Game Started! Roll cowries to begin.</div>
+            <div id="game-log" class="game-log" role="status" aria-live="polite" aria-atomic="true">Game Started! Roll cowries to begin.</div>
 
             <!-- Canvas Board Container -->
             <div class="board-wrapper">
-                <canvas id="board-canvas" width="500" height="500"></canvas>
+                <canvas id="board-canvas" width="500" height="500" tabindex="0"
+                    aria-label="Choka Barah board. Use the arrow keys to move the cursor, then press Enter to move a pawn."></canvas>
             </div>
 
             <!-- Pawn Move Selector Bar -->
@@ -173,9 +174,9 @@
     </div>
 
     <!-- Rules Modal -->
-    <div id="rules-modal" class="modal hidden">
+    <div id="rules-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="rules-title">
         <div class="modal-content">
-            <h2>CHOKA BARAH RULES</h2>
+            <h2 id="rules-title">CHOKA BARAH RULES</h2>
             <div class="rules-body">
                 <p><strong>🎯 Objective:</strong> Race all 4 pawns anti-clockwise around the outer ring, then spiral inward to the Center Home.</p>
                 <hr style="border-color:#5D4037;margin:8px 0">

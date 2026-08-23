@@ -304,6 +304,12 @@ body.senior-mode .online-code-display { font-size: 16px; }
     display: block;
 }
 
+/* Keyboard play: the canvas is focusable (tabindex=0); make focus visible. */
+#board-canvas:focus-visible {
+    outline: 3px solid #FFD54F;
+    outline-offset: 2px;
+}
+
 /* Cowry Section */
 .cowry-container {
     background: #2C241E;

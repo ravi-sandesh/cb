@@ -108,8 +108,31 @@ function setGameMode(m) {
     if (card) card.style.display = m === 'online' ? '' : 'none';
     if (m === 'online') refreshOnlineSections();
 }
-function openRules()  { T.info('ui', 'rules.opened', 'Rules modal opened', {}); document.getElementById('rules-modal').classList.remove('hidden'); }
-function closeRules() { T.info('ui', 'rules.closed', 'Rules modal closed', {}); document.getElementById('rules-modal').classList.add('hidden'); }
+// ---- Rules modal (accessible dialog) ----
+// Focus management: opening moves focus to the first focusable control,
+// Tab/Shift+Tab cycle inside the dialog, Escape closes, and focus returns
+// to the element that opened it.
+let rulesOpener = null;
+function modalFocusables(modal) {
+    return Array.prototype.filter.call(
+        modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'),
+        el => el && !el.disabled
+    );
+}
+function openRules()  {
+    T.info('ui', 'rules.opened', 'Rules modal opened', {});
+    const modal = document.getElementById('rules-modal');
+    modal.classList.remove('hidden');
+    rulesOpener = document.activeElement || null;
+    const items = modalFocusables(modal);
+    if (items.length) items[0].focus();
+}
+function closeRules() {
+    T.info('ui', 'rules.closed', 'Rules modal closed', {});
+    document.getElementById('rules-modal').classList.add('hidden');
+    if (rulesOpener) rulesOpener.focus();
+    rulesOpener = null;
+}
 function showHomeScreen() {
     T.info('ui', 'navigation.to_home', 'Navigated to home screen', { priorGameActive: gameActive });
     // BUG-02/BUG-03: leaving the board must not strand a pending timer — a bot
@@ -117,6 +140,7 @@ function showHomeScreen() {
     // otherwise fire into the menu or a fresh game (see clearScheduledTimers).
     gameActive = false;
     clearScheduledTimers();
+    boardCursor.row = -1; boardCursor.col = -1; // hide the keyboard cursor
     document.getElementById('home-screen').classList.add('active');
     document.getElementById('game-screen').classList.remove('active');
 }
@@ -146,6 +170,8 @@ function startGame() {
     initGameState();
     renderBoard();
     Sound.play('game_start');
+    // Keyboard play: focus the canvas so arrows work immediately.
+    canvas.focus();
 }
 function restartGame() {
     T.info('ui', 'game.restarted', 'Game restarted by user', boardSnapshot());
@@ -159,6 +185,86 @@ function restartGame() {
     }
     initGameState();
     renderBoard();
+    canvas.focus();
+}
+
+// ---- Keyboard play ----
+// The board is a canvas, which mice love and keyboards ignore. A movable
+// cell cursor (arrow keys) plus Enter/Space gives the SAME actOnCell path a
+// mouse click takes — one shared decision funnel for both input methods.
+const boardCursor = { row: -1, col: -1 }; // negative = hidden
+
+function handleBoardKeydown(e) {
+    if (!gameActive || winner !== null) return;
+    if (gameMode === 'bot' && currentPlayerIndex !== 0) return;
+    if (gameMode === 'online' && currentPlayerIndex !== onlineSeat) return;
+    const key = e.key;
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', ' '].includes(key)) return;
+    e.preventDefault();
+
+    if (key === 'Enter' || key === ' ') {
+        if (boardCursor.row >= 0) actOnCell(boardCursor.row, boardCursor.col);
+        return;
+    }
+    // Direction lookup keeps the movement logic branch-light: every arrow
+    // moves the cursor (revealing it on first use), clamped to the grid.
+    const dir = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[key];
+    if (!dir) return;
+    if (boardCursor.row < 0) {
+        const start = getPlayerPath(currentGridSize, currentPlayerIndex)[0];
+        boardCursor.row = start[0];
+        boardCursor.col = start[1];
+    }
+    boardCursor.row = Math.min(currentGridSize - 1, Math.max(0, boardCursor.row + dir[0]));
+    boardCursor.col = Math.min(currentGridSize - 1, Math.max(0, boardCursor.col + dir[1]));
+    renderBoard();
+}
+
+// Shared click/keyboard decision funnel for the board.
+function actOnCell(row, col) {
+    if (!gameActive || winner !== null) return;
+    if (gameMode === 'bot' && currentPlayerIndex !== 0) return;
+    if (gameMode === 'online' && currentPlayerIndex !== onlineSeat) return;
+
+    if (validMoves.length === 0) {
+        T.trace('input', 'board.tapped_none', `Tapped cell (${row},${col}) with no valid moves`, { row, col, gridSize: currentGridSize });
+        return;
+    }
+
+    const move = validMoves.find(m => m.targetCoords[0] === row && m.targetCoords[1] === col);
+    T.debug('input', 'board.tapped', `User tapped cell (${row},${col})`, { row, col, matchedMove: !!move, gridSize: currentGridSize, playerIndex: currentPlayerIndex });
+    if (move) executeMove(move);
+}
+
+canvas.addEventListener('click', e => {
+    const rect   = canvas.getBoundingClientRect();
+    const scaleX = canvas.width  / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x      = (e.clientX - rect.left) * scaleX;
+    const y      = (e.clientY - rect.top)  * scaleY;
+    const cs     = canvas.width / currentGridSize;
+
+    const col = Math.min(Math.floor(x / cs), currentGridSize - 1);
+    const row = Math.min(Math.floor(y / cs), currentGridSize - 1);
+    actOnCell(row, col);
+});
+canvas.addEventListener('keydown', handleBoardKeydown);
+
+// Modal keyboard support: Escape closes; Tab is trapped inside the dialog.
+// Guarded so the degraded-DOM boot paths (tests / exotic embeds) still load.
+if (typeof document.addEventListener === 'function') {
+    document.addEventListener('keydown', e => {
+        const modal = document.getElementById('rules-modal');
+        if (!modal || modal.classList.contains('hidden')) return;
+        if (e.key === 'Escape') { e.preventDefault(); closeRules(); return; }
+        if (e.key !== 'Tab') return;
+        const items = modalFocusables(modal);
+        if (!items.length) return;
+        const first = items[0], last = items[items.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    });
 }
 
 // Toggle sound mute (US-27). Reflects state in the mute button label.
@@ -529,6 +635,7 @@ function initGameState() {
     currentRoll        = null;
     validMoves         = [];
     winner             = null;
+    boardCursor.row = -1; boardCursor.col = -1; // keyboard cursor hidden on fresh games
     // BUG-13: a freshly started game must not inherit the previous game's
     // "No valid moves (Player X)" banner — that reason belonged to a finished
     // game and would contradict the new "Game Started!" log.
@@ -1106,35 +1213,28 @@ function renderBoard() {
             ctx.fillText('G', cx0, cy0 + pr * 1.9);
         }
     });
+
+    // 5. Keyboard cursor overlay (dashed gold ring on the cursor cell).
+    if (boardCursor.row >= 0 && boardCursor.col >= 0) {
+        ctx.save();
+        ctx.strokeStyle = '#FFD54F';
+        ctx.lineWidth   = seniorMode ? 5 : 3;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(
+            boardCursor.col * cs + 2,
+            boardCursor.row * cs + 2,
+            cs - 4, cs - 4
+        );
+        ctx.restore();
+    }
 }
 
 // ============================================================
-// BOARD CLICK
+// BOARD INPUT
 // ============================================================
-canvas.addEventListener('click', e => {
-    if (!gameActive || winner !== null) return;
-    if (gameMode === 'bot' && currentPlayerIndex !== 0) return;
-    if (gameMode === 'online' && currentPlayerIndex !== onlineSeat) return;
-
-    const rect   = canvas.getBoundingClientRect();
-    const scaleX = canvas.width  / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x      = (e.clientX - rect.left) * scaleX;
-    const y      = (e.clientY - rect.top)  * scaleY;
-    const cs     = canvas.width / currentGridSize;
-
-    const col = Math.min(Math.floor(x / cs), currentGridSize - 1);
-    const row = Math.min(Math.floor(y / cs), currentGridSize - 1);
-
-    if (validMoves.length === 0) {
-        T.trace('input', 'board.tapped_none', `Tapped cell (${row},${col}) with no valid moves`, { row, col, gridSize: currentGridSize });
-        return;
-    }
-
-    const move = validMoves.find(m => m.targetCoords[0] === row && m.targetCoords[1] === col);
-    T.debug('input', 'board.tapped', `User tapped cell (${row},${col})`, { row, col, matchedMove: !!move, gridSize: currentGridSize, playerIndex: currentPlayerIndex });
-    if (move) executeMove(move);
-});
+// Mouse clicks and keyboard input both funnel through actOnCell() above;
+// the listeners are registered next to the keyboard-cursor code so the two
+// input paths stay in lockstep.
 
 // Expose ONLY the handlers referenced by inline onclick attributes on window.
 // Everything else stays inside the IIFE so its top-level identifiers (e.g.

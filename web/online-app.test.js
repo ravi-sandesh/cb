@@ -43,7 +43,7 @@ function makeElement(id) {
     disabled: false,
     value: '',
     children: [],
-    classList: { _set: {}, add(c){ this._set[c]=true; }, remove(c){ delete this._set[c]; }, toggle(c, on){ this._set[c] = on === undefined ? !this._set[c] : !!on; } },
+    classList: { _set: {}, add(c){ this._set[c]=true; }, remove(c){ delete this._set[c]; }, toggle(c, on){ this._set[c] = on === undefined ? !this._set[c] : !!on; }, contains(c){ return !!this._set[c]; } },
     addEventListener() {},
     appendChild(c) { el.children.push(c); },
     setAttribute() {},
@@ -108,6 +108,9 @@ function boot() {
   const w = { OnlineClient: makeFakeOnline() };
   const document = {
     body: makeElement('body'),
+    activeElement: null,
+    _listeners: {},
+    addEventListener(type, fn) { document._listeners[type] = fn; },
     getElementById: (id) => holder.docEls[id] || (holder.docEls[id] = makeElement(id)),
     createElement: (tag) => makeElement(`${tag}_${holder._eltSeq++}`)
   };

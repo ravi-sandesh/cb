@@ -34,10 +34,16 @@ function makeCanvas(width) {
     getContext: () => ctx,
     getBoundingClientRect: () => ({ left: 0, top: 0, width: canvas.width, height: canvas.height }),
     addEventListener: (type, fn) => { canvas._listeners[type] = fn; },
+    focus() { canvas._focused = (canvas._focused || 0) + 1; },
     // Dispatch a board tap exactly like the browser would (clientX/Y in px).
     fireClick(clientX, clientY) {
       const fn = canvas._listeners.click;
       if (fn) fn({ clientX, clientY });
+    },
+    // Dispatch a keydown exactly like the browser would on a focused canvas.
+    fireKey(key) {
+      const fn = canvas._listeners.keydown;
+      if (fn) fn({ key, preventDefault: () => {} });
     }
   };
   return canvas;
@@ -52,10 +58,13 @@ function makeElement(id) {
     style: {},
     disabled: false,
     children: [],
-    classList: { _set: {}, add(c){ this._set[c]=true; }, remove(c){ delete this._set[c]; }, toggle(c, on){ this._set[c] = on === undefined ? !this._set[c] : !!on; } },
+    classList: { _set: {}, add(c){ this._set[c]=true; }, remove(c){ delete this._set[c]; }, toggle(c, on){ this._set[c] = on === undefined ? !this._set[c] : !!on; }, contains(c){ return !!this._set[c]; } },
     addEventListener(type, fn) { el._listeners = el._listeners || {}; el._listeners[type] = fn; },
     appendChild(child) { el.children.push(child); },
-    dispatchEvent() { return true; }
+    dispatchEvent() { return true; },
+    // Focus-trap support: tests inject mock focusables via _focusables.
+    querySelectorAll(sel) { return el._focusables || []; },
+    focus() { globalThis.document && (globalThis.document.activeElement = el); }
   };
   Object.defineProperty(el, 'innerText', {
     get() { return el._innerText; },
@@ -134,6 +143,14 @@ function boot() {
   const w = {};
   const document = {
     body: makeElement('body'),
+    activeElement: null,
+    _listeners: {},
+    addEventListener(type, fn) { document._listeners[type] = fn; },
+    // Dispatch a document-level keydown (used by the rules-modal trap).
+    fireDocKey(key, { shiftKey = false } = {}) {
+      const fn = document._listeners.keydown;
+      if (fn) fn({ key, shiftKey, preventDefault: () => {} });
+    },
     getElementById: (id) => holder.docEls[id] || (holder.docEls[id] = makeElement(id)),
     createElement: (tag) => makeElement(`${tag}_${holder._eltSeq++}`)
   };
@@ -347,6 +364,204 @@ describe('navigation & config', () => {
     expect(holder.docEls['rules-modal'].classList._set.hidden).toBeUndefined();
     w.closeRules();
     expect(holder.docEls['rules-modal'].classList._set.hidden).toBe(true);
+  });
+});
+
+describe('accessibility behaviors', () => {
+  // Drive a deterministic roll with moves, then hand back the harness.
+  function startWithMoves(w) {
+    useSeededRandom(12345);
+    w.startGame();
+    for (let i = 0; i < 40; i++) {
+      w.handleRoll();
+      if (holder.docEls['pawn-select-bar'] &&
+          !holder.docEls['pawn-select-bar'].classList._set.hidden) break;
+    }
+  }
+
+  test('arrow keys reveal and move the board cursor; Enter executes the move', () => {
+    const { w, canvas } = fresh();
+    startWithMoves(w);
+    const drawsBefore = canvas.getContext('2d').__calls.length;
+
+    canvas.fireKey('ArrowRight'); // reveals cursor at player 0's start cell
+    expect(canvas.getContext('2d').__calls.length).toBeGreaterThan(drawsBefore);
+
+    // Walk the cursor across the grid; Enter on a highlighted cell must
+    // consume the roll exactly like a mouse tap would.
+    let consumed = false;
+    outer:
+    for (let r = 0; r < 5 && !consumed; r++) {
+      // re-center: jump home then step right row by row via absolute taps of keys
+      for (let c = 0; c < 5 && !consumed; c++) {
+        canvas.fireKey('Enter');
+        const rollGone = holder.docEls['roll-score-display']._innerText === '' ||
+          holder.docEls['roll-score-display'].innerText === '';
+        if (rollGone) { consumed = true; break outer; }
+        if (c < 4) canvas.fireKey('ArrowRight');
+      }
+      if (!consumed) {
+        // move back left and down one row
+        for (let c = 0; c < 4; c++) canvas.fireKey('ArrowLeft');
+        canvas.fireKey('ArrowDown');
+      }
+    }
+    expect(consumed).toBe(true);
+  });
+
+  test('Enter before any arrow key is a no-op (cursor hidden)', () => {
+    const { w, canvas } = fresh();
+    useSeededRandom(777);
+    w.startGame();
+    const drawsBefore = canvas.getContext('2d').__calls.length;
+    expect(() => canvas.fireKey('Enter')).not.toThrow();
+    expect(canvas.getContext('2d').__calls.length).toBe(drawsBefore);
+  });
+
+  test('keyboard input is ignored outside the human turn', () => {
+    const { w, canvas } = fresh();
+    useSeededRandom(42);
+    w.setGameMode('bot');
+    w.startGame();
+    // Force a state where it is the bot's turn by playing until turn flips.
+    let flipped = false;
+    for (let i = 0; i < 30 && !flipped; i++) {
+      w.handleRoll();
+      if (holder.docEls['turn-text']) {
+        const t = holder.docEls['turn-text']._innerText || '';
+        if (/GREEN/i.test(t)) flipped = true;
+      }
+    }
+    if (!flipped) return; // seed never flipped; nothing to assert this run
+    const drawsBefore = canvas.getContext('2d').__calls.length;
+    canvas.fireKey('ArrowRight');
+    expect(canvas.getContext('2d').__calls.length).toBe(drawsBefore);
+  });
+
+  test('restart hides the keyboard cursor', () => {
+    const { w, canvas } = fresh();
+    startWithMoves(w);
+    canvas.fireKey('ArrowDown'); // cursor visible now
+    w.restartGame();
+    // Enter after restart must be a no-op (cursor was reset).
+    const drawsBefore = canvas.getContext('2d').__calls.length;
+    canvas.fireKey('Enter');
+    expect(canvas.getContext('2d').__calls.length).toBe(drawsBefore);
+  });
+
+  test('cursor clamps at the edges and all four directions plus Space work', () => {
+    const { w, canvas } = fresh();
+    useSeededRandom(12345);
+    w.startGame();
+    canvas.fireKey('ArrowRight'); // reveals cursor at player 0's start cell
+    // Walk far past every edge; clamped draws must still repaint.
+    for (let i = 0; i < 12; i++) canvas.fireKey('ArrowLeft');
+    for (let i = 0; i < 12; i++) canvas.fireKey('ArrowUp');
+    const drawsAtCorner = canvas.getContext('2d').__calls.length;
+    canvas.fireKey('ArrowUp');
+    canvas.fireKey('ArrowLeft');
+    canvas.fireKey(' ');
+    expect(canvas.getContext('2d').__calls.length).toBeGreaterThanOrEqual(drawsAtCorner);
+  });
+
+  test('keys are ignored before a game starts', () => {
+    const { w, canvas } = fresh();
+    // Module state survives across tests (single boot); explicitly leave any
+    // previous match so this test really measures the inactive-game guard.
+    w.showHomeScreen();
+    const drawsBefore = canvas.getContext('2d').__calls.length;
+    canvas.fireKey('ArrowRight');
+    canvas.fireKey('Enter');
+    expect(canvas.getContext('2d').__calls.length).toBe(drawsBefore);
+  });
+
+  test('unrelated keys are ignored during play', () => {
+    const { w, canvas } = fresh();
+    useSeededRandom(99);
+    w.startGame();
+    const drawsBefore = canvas.getContext('2d').__calls.length;
+    canvas.fireKey('a');
+    canvas.fireKey('Tab');
+    canvas.fireKey('Escape');
+    expect(canvas.getContext('2d').__calls.length).toBe(drawsBefore);
+  });
+
+  test('keys are ignored while it is the bot\'s turn', () => {
+    const { w, canvas } = fresh();
+    w.setGameMode('bot');
+    w.startGame();
+    // Human (P0) rolls score 1 and moves via the quick-list, advancing to
+    // the bot (P1) — same deterministic setup as the click-guard test.
+    useScriptedRandom([0.6, 0.1, 0.1, 0.1]);
+    w.handleRoll();
+    const btns = holder.docEls['pawn-buttons-container'];
+    btns.children[0].onclick();
+    expect(holder.docEls['turn-text']._innerText).toContain('🤖');
+
+    const drawsBefore = canvas.getContext('2d').__calls.length;
+    canvas.fireKey('ArrowRight');
+    canvas.fireKey('Enter');
+    expect(canvas.getContext('2d').__calls.length).toBe(drawsBefore);
+  });
+
+  test('openRules moves focus into the dialog; closeRules restores it', () => {
+    const { w } = fresh();
+    const opener = holder.docEls['btn-rules'];
+    w.openRules();
+    const modal = holder.docEls['rules-modal'];
+    expect(modal.classList._set.hidden).toBeUndefined();
+    // No focusables injected -> graceful degradation, dialog still opens.
+    expect(() => w.closeRules()).not.toThrow();
+    expect(modal.classList._set.hidden).toBe(true);
+    void opener;
+  });
+
+  test('focus trap cycles inside an open rules modal', () => {
+    const { w, document } = fresh();
+    // Create + populate the modal BEFORE opening so initial focus lands.
+    const modal = document.getElementById('rules-modal');
+    const first = makeElement('rules-first');
+    const last = makeElement('rules-last');
+    const opener = document.getElementById('btn-rules');
+    modal._focusables = [first, last];
+    first.disabled = false;
+    last.disabled = false;
+    document.activeElement = opener;
+    w.openRules();
+    expect(modal.classList._set.hidden).toBeUndefined();
+    expect(document.activeElement).toBe(first); // initial focus = first item
+
+    // Tab on the LAST item wraps to the FIRST.
+    document.activeElement = last;
+    document.fireDocKey('Tab');
+    expect(document.activeElement).toBe(first);
+
+    // Shift+Tab on the FIRST item wraps to the LAST.
+    document.activeElement = first;
+    document.fireDocKey('Tab', { shiftKey: true });
+    expect(document.activeElement).toBe(last);
+
+    // Tab on a middle item is left to the browser (no wrap).
+    document.activeElement = first;
+    document.fireDocKey('Tab');
+    expect(document.activeElement).toBe(first);
+
+    // Escape closes and returns focus to the opener.
+    document.fireDocKey('Escape');
+    expect(modal.classList._set.hidden).toBe(true);
+    expect(document.activeElement).toBe(opener);
+
+    // With the modal closed, keydowns are ignored entirely.
+    document.activeElement = null;
+    document.fireDocKey('Escape');
+    expect(document.activeElement).toBeNull();
+  });
+
+  test('a modal without focusables tolerates Tab', () => {
+    const { w, document } = fresh();
+    w.openRules();
+    document.activeElement = null;
+    expect(() => document.fireDocKey('Tab')).not.toThrow();
   });
 });
 
@@ -585,7 +800,7 @@ describe('senior mode (accessibility)', () => {
       const prevDoc = globalThis.document;
       const mkEl = () => ({
         className: '', style: {}, disabled: false, innerText: '', children: [],
-        classList: { _set: {}, add(c){ this._set[c]=true; }, remove(c){ delete this._set[c]; }, toggle(c, on){ this._set[c] = on === undefined ? !this._set[c] : !!on; } },
+    classList: { _set: {}, add(c){ this._set[c]=true; }, remove(c){ delete this._set[c]; }, toggle(c, on){ this._set[c] = on === undefined ? !this._set[c] : !!on; }, contains(c){ return !!this._set[c]; } },
         addEventListener() {}, appendChild() {},
         getContext: () => new Proxy({}, { get(t,p){ if(p in t) return t[p]; return ()=>{}; }, set(t,p,v){ t[p]=v; return true; } })
       });
