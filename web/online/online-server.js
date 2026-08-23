@@ -15,7 +15,7 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const path = require('node:path');
-const { openDb, makeStore } = require('./online-db.js');
+const { openDb, makeStore, sweepAbandoned, SWEEP_INTERVAL_MS } = require('./online-db.js');
 const auth = require('./auth.js');
 const { Relay } = require('./relay.js');
 const { handleRequest: serveStatic } = require('../server.js');
@@ -135,14 +135,66 @@ function bearer(req) {
 
 // Entry point guard — only meaningful when this file is executed directly,
 // never when required (tests always take the false branch).
-/* istanbul ignore next */
-if (require.main === module) {
-  const db = openDb(DB_PATH);
-  const store = makeStore(db);
-  const server = createOnlineServer({ store, staticPath: path.join(__dirname, '..') });
-  server.listen(PORT, () => {
-    console.log(`[online] http+ws on http://localhost:${PORT}/ (db=${DB_PATH})`);
-  });
+// One sweeper pass with operator-friendly logging. Exported so the interval
+// body is unit-testable without waiting ten minutes.
+function sweepTick(store) {
+  let reaped;
+  try {
+    reaped = sweepAbandoned(store.db);
+  } catch (e) {
+    console.error('[online] sweep failed:', e && e.message);
+    return null;
+  }
+  if (reaped.abandonedWaiting || reaped.abandonedPlaying || reaped.deletedSessions) {
+    console.log(`[online] sweep: ${JSON.stringify(reaped)}`);
+  }
+  return reaped;
 }
 
-module.exports = { createOnlineServer, makeRoomCode, bearer };
+// Entry-point lifecycle: bind to the loopback interface by default (this is
+// a dev/E2E server; HOST overrides for real deployments), run the abandoned
+// room/session sweeper at boot and on an interval, and tear everything down
+// (interval -> server -> sqlite handle) on shutdown.
+function startOnlineServer({ port = PORT, host = process.env.HOST || '127.0.0.1', dbPath = DB_PATH } = {}) {
+  const db = openDb(dbPath);
+  const store = makeStore(db);
+  const server = createOnlineServer({ store, staticPath: path.join(__dirname, '..') });
+  sweepTick(store);
+  const sweeper = setInterval(() => sweepTick(store), SWEEP_INTERVAL_MS);
+  if (sweeper.unref) sweeper.unref();
+  server.listen(port, host, () => {
+    console.log(`[online] http+ws on http://${host}:${port}/ (db=${dbPath})`);
+  });
+  return {
+    server,
+    stop() {
+      clearInterval(sweeper);
+      return new Promise((resolve) => {
+        // In-flight sockets would stall close(); force-exit shortly after so
+        // a stray WebSocket client can never block process teardown.
+        const guard = setTimeout(() => resolve(), 1500);
+        if (guard.unref) guard.unref();
+        server.close(() => {
+          try { db.close(); } catch {}
+          resolve();
+        });
+      });
+    }
+  };
+}
+
+/* istanbul ignore next */
+if (require.main === module) {
+  const instance = startOnlineServer();
+  let shuttingDown = false;
+  function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[online] ${signal} received; closing server and database...`);
+    instance.stop().then(() => process.exit(0));
+  }
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+}
+
+module.exports = { createOnlineServer, makeRoomCode, bearer, startOnlineServer, sweepTick };

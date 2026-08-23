@@ -13,6 +13,9 @@ const path = require('path');
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT) || 3111;
+// Dev/E2E server: bind to the loopback interface by default so it is never
+// exposed to the network. HOST env var overrides for intentional deployments.
+const HOST = process.env.HOST || '127.0.0.1';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -51,8 +54,8 @@ function createServer() {
 
 function startServer(listenPort) {
   const srv = createServer();
-  srv.listen(listenPort || PORT, () => {
-    console.log(`Choka Barah static server on http://localhost:${listenPort || PORT}`);
+  srv.listen(listenPort || PORT, HOST, () => {
+    console.log(`Choka Barah static server on http://${HOST}:${listenPort || PORT}`);
   });
   return srv;
 }

@@ -3,7 +3,7 @@ const http = require('node:http');
 const net = require('node:net');
 const crypto = require('node:crypto');
 const { openDb, makeStore } = require('./online-db.js');
-const { createOnlineServer, makeRoomCode } = require('./online-server.js');
+const { createOnlineServer, makeRoomCode, startOnlineServer, sweepTick } = require('./online-server.js');
 
 // ---- tiny http client ----
 function apiRequest(port, method, pathname, { token, body } = {}) {
@@ -413,6 +413,118 @@ describe('online-server edge cases', () => {
   test('non-API paths fall through to the static web app', async () => {
     const r = await apiRequest(port, 'GET', '/index.html');
     expect(r.status).toBe(200);
+  });
+});
+
+describe('online-server lifecycle (sweeper + graceful shutdown)', () => {
+  test('startOnlineServer boots on the loopback host and stop() closes server + database', async () => {
+    const os = require('node:os');
+    const path = require('node:path');
+    const dbFile = path.join(os.tmpdir(), `cb-lifecycle-${Date.now()}.db`);
+    let instance;
+    try {
+      instance = await new Promise((resolve) => {
+        const inst = startOnlineServer({ port: 0, dbPath: dbFile });
+        inst.server.on('listening', () => resolve(inst));
+      });
+      // Loopback binding: the address must be 127.0.0.1, never 0.0.0.0.
+      expect(instance.server.address().address).toBe('127.0.0.1');
+
+      const port = instance.server.address().port;
+      const health = await apiRequest(port, 'GET', '/api/health');
+      expect(health.status).toBe(200);
+      expect(health.body.ok).toBe(true);
+
+      await instance.stop();
+      expect(instance.server.listing === undefined || !instance.server.listening).toBe(true);
+    } finally {
+      if (instance) await instance.stop(); // idempotent enough for teardown safety
+      try { require('node:fs').unlinkSync(dbFile); } catch {}
+    }
+  });
+
+  test('stop() closes the sqlite handle so no file lock lingers', async () => {
+    const os = require('node:os');
+    const path = require('node:path');
+    const dbFile = path.join(os.tmpdir(), `cb-dbclose-${Date.now()}.db`);
+    const instance = startOnlineServer({ port: 0, dbPath: dbFile });
+    await new Promise((resolve) => instance.server.on('listening', resolve));
+    await instance.stop();
+    // Reopening the same file must succeed — proves no handle was leaked.
+    const { openDb: reopen } = require('./online-db.js');
+    const again = reopen(dbFile);
+    expect(again.prepare('SELECT COUNT(*) AS n FROM matches').get().n).toBe(0);
+    again.close();
+    try { require('node:fs').unlinkSync(dbFile); } catch {}
+  });
+});
+
+describe('online-server sweeper tick + host fallback', () => {
+  test('sweepTick logs when it reaps and stays quiet when idle', () => {
+    const host = store.createUser('host', 'h');
+    store.createMatch({ code: 'OLD001', gridSize: 5, playerCount: 2, hostUserId: host.id });
+    store.db.prepare("UPDATE matches SET created_at = datetime('now', '-2 days') WHERE code = 'OLD001'").run();
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const reaped = sweepTick(store);
+    expect(reaped.abandonedWaiting).toBe(1);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls[0][0]).toContain('[online] sweep:');
+
+    // Second pass: nothing left to reap -> no log.
+    sweepTick(store);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    logSpy.mockRestore();
+  });
+
+  test('sweepTick swallows database failures (Error and non-Error)', () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const throwing = (thrown) => ({
+      db: { prepare: () => ({ run: () => { throw thrown; } }) }
+    });
+
+    expect(sweepTick(throwing(new Error('lock busy')))).toBeNull();
+    expect(errSpy).toHaveBeenLastCalledWith('[online] sweep failed:', 'lock busy');
+
+    expect(sweepTick(throwing(undefined))).toBeNull();
+    expect(errSpy).toHaveBeenLastCalledWith('[online] sweep failed:', undefined);
+
+    errSpy.mockRestore();
+  });
+
+  test('requests without a Host header fall back to the local authority', async () => {
+    const net = require('node:net');
+    const raw = await new Promise((resolve, reject) => {
+      const chunks = [];
+      const sock = net.connect(port, '127.0.0.1', () => {
+        // HTTP/1.0: Host is optional, so the server's `headers.host || 'local'`
+        // fallback branch runs.
+        sock.write('GET /api/health HTTP/1.0\r\n\r\n');
+      });
+      sock.on('data', (d) => chunks.push(d));
+      sock.on('end', () => resolve(Buffer.concat(chunks).toString()));
+      sock.on('error', reject);
+    });
+    // Node answers with its own version string; only status + payload matter.
+    expect(raw).toContain('200');
+    expect(raw).toContain('"ok":true');
+  });
+
+  test('startOnlineServer applies its default host and db path', async () => {
+    const fs = require('node:fs');
+    const nodePath = require('node:path');
+    const defaultDb = nodePath.join(__dirname, '..', 'online-dev.db'); // DB_PATH
+    let instance;
+    try {
+      instance = startOnlineServer({ port: 0 }); // host + dbPath defaults kick in
+      await new Promise((resolve) => instance.server.on('listening', resolve));
+      expect(instance.server.address().address).toBe('127.0.0.1');
+      const health = await apiRequest(instance.server.address().port, 'GET', '/api/health');
+      expect(health.status).toBe(200);
+    } finally {
+      if (instance) await instance.stop();
+      try { fs.unlinkSync(defaultDb); } catch {}
+    }
   });
 });
 

@@ -146,4 +146,13 @@ describe('startServer runtime path', () => {
     const srv = createServer();
     expect(srv instanceof http.Server).toBe(true);
   });
+
+  test('startServer binds the loopback interface by default', (done) => {
+    const srv = startServer(0); // ephemeral port; HOST default must be 127.0.0.1
+    srv.on('listening', () => {
+      expect(srv.address().address).toBe('127.0.0.1');
+      srv.close(() => done());
+    });
+    srv.on('error', () => done.fail('loopback bind failed'));
+  });
 });

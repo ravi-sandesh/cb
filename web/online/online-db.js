@@ -10,9 +10,12 @@
 
 const { DatabaseSync } = require('node:sqlite');
 
-// Schema v1. Room "lobby" matches have status: WAITING (host only),
-// PLAYING (both seated), FINISHED (winner recorded). The `board` column
-// holds the server-authoritative JSON serialization of the game state.
+// Schema v2. Room "lobby" matches have status: WAITING (host only),
+// PLAYING (both seated), FINISHED (winner recorded), ABANDONED (sweeper
+// reaped a stale room; history preserved). The `board` column holds the
+// server-authoritative JSON serialization of the game state. `updated_at`
+// tracks last write so the sweeper can reap dead PLAYING rooms without
+// touching live ones.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +40,7 @@ CREATE TABLE IF NOT EXISTS matches (
   board          TEXT NOT NULL DEFAULT '{}',
   winner_user_id INTEGER REFERENCES users(id),
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at    TEXT
 );
 CREATE TABLE IF NOT EXISTS moves (
@@ -55,7 +59,55 @@ function openDb(databasePath) {
   const db = new DatabaseSync(databasePath || ':memory:');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(SCHEMA);
+  migrateSchema(db);
   return db;
+}
+
+// ---- Schema migrations (v1 -> v2) ---------------------------------------
+// Baseline SCHEMA above already creates fresh databases in v2 shape; this
+// upgrades databases created before v2:
+//  1. matches.updated_at column (added via guarded ALTER for legacy files)
+//  2. UNIQUE(match_id, seq) on the move ledger — a mid-match restart used to
+//     restart room.seq at 0 and silently duplicate ledger entries. Duplicate
+//     rows are collapsed (lowest id wins) BEFORE the index can be created.
+function migrateSchema(db) {
+  const cols = db.prepare('PRAGMA table_info(matches)').all().map((c) => c.name);
+  if (!cols.includes('updated_at')) {
+    db.exec("ALTER TABLE matches ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
+    db.exec("UPDATE matches SET updated_at = COALESCE(created_at, datetime('now'))");
+  }
+  db.exec(
+    'DELETE FROM moves WHERE id NOT IN (SELECT MIN(id) FROM moves GROUP BY match_id, seq)'
+  );
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS ux_moves_match_seq ON moves(match_id, seq)'
+  );
+}
+
+// ---- Lifecycle sweeper ----------------------------------------------------
+// Reaps rooms nobody will ever return to and sessions that have expired:
+//   - WAITING matches older than 24h (host created a code, never played)
+//   - PLAYING matches idle for more than 7 days (both players dropped)
+// Matches are marked ABANDONED rather than deleted so game history (moves
+// ledger, result) survives for auditing. Expired sessions are removed.
+const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+
+function sweepAbandoned(db) {
+  const staleWaiting = db.prepare(
+    "UPDATE matches SET status = 'ABANDONED' WHERE status = 'WAITING' AND created_at <= datetime('now', '-24 hours')"
+  ).run();
+  const stalePlaying = db.prepare(
+    "UPDATE matches SET status = 'ABANDONED' WHERE status = 'PLAYING' AND updated_at <= datetime('now', '-7 days')"
+  ).run();
+  // expires_at values are JS ISO strings, so an ISO cutoff compares correctly.
+  const deadSessions = db.prepare(
+    'DELETE FROM sessions WHERE expires_at <= ?'
+  ).run(new Date().toISOString());
+  return {
+    abandonedWaiting: Number(staleWaiting.changes),
+    abandonedPlaying: Number(stalePlaying.changes),
+    deletedSessions: Number(deadSessions.changes)
+  };
 }
 
 // ---- Users ----
@@ -100,12 +152,12 @@ function getMatchById(db, id) {
   return db.prepare('SELECT * FROM matches WHERE id = ?').get(id);
 }
 function setMatchGuest(db, matchId, guestUserId) {
-  db.prepare('UPDATE matches SET guest_user_id = ?, status = ? WHERE id = ?')
+  db.prepare('UPDATE matches SET guest_user_id = ?, status = ?, updated_at = datetime(\'now\') WHERE id = ?')
     .run(guestUserId, 'PLAYING', matchId);
   return getMatchById(db, matchId);
 }
 function setMatchBoard(db, matchId, boardJson) {
-  db.prepare('UPDATE matches SET board = ? WHERE id = ?').run(boardJson, matchId);
+  db.prepare('UPDATE matches SET board = ?, updated_at = datetime(\'now\') WHERE id = ?').run(boardJson, matchId);
 }
 function finishMatch(db, matchId, winnerUserId) {
   db.prepare('UPDATE matches SET status = ?, winner_user_id = ?, finished_at = datetime(\'now\') WHERE id = ?')
@@ -164,7 +216,7 @@ function makeStore(rawDb) {
 }
 
 module.exports = {
-  openDb,
+  openDb, migrateSchema, sweepAbandoned, SWEEP_INTERVAL_MS,
   makeStore,
   createUser, getUserByUsername, getUserById,
   insertSession, getSession, deleteSession, deleteUserSessions,
