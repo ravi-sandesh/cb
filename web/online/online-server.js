@@ -91,6 +91,9 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
       if (!session || !session.ok) return send(res, 401, { error: 'unauthorized' });
       try {
         const body = await json(req);
+        if (!rateAllow(`create:${identityKey(req, session)}`, CREATE_RATE.max, CREATE_RATE.windowMs)) {
+          return send(res, 429, { error: 'try-again-later' });
+        }
         const gridSize = body.gridSize === 7 ? 7 : 5;
         const desc = store.createMatch({ code: makeRoomCode(store), gridSize, playerCount: 2, hostUserId: session.user.id });
         const room = relay.openRoom({ matchId: desc.id, code: desc.code, gridSize, hostUserId: session.user.id });
@@ -106,12 +109,21 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
       if (!session || !session.ok) return send(res, 401, { error: 'unauthorized' });
       try {
         const body = await json(req);
+        if (!rateAllow(`join:${identityKey(req, session)}`, JOIN_RATE.max, JOIN_RATE.windowMs)) {
+          return send(res, 429, { error: 'try-again-later' });
+        }
         const code = String(body.code || '').trim().toUpperCase();
         const desc = store.getMatchByCode(code);
         if (!desc) return send(res, 404, { error: 'no-such-room' });
         if (desc.status !== 'WAITING') return send(res, 409, { error: 'room-not-open' });
         if (desc.host_user_id === session.user.id) return send(res, 409, { error: 'cannot-join-own-room' });
-        const room = relay.openRoom({ matchId: desc.id, code: desc.code, gridSize: desc.grid_size, hostUserId: desc.host_user_id });
+        // One invitee per room: once a guest intent is recorded nobody else
+        // can claim the seat (the relay enforces the same rule on attach).
+        if (desc.guest_user_id != null && desc.guest_user_id !== session.user.id) {
+          return send(res, 409, { error: 'room-taken' });
+        }
+        store.setMatchInvited(desc.id, session.user.id);
+        const room = relay.openRoom({ matchId: desc.id, code: desc.code, gridSize: desc.grid_size, hostUserId: desc.host_user_id, invitedUserId: session.user.id });
         return send(res, 200, { code: desc.code, gridSize: desc.grid_size, wsPath: `/ws?token=${token}`, matchId: desc.id });
       } catch { return send(res, 500, { error: 'join-failed' }); }
     }
@@ -131,6 +143,33 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
 function bearer(req) {
   const h = req.headers.authorization || '';
   return h.startsWith('Bearer ') ? h.slice(7).trim() : null;
+}
+
+// ---- Match-endpoint rate limiting (per user+IP fixed window) --------------
+// Joins and creates are cheap for legit users but enumerable/abusable at
+// scale; a small per-identity cap blunts code-guessing and spam without any
+// dependency. Keys are lazily expired on read.
+const JOIN_RATE = { max: 10, windowMs: 60 * 1000 };   // 10 joins/min
+const CREATE_RATE = { max: 5, windowMs: 60 * 1000 };  // 5 creates/min
+const rateBuckets = new Map(); // key -> { count, firstAt }
+
+// Returns true when the action is ALLOWED under the window budget.
+function rateAllow(key, max, windowMs, now = Date.now()) {
+  let bucket = rateBuckets.get(key);
+  if (!bucket || now - bucket.firstAt >= windowMs) {
+    rateBuckets.set(key, { count: 1, firstAt: now });
+    return true;
+  }
+  bucket.count += 1;
+  return bucket.count <= max;
+}
+
+function resetRateLimits() { rateBuckets.clear(); }
+
+function identityKey(req, session) {
+  const ip = (req.socket && req.socket.remoteAddress) || 'unknown';
+  const who = session && session.user ? session.user.id : 'anon';
+  return `${who}@${ip}`;
 }
 
 // Entry point guard — only meaningful when this file is executed directly,
@@ -197,4 +236,4 @@ if (require.main === module) {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
-module.exports = { createOnlineServer, makeRoomCode, bearer, startOnlineServer, sweepTick };
+module.exports = { createOnlineServer, makeRoomCode, bearer, startOnlineServer, sweepTick, rateAllow, resetRateLimits };

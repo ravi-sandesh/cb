@@ -164,9 +164,9 @@ async function makeUser(name) {
   return res;
 }
 
-function openRoom(code, hostUserId) {
+function openRoom(code, hostUserId, invitedUserId = null) {
   store.createMatch({ code, gridSize: 5, playerCount: 2, hostUserId });
-  relay.openRoom({ matchId: store.getMatchByCode(code).id, code, gridSize: 5, hostUserId });
+  relay.openRoom({ matchId: store.getMatchByCode(code).id, code, gridSize: 5, hostUserId, invitedUserId });
   return relay.rooms.get(code);
 }
 
@@ -423,6 +423,25 @@ describe('Relay room attach', () => {
     const intruder = connect(carol.token);
     intruder.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
     expect(received(intruder).at(-1)).toEqual({ type: 'error', code: 'room-full' });
+  });
+
+  test('the invited guest seat rejects everyone but the invitee', async () => {
+    const alice = await makeUser('alice');
+    const bob = await makeUser('bob');
+    const carol = await makeUser('carol');
+    relay = freshRelay();
+    openRoom('ROOM01', alice.user.id, bob.user.id); // bob is the invited guest
+
+    // A stranger who somehow knows the code cannot take the guest seat.
+    const intruder = connect(carol.token);
+    intruder.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(received(intruder).at(-1)).toEqual({ type: 'error', code: 'not-invited' });
+    expect(relay.rooms.get('ROOM01').sockets.size).toBe(0);
+
+    // The invitee still gets the seat.
+    const guest = connect(bob.token);
+    guest.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(received(guest).some((m) => m.type === 'joined' && m.playerIndex === 1)).toBe(true);
   });
 
   test('rejects a third player when the room is full', async () => {

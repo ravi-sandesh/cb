@@ -161,11 +161,15 @@ class Relay {
 
   // ---- Room management (called from HTTP layer) ----
 
-  openRoom({ matchId, code, gridSize, hostUserId }) {
+  openRoom({ matchId, code, gridSize, hostUserId, invitedUserId }) {
     if (this.rooms.has(code)) return this.rooms.get(code);
     const room = {
       matchId, code, gridSize,
       hostUserId: hostUserId === undefined ? null : hostUserId,
+      // The user the HTTP join endpoint authorized for the guest seat. When
+      // set, seat 1 is closed to everyone else — a leaked code alone does
+      // not grant a seat. null = open room (legacy/tests).
+      invitedUserId: invitedUserId === undefined ? null : invitedUserId,
       state: newGame({ gridSize, playerNum: 2 }),
       sockets: new Map(), // playerIndex (0=host seat, 1=guest seat) -> conn
       seq: 0
@@ -192,6 +196,11 @@ class Relay {
       ? 0
       : (conn.userId === room.hostUserId ? 0 : 1);
     if (room.sockets.has(seat)) { this.sendErr(conn, 'room-full'); return; }
+    // The invited guest seat is closed to everyone but the invitee.
+    if (seat === 1 && room.invitedUserId != null && conn.userId !== room.invitedUserId) {
+      this.sendErr(conn, 'not-invited');
+      return;
+    }
 
     conn.room = room;
     conn.seat = seat;

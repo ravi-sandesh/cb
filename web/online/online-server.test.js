@@ -3,7 +3,7 @@ const http = require('node:http');
 const net = require('node:net');
 const crypto = require('node:crypto');
 const { openDb, makeStore } = require('./online-db.js');
-const { createOnlineServer, makeRoomCode, startOnlineServer, sweepTick } = require('./online-server.js');
+const { createOnlineServer, makeRoomCode, startOnlineServer, sweepTick, resetRateLimits } = require('./online-server.js');
 
 // ---- tiny http client ----
 function apiRequest(port, method, pathname, { token, body } = {}) {
@@ -153,6 +153,7 @@ async function register(user) {
 }
 
 beforeEach(async () => {
+  resetRateLimits();
   store.resetDb();
   alice = await register('alice');
   bob = await register('bob');
@@ -252,6 +253,47 @@ describe('online-server match lifecycle + ws relay', () => {
     const created = await apiRequest(port, 'POST', '/api/match/create', { token: alice.token, body: { gridSize: 5 } });
     const self = await apiRequest(port, 'POST', '/api/match/join', { token: alice.token, body: { code: created.body.code } });
     expect(self.status).toBe(409);
+  });
+
+  test('a second joiner cannot claim an already-invited room', async () => {
+    const created = await apiRequest(port, 'POST', '/api/match/create', { token: alice.token, body: { gridSize: 5 } });
+    const bobJoin = await apiRequest(port, 'POST', '/api/match/join', { token: bob.token, body: { code: created.body.code } });
+    expect(bobJoin.status).toBe(200);
+    // Bob's intent is recorded; carol must not steal the invitation.
+    const reg = await apiRequest(port, 'POST', '/api/register', { body: { username: 'carol', password: 'secret123' } });
+    expect(reg.status).toBe(201);
+    const stolen = await apiRequest(port, 'POST', '/api/match/join', {
+      token: reg.body.token, body: { code: created.body.code }
+    });
+    expect(stolen.status).toBe(409);
+    expect(stolen.body.error).toBe('room-taken');
+    // And the invitee can re-join idempotently.
+    const again = await apiRequest(port, 'POST', '/api/match/join', { token: bob.token, body: { code: created.body.code } });
+    expect(again.status).toBe(200);
+  });
+
+  test('match endpoints are rate limited per identity', async () => {
+    resetRateLimits();
+    // 10 joins are the budget; the 11th attempt from the same identity trips.
+    let last;
+    for (let i = 0; i < 11; i++) {
+      last = await apiRequest(port, 'POST', '/api/match/join', { token: bob.token, body: { code: 'NOPE99' } });
+    }
+    expect(last.status).toBe(429);
+    expect(last.body.error).toBe('try-again-later');
+
+    // Creates have their own smaller budget (5/min).
+    for (let i = 0; i < 5; i++) {
+      last = await apiRequest(port, 'POST', '/api/match/create', { token: bob.token, body: { gridSize: 5 } });
+    }
+    expect(last.status).toBe(201);
+    last = await apiRequest(port, 'POST', '/api/match/create', { token: bob.token, body: { gridSize: 5 } });
+    expect(last.status).toBe(429);
+
+    // A different identity still gets its own budget.
+    const other = await apiRequest(port, 'POST', '/api/match/create', { token: alice.token, body: { gridSize: 5 } });
+    expect(other.status).toBe(201);
+    resetRateLimits();
   });
 
   test('moves round-trip over the wire and persist to the ledger board', async () => {

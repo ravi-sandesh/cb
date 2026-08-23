@@ -156,6 +156,14 @@ function setMatchGuest(db, matchId, guestUserId) {
     .run(guestUserId, 'PLAYING', matchId);
   return getMatchById(db, matchId);
 }
+
+// Record the INVITED guest at HTTP-join time WITHOUT flipping the match to
+// PLAYING (status stays WAITING until the invitee actually attaches over the
+// WebSocket). The relay uses this to refuse seat claims from anyone else,
+// so knowing a room code alone is not enough to take a seat.
+function setMatchInvited(db, matchId, userId) {
+  db.prepare('UPDATE matches SET guest_user_id = ? WHERE id = ?').run(userId, matchId);
+}
 function setMatchBoard(db, matchId, boardJson) {
   db.prepare('UPDATE matches SET board = ?, updated_at = datetime(\'now\') WHERE id = ?').run(boardJson, matchId);
 }
@@ -205,6 +213,7 @@ function makeStore(rawDb) {
     getMatchByCode: (code) => getMatchByCode(rawDb, code),
     getMatchById: (id) => getMatchById(rawDb, id),
     setMatchGuest: (matchId, guestUserId) => setMatchGuest(rawDb, matchId, guestUserId),
+    setMatchInvited: (matchId, userId) => setMatchInvited(rawDb, matchId, userId),
     setMatchBoard: (matchId, boardJson) => setMatchBoard(rawDb, matchId, boardJson),
     finishMatch: (matchId, winnerUserId) => finishMatch(rawDb, matchId, winnerUserId),
     appendMove: (matchId, seq, playerIdx, payloadJson) => appendMove(rawDb, matchId, seq, playerIdx, payloadJson),
@@ -220,7 +229,7 @@ module.exports = {
   makeStore,
   createUser, getUserByUsername, getUserById,
   insertSession, getSession, deleteSession, deleteUserSessions,
-  createMatch, getMatchByCode, getMatchById, setMatchGuest, setMatchBoard, finishMatch,
+  createMatch, getMatchByCode, getMatchById, setMatchGuest, setMatchInvited, setMatchBoard, finishMatch,
   appendMove, countMoves, listMoves,
   resetDb
 };
