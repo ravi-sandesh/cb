@@ -1,8 +1,10 @@
 package com.chokabarah.game.engine
 
-enum class GridSize(val columns: Int, val nameRes: String) {
-    FIVE_BY_FIVE(5, "5-Column (5x5)"),
-    SEVEN_BY_SEVEN(7, "7-Column (7x7)")
+// Display labels live in the Android app's resources (strings.xml); the
+// engine stays presentation-free so it can remain a pure-JVM module.
+enum class GridSize(val columns: Int) {
+    FIVE_BY_FIVE(5),
+    SEVEN_BY_SEVEN(7)
 }
 
 enum class PlayerColor(

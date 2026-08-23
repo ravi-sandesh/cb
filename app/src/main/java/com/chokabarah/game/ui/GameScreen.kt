@@ -29,11 +29,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.SavedStateHandle
+import com.chokabarah.game.R
 import com.chokabarah.game.engine.GameMode
 import com.chokabarah.game.engine.GridSize
 import com.chokabarah.game.engine.PlayerColor
@@ -83,6 +87,16 @@ fun GameScreen(
     val cardColor = Color(0xFF2C241E)
     val unlockedColor = Color(0xFF76FF03)
 
+    // TalkBack summary for the board canvas.
+    val modeLabel = stringResource(
+        if (ui.gameMode == GameMode.PASS_AND_PLAY) R.string.mode_pass_and_play
+        else R.string.mode_vs_bot
+    )
+    val rollLabel = board.currentRoll?.label ?: stringResource(R.string.no_roll)
+    val boardDescription = stringResource(
+        R.string.cd_board, currentPlayer.displayName, rollLabel, board.validMoves.size
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -113,7 +127,7 @@ fun GameScreen(
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = "\u2699 MENU",
+                        text = stringResource(R.string.menu),
                         fontWeight = FontWeight.Bold,
                         color = accentColor
                     )
@@ -122,7 +136,7 @@ fun GameScreen(
                 Spacer(Modifier.weight(1f))
 
                 Text(
-                    text = "${ui.gridSize.columns}x${ui.gridSize.columns} CHOKA BARAH",
+                    text = stringResource(R.string.board_header, ui.gridSize.columns),
                     color = headerColor,
                     fontSize = if (seniorMode) 20.sp else 16.sp,
                     fontWeight = FontWeight.Bold,
@@ -145,7 +159,7 @@ fun GameScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037))
                 ) {
                     Text(
-                        text = "\uD83D\uDD04 RESTART",
+                        text = stringResource(R.string.restart),
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
@@ -167,15 +181,16 @@ fun GameScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "TURN: ${currentPlayer.displayName}" +
-                                (if (ui.isBotTurn) " \uD83E\uDD16 (BOT)" else ""),
+                            text = stringResource(R.string.turn_banner, currentPlayer.displayName,
+                                if (ui.isBotTurn) stringResource(R.string.bot_suffix) else ""),
                             color = Color.White,
                             fontSize = if (seniorMode) 21.sp else 16.sp,
                             fontWeight = FontWeight.Bold
                         )
 
                         Text(
-                            text = if (board.isCutUnlocked) "\uD83D\uDD13 INNER UNLOCKED" else "\uD83D\uDD12 CUT REQUIRED",
+                            text = if (board.isCutUnlocked) stringResource(R.string.inner_unlocked)
+                                   else stringResource(R.string.cut_required),
                             color = if (board.isCutUnlocked) unlockedColor else headerColor,
                             fontSize = if (seniorMode) 15.sp else 12.sp,
                             fontWeight = FontWeight.Bold
@@ -188,6 +203,7 @@ fun GameScreen(
                         board = board,
                         selectedPawnId = selectedPawnId,
                         seniorMode = seniorMode,
+                        contentDescription = boardDescription,
                         onCellClicked = { row, col -> state.onCellClicked(row, col) }
                     )
                 }
@@ -205,7 +221,7 @@ fun GameScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "SELECT PAWN TO ADVANCE:",
+                        text = stringResource(R.string.select_pawn),
                         color = headerColor,
                         fontSize = if (seniorMode) 18.sp else 14.sp,
                         fontWeight = FontWeight.Bold
@@ -217,9 +233,20 @@ fun GameScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            board.validMoves.forEachIndexed { index, move ->
+                            board.validMoves.forEach { move ->
                                 val isSelected = move.pawnIds.contains(selectedPawnId)
-                                val pawnName = if (isHomeBaseLead(board, move)) "Start" else "PAWN #${move.pawnIds.first() % 4 + 1}"
+                                val pawnName = if (isHomeBaseLead(board, move))
+                                    stringResource(R.string.pawn_start)
+                                else
+                                    stringResource(R.string.pawn_nth, move.pawnIds.first() % 4 + 1)
+                                val gattiTag = if (move.pawnIds.size > 1) stringResource(R.string.gatti_tag) else ""
+                                val buttonDescription = stringResource(
+                                    R.string.cd_move_button,
+                                    pawnName,
+                                    move.targetCoords.first,
+                                    move.targetCoords.second,
+                                    if (move.pawnIds.size > 1) stringResource(R.string.cd_gatti_tag) else ""
+                                )
                                 Button(
                                     onClick = {
                                         Telemetry.debug(
@@ -232,7 +259,8 @@ fun GameScreen(
                                     },
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(if (seniorMode) 56.dp else 40.dp),
+                                        .height(if (seniorMode) 56.dp else 40.dp)
+                                        .semantics { contentDescription = buttonDescription },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = if (isSelected) Color(0xFFFFD54F) else Color(0xFF5D4037),
                                         contentColor = Color(0xFF1E1B18)
@@ -240,7 +268,7 @@ fun GameScreen(
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Text(
-                                        text = pawnName + (if (move.pawnIds.size > 1) " [GATTI]" else ""),
+                                        text = pawnName + gattiTag,
                                         fontSize = if (seniorMode) 17.sp else 13.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -272,9 +300,7 @@ fun GameScreen(
             Spacer(Modifier.height(16.dp))
 
             Text(
-                text = "Board: ${ui.gridSize.columns}x${ui.gridSize.columns}   " +
-                    "Players: ${ui.playerCount}   " +
-                    "Mode: ${if (ui.gameMode == GameMode.PASS_AND_PLAY) "Pass & Play" else "vs Bot"}",
+                text = stringResource(R.string.config_line, ui.gridSize.columns, ui.playerCount, modeLabel),
                 color = Color.White,
                 fontSize = if (seniorMode) 15.sp else 12.sp,
                 textAlign = TextAlign.Center
@@ -288,7 +314,7 @@ fun GameScreen(
             onDismissRequest = { state.setShowPauseMenu(false) },
             title = {
                 Text(
-                    text = "GAME PAUSED",
+                    text = stringResource(R.string.game_paused),
                     color = Color(0xFFFFD54F),
                     fontWeight = FontWeight.Bold
                 )
@@ -296,14 +322,11 @@ fun GameScreen(
             text = {
                 Column {
                     Text(
-                        text = "Board: ${ui.gridSize.columns}x${ui.gridSize.columns}",
+                        text = stringResource(R.string.paused_board, ui.gridSize.columns),
                         color = Color.White
                     )
-                    Text(text = "Players: ${ui.playerCount}", color = Color.White)
-                    Text(
-                        text = "Mode: ${if (ui.gameMode == GameMode.PASS_AND_PLAY) "Pass & Play" else "vs Bot"}",
-                        color = Color.White
-                    )
+                    Text(text = stringResource(R.string.players_label, ui.playerCount), color = Color.White)
+                    Text(text = modeLabel, color = Color.White)
                     Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = { state.setShowPauseMenu(false) },
@@ -311,7 +334,7 @@ fun GameScreen(
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037))
                     ) {
-                        Text("RESUME", color = Color(0xFF76FF03), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.resume), color = Color(0xFF76FF03), fontWeight = FontWeight.Bold)
                     }
                 }
             },
@@ -328,7 +351,7 @@ fun GameScreen(
                     state.setShowPauseMenu(false)
                     onBackToMenu()
                 }) {
-                    Text("EXIT TO MENU", color = Color(0xFFFF5252))
+                    Text(stringResource(R.string.exit_to_menu), color = Color(0xFFFF5252))
                 }
             }
         )
@@ -348,14 +371,14 @@ fun GameScreen(
             },
             title = {
                 Text(
-                    text = "\uD83C\uDF89 WINNER!",
+                    text = stringResource(R.string.winner_title),
                     color = Color(0xFFFFD54F),
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Text(
-                    text = "Player ${winner.displayName} has navigated all pawns to the Center Home!",
+                    text = stringResource(R.string.victory_message, winner.displayName),
                     color = Color.White,
                     fontSize = if (seniorMode) 19.sp else 16.sp
                 )
@@ -375,7 +398,7 @@ fun GameScreen(
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037))
                 ) {
-                    Text("PLAY AGAIN", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.play_again), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -388,7 +411,7 @@ fun GameScreen(
                     )
                     onBackToMenu()
                 }) {
-                    Text("MAIN MENU", color = Color(0xFFFFB74D))
+                    Text(stringResource(R.string.main_menu), color = Color(0xFFFFB74D))
                 }
             }
         )

@@ -1,5 +1,84 @@
 <resources>
     <string name="app_name">Choka Barah</string>
-    <string name="title_5_column">5-Column Board (5x5)</string>
-    <string name="title_7_column">7-Column Board (7x7)</string>
+
+    <!-- Home screen -->
+    <string name="home_title">CHOKA BARAH</string>
+    <string name="home_tagline">TRADITIONAL INDIAN STRATEGY BOARD GAME</string>
+    <string name="section_board_size">1. SELECT BOARD SIZE</string>
+    <string name="section_player_count">2. NUMBER OF PLAYERS</string>
+    <string name="section_game_mode">3. GAME MODE</string>
+    <string name="section_accessibility">4. ACCESSIBILITY — EASY READING</string>
+
+    <string name="board_5x5">5-Column (5x5)</string>
+    <string name="board_5x5_sub">Classic Board</string>
+    <string name="board_7x7">7-Column (7x7)</string>
+    <string name="board_7x7_sub">Ashta Chamma</string>
+
+    <string name="players_count">%d Players</string>
+    <string name="players_2_sub">1v1 Duel</string>
+    <string name="players_n_sub">%d Way</string>
+
+    <string name="mode_pass_and_play">Pass &amp; Play</string>
+    <string name="mode_pass_and_play_sub">Local Friends</string>
+    <string name="mode_vs_bot">vs Bot (AI)</string>
+    <string name="mode_vs_bot_sub">Single Player</string>
+
+    <string name="a11y_desc">Larger text, larger buttons, higher contrast and slower pacing for comfortable play.</string>
+    <string name="a11y_standard">Standard</string>
+    <string name="a11y_standard_sub">Default size</string>
+    <string name="a11y_senior">Senior Mode</string>
+    <string name="a11y_senior_sub">Bigger &amp; slower</string>
+
+    <string name="start_game">▶ START GAME</string>
+    <string name="how_to_play">📖 HOW TO PLAY RULES</string>
+    <string name="got_it">GOT IT!</string>
+
+    <!-- Rules dialog (home) -->
+    <string name="rules_title">CHOKA BARAH RULES</string>
+    <string name="rules_objective_title">1. Objective</string>
+    <string name="rules_objective_desc">Move all 4 of your pawns around the board track into the central Home square.</string>
+    <string name="rules_scoring_title">2. Cowry Scoring</string>
+    <string name="rules_scoring_desc">1, 2, 3, 4 (Chauka) or 0 (Bara=8). Rolling 4 or 8 earns an EXTRA roll!</string>
+    <string name="rules_cut_title">3. Cut Requirement</string>
+    <string name="rules_cut_desc">IMPORTANT: You MUST capture (\'cut\') at least 1 opponent pawn to unlock entry into the inner track toward Center Home!</string>
+    <string name="rules_safe_title">4. Safe Squares (\'X\')</string>
+    <string name="rules_safe_desc">Pawns on safe squares (\'X\') cannot be captured. Multiple pawns can rest safely together.</string>
+    <string name="rules_extra_turn_title">5. Extra Turn</string>
+    <string name="rules_extra_turn_desc">Capturing an opponent pawn grants an immediate EXTRA turn.</string>
+
+    <!-- Game screen -->
+    <string name="menu">\u2699 MENU</string>
+    <string name="restart">\uD83D\uDD04 RESTART</string>
+    <string name="board_header">%1$dx%1$d CHOKA BARAH</string>
+    <string name="turn_banner">TURN: %1$s%2$s</string>
+    <string name="bot_suffix"> \uD83E\uDD16 (BOT)</string>
+    <string name="inner_unlocked">\uD83D\uDD13 INNER UNLOCKED</string>
+    <string name="cut_required">\uD83D\uDD12 CUT REQUIRED</string>
+    <string name="select_pawn">SELECT PAWN TO ADVANCE:</string>
+    <string name="pawn_start">Start</string>
+    <string name="pawn_nth">PAWN #%1$d</string>
+    <string name="gatti_tag"> [GATTI]</string>
+    <string name="roll_section_title">COWRY SHELLS ROLL</string>
+    <string name="roll_button">\uD83C\uDFB2 ROLL COWRIES</string>
+    <string name="roll_button_move">MOVE PAWN</string>
+    <string name="config_line">Board: %1$dx%1$d   Players: %2$d   Mode: %3$s</string>
+
+    <!-- Pause dialog -->
+    <string name="game_paused">GAME PAUSED</string>
+    <string name="paused_board">Board: %1$dx%1$d</string>
+    <string name="players_label">Players: %d</string>
+    <string name="resume">RESUME</string>
+    <string name="exit_to_menu">EXIT TO MENU</string>
+
+    <!-- Victory dialog -->
+    <string name="winner_title">\uD83C\uDF89 WINNER!</string>
+    <string name="victory_message">Player %1$s has navigated all pawns to the Center Home!</string>
+    <string name="play_again">PLAY AGAIN</string>
+    <string name="main_menu">MAIN MENU</string>
+
+    <!-- TalkBack content descriptions -->
+    <string name="cd_board">Choka Barah board. Turn: %1$s. Roll: %2$s. Available moves: %3$d. Use the move buttons below to play.</string>
+    <string name="cd_move_button">Move %1$s to cell row %2$d, column %3$d%4$s</string>
+    <string name="cd_gatti_tag">, grouped Gatti</string>
+    <string name="no_roll">not rolled yet</string>
 </resources>

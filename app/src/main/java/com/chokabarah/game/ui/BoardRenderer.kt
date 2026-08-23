@@ -13,6 +13,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.chokabarah.game.engine.PawnState
 import com.chokabarah.game.engine.TrackBuilder
 import com.chokabarah.game.telemetry.Telemetry
@@ -25,7 +27,8 @@ fun BoardCanvas(
     selectedPawnId: Int?,
     onCellClicked: (row: Int, col: Int) -> Unit,
     modifier: Modifier = Modifier,
-    seniorMode: Boolean = false
+    seniorMode: Boolean = false,
+    contentDescription: String = ""
 ) {
     val gridSize = board.gridSize.columns
     // Senior mode keeps the board square (cells scale naturally) but thickens
@@ -36,6 +39,7 @@ fun BoardCanvas(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1f)
+            .semantics { this.contentDescription = contentDescription }
             .pointerInput(board.validMoves, selectedPawnId) {
                 detectTapGestures { offset ->
                     val cellSize = size.width.toFloat() / gridSize

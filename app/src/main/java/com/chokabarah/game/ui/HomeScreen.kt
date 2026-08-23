@@ -31,11 +31,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.chokabarah.game.R
 import com.chokabarah.game.engine.GameMode
 import com.chokabarah.game.engine.GridSize
 import com.chokabarah.game.telemetry.Telemetry
@@ -75,7 +77,7 @@ fun HomeScreen(
             Spacer(Modifier.height(16.dp))
 
             Text(
-                text = "CHOKA BARAH",
+                text = stringResource(R.string.home_title),
                 color = titleColor,
                 fontSize = 36.sp,
                 fontWeight = FontWeight.Black,
@@ -84,7 +86,7 @@ fun HomeScreen(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "TRADITIONAL INDIAN STRATEGY BOARD GAME",
+                text = stringResource(R.string.home_tagline),
                 color = accentColor,
                 fontSize = if (seniorMode) 16.sp else 12.sp,
                 fontWeight = FontWeight.Medium,
@@ -98,7 +100,7 @@ fun HomeScreen(
             ) {
                 Column(modifier = Modifier.padding(if (seniorMode) 20.dp else 16.dp)) {
                     Text(
-                        text = "1. SELECT BOARD SIZE",
+                        text = stringResource(R.string.section_board_size),
                         modifier = Modifier.fillMaxWidth(),
                         fontSize = if (seniorMode) 20.sp else 16.sp,
                         fontWeight = FontWeight.Bold,
@@ -107,8 +109,8 @@ fun HomeScreen(
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OptionChip(
-                            text = "5-Column (5x5)",
-                            subtext = "Classic Board",
+                            text = stringResource(R.string.board_5x5),
+                            subtext = stringResource(R.string.board_5x5_sub),
                             isSelected = selectedGridSize == GridSize.FIVE_BY_FIVE,
                             seniorMode = seniorMode,
                             onClick = {
@@ -126,8 +128,8 @@ fun HomeScreen(
                             modifier = Modifier.weight(1f)
                         )
                         OptionChip(
-                            text = "7-Column (7x7)",
-                            subtext = "Ashta Chamma",
+                            text = stringResource(R.string.board_7x7),
+                            subtext = stringResource(R.string.board_7x7_sub),
                             isSelected = selectedGridSize == GridSize.SEVEN_BY_SEVEN,
                             seniorMode = seniorMode,
                             onClick = {
@@ -156,7 +158,7 @@ fun HomeScreen(
             ) {
                 Column(modifier = Modifier.padding(if (seniorMode) 20.dp else 16.dp)) {
                     Text(
-                        text = "2. NUMBER OF PLAYERS",
+                        text = stringResource(R.string.section_player_count),
                         modifier = Modifier.fillMaxWidth(),
                         fontSize = if (seniorMode) 20.sp else 16.sp,
                         fontWeight = FontWeight.Bold,
@@ -166,8 +168,9 @@ fun HomeScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         (2..4).forEach { count ->
                             OptionChip(
-                                text = "$count Players",
-                                subtext = if (count == 2) "1v1 Duel" else "$count Way",
+                                text = stringResource(R.string.players_count, count),
+                                subtext = if (count == 2) stringResource(R.string.players_2_sub)
+                                          else stringResource(R.string.players_n_sub, count),
                                 isSelected = playerCount == count,
                                 seniorMode = seniorMode,
                                 onClick = {
@@ -197,7 +200,7 @@ fun HomeScreen(
             ) {
                 Column(modifier = Modifier.padding(if (seniorMode) 20.dp else 16.dp)) {
                     Text(
-                        text = "3. GAME MODE",
+                        text = stringResource(R.string.section_game_mode),
                         modifier = Modifier.fillMaxWidth(),
                         fontSize = if (seniorMode) 20.sp else 16.sp,
                         fontWeight = FontWeight.Bold,
@@ -206,8 +209,8 @@ fun HomeScreen(
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OptionChip(
-                            text = "Pass & Play",
-                            subtext = "Local Friends",
+                            text = stringResource(R.string.mode_pass_and_play),
+                            subtext = stringResource(R.string.mode_pass_and_play_sub),
                             isSelected = gameMode == GameMode.PASS_AND_PLAY,
                             seniorMode = seniorMode,
                             onClick = {
@@ -225,8 +228,8 @@ fun HomeScreen(
                             modifier = Modifier.weight(1f)
                         )
                         OptionChip(
-                            text = "vs Bot (AI)",
-                            subtext = "Single Player",
+                            text = stringResource(R.string.mode_vs_bot),
+                            subtext = stringResource(R.string.mode_vs_bot_sub),
                             isSelected = gameMode == GameMode.VS_BOT,
                             seniorMode = seniorMode,
                             onClick = {
@@ -257,7 +260,7 @@ fun HomeScreen(
             ) {
                 Column(modifier = Modifier.padding(if (seniorMode) 20.dp else 16.dp)) {
                     Text(
-                        text = "4. ACCESSIBILITY \u2014 EASY READING",
+                        text = stringResource(R.string.section_accessibility),
                         modifier = Modifier.fillMaxWidth(),
                         fontSize = if (seniorMode) 20.sp else 16.sp,
                         fontWeight = FontWeight.Bold,
@@ -265,15 +268,15 @@ fun HomeScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "Larger text, larger buttons, higher contrast and slower pacing for comfortable play.",
+                        text = stringResource(R.string.a11y_desc),
                         color = Color(0xFFD7CCC8),
                         fontSize = if (seniorMode) 17.sp else 13.sp
                     )
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OptionChip(
-                            text = "Standard",
-                            subtext = "Default size",
+                            text = stringResource(R.string.a11y_standard),
+                            subtext = stringResource(R.string.a11y_standard_sub),
                             isSelected = !seniorMode,
                             seniorMode = seniorMode,
                             onClick = {
@@ -282,8 +285,8 @@ fun HomeScreen(
                             modifier = Modifier.weight(1f)
                         )
                         OptionChip(
-                            text = "Senior Mode",
-                            subtext = "Bigger & slower",
+                            text = stringResource(R.string.a11y_senior),
+                            subtext = stringResource(R.string.a11y_senior_sub),
                             isSelected = seniorMode,
                             seniorMode = seniorMode,
                             onClick = {
@@ -322,7 +325,7 @@ fun HomeScreen(
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    text = "\u25B6 START GAME",
+                    text = stringResource(R.string.start_game),
                     fontSize = if (seniorMode) 22.sp else 18.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -346,7 +349,7 @@ fun HomeScreen(
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    text = "\uD83D\uDCD6 HOW TO PLAY RULES",
+                    text = stringResource(R.string.how_to_play),
                     fontSize = if (seniorMode) 19.sp else 16.sp,
                     fontWeight = FontWeight.Bold,
                     style = TextStyle(color = accentColor)
@@ -422,7 +425,7 @@ private fun RulesDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "CHOKA BARAH RULES",
+                text = stringResource(R.string.rules_title),
                 color = Color(0xFFFFD54F),
                 fontWeight = FontWeight.Bold
             )
@@ -430,24 +433,24 @@ private fun RulesDialog(onDismiss: () -> Unit) {
         text = {
             Column {
                 RuleItem(
-                    title = "1. Objective",
-                    description = "Move all 4 of your pawns around the board track into the central Home square."
+                    title = stringResource(R.string.rules_objective_title),
+                    description = stringResource(R.string.rules_objective_desc)
                 )
                 RuleItem(
-                    title = "2. Cowry Scoring",
-                    description = "1, 2, 3, 4 (Chauka) or 0 (Bara=8). Rolling 4 or 8 earns an EXTRA roll!"
+                    title = stringResource(R.string.rules_scoring_title),
+                    description = stringResource(R.string.rules_scoring_desc)
                 )
                 RuleItem(
-                    title = "3. Cut Requirement",
-                    description = "IMPORTANT: You MUST capture ('cut') at least 1 opponent pawn to unlock entry into the inner track toward Center Home!"
+                    title = stringResource(R.string.rules_cut_title),
+                    description = stringResource(R.string.rules_cut_desc)
                 )
                 RuleItem(
-                    title = "4. Safe Squares ('X')",
-                    description = "Pawns on safe squares ('X') cannot be captured. Multiple pawns can rest safely together."
+                    title = stringResource(R.string.rules_safe_title),
+                    description = stringResource(R.string.rules_safe_desc)
                 )
                 RuleItem(
-                    title = "5. Extra Turn",
-                    description = "Capturing an opponent pawn grants an immediate EXTRA turn."
+                    title = stringResource(R.string.rules_extra_turn_title),
+                    description = stringResource(R.string.rules_extra_turn_desc)
                 )
             }
         },
@@ -455,7 +458,7 @@ private fun RulesDialog(onDismiss: () -> Unit) {
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text(
-                    text = "GOT IT!",
+                    text = stringResource(R.string.got_it),
                     color = Color(0xFFFFD54F),
                     fontWeight = FontWeight.Bold
                 )

@@ -27,10 +27,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.chokabarah.game.R
 import com.chokabarah.game.engine.GridSize
 import com.chokabarah.game.telemetry.Telemetry
 import kotlinx.coroutines.launch
@@ -46,6 +49,17 @@ fun CowryRollSection(
 ) {
     val rotation = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    // Reduced motion: skip the 720° shell spin when the accessibility profile
+    // is on OR the OS animator scale is set to zero (remove animations).
+    val context = LocalContext.current
+    val reducedMotion = remember(seniorMode) {
+        seniorMode || try {
+            android.provider.Settings.Global.getFloat(
+                context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f
+            ) == 0f
+        } catch (_: Exception) { false }
+    }
     val numShells = if (gridSize == GridSize.SEVEN_BY_SEVEN) 6 else 4
     // Senior mode enlarges the roll area (width/height of shells + label fonts)
     // for the "low vision / fine-motor" accessibility profile.
@@ -59,7 +73,7 @@ fun CowryRollSection(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "COWRY SHELLS ROLL",
+            text = stringResource(R.string.roll_section_title),
             color = Color(0xFFFFD54F),
             fontSize = if (seniorMode) 18.sp else 14.sp,
             fontWeight = FontWeight.Bold,
@@ -97,8 +111,10 @@ fun CowryRollSection(
                         "numShells" to numShells
                     )
                 )
-                scope.launch {
-                    rotation.animateTo(rotation.value + 720f, animationSpec = tween(400))
+                if (!reducedMotion) {
+                    scope.launch {
+                        rotation.animateTo(rotation.value + 720f, animationSpec = tween(400))
+                    }
                 }
                 onRollRequested()
             },
@@ -115,7 +131,7 @@ fun CowryRollSection(
             )
         ) {
             Text(
-                text = if (canRoll) "\uD83C\uDFB2 ROLL COWRIES" else "MOVE PAWN",
+                text = if (canRoll) stringResource(R.string.roll_button) else stringResource(R.string.roll_button_move),
                 fontWeight = FontWeight.Bold,
                 fontSize = if (seniorMode) 20.sp else 16.sp
             )

@@ -18,7 +18,6 @@ class GameModelsTest {
         assertEquals(5, GridSize.FIVE_BY_FIVE.columns)
         assertEquals(7, GridSize.SEVEN_BY_SEVEN.columns)
         assertEquals(2, GridSize.values().size)
-        assertNotNull(GridSize.FIVE_BY_FIVE.nameRes)
     }
 
     @Test
