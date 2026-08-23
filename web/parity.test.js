@@ -70,4 +70,36 @@ describe('engine parity corpus (web)', () => {
             expect(derived).toEqual(s.expected);
         }
     });
+
+    test('move execution matches the corpus', () => {
+        for (const s of corpus.moveExecutions) {
+            // Rebuild a live move object from the frozen projection.
+            const pawnsById = new Map(s.pawnsBefore.map(p => [p.id, p]));
+            const move = {
+                grpPawns: s.move.pawnIds.map(id => pawnsById.get(id)),
+                targetPathIndex: s.move.targetPathIndex,
+                targetCoords: s.move.targetCoords,
+                isCapture: s.move.isCapture,
+                reachesHome: s.move.reachesHome,
+                isGattiGroup: s.move.isGattiGroup
+            };
+            const res = E.executeMove(
+                s.gridSize,
+                s.pawnsBefore.map(p => ({ ...p })),
+                { ...s.hasCapturedBefore },
+                s.player,
+                move,
+                { isExtraRoll: s.rollIsExtraRoll }
+            );
+            expect(res.error).toBeUndefined();
+            expect(res.pawns.map(p => ({ id: p.id, playerIndex: p.playerIndex, state: p.state, pathIndex: p.pathIndex }))
+                .sort((a, b) => a.id - b.id)).toEqual(s.expected.pawnsAfter);
+            expect(res.hasCapturedOpponent).toEqual(s.expected.hasCapturedAfter);
+            expect(res.winner === null ? -1 : res.winner).toBe(s.expected.winnerIndex);
+            expect(res.extraTurn).toBe(s.expected.extraTurn);
+            expect(res.gattiFormed).toBe(s.expected.gattiFormed);
+            expect(res.capturedCount).toBe(s.expected.capturedCount);
+            expect(res.reachesHome).toBe(s.expected.reachesHome);
+        }
+    });
 });

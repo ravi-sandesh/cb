@@ -208,6 +208,96 @@ fun calculateValidMoves(
     return moves
 }
 
+// Pure move-execution rule surface, mirroring web/game-engine.js
+// executeMove. Observationally pure like calculateValidMoves: copies the
+// pawn list and the capture-flag map, never touches caller state, and
+// returns everything the stateful wrapper needs (including which pawn ids
+// were captured so telemetry stays faithful). Kept top-level so JS and
+// Kotlin are differentially tested against the shared parity corpus.
+data class MoveExecutionResult(
+    val pawns: List<Pawn>,
+    val hasCapturedOpponent: Map<Int, Boolean>,
+    val extraTurn: Boolean,
+    val gattiFormed: Boolean,
+    val capturedCount: Int,
+    val capturedIds: List<Int>,
+    // Index into playerColors of the winner; -1 while the game runs.
+    val winnerIndex: Int,
+    val reachesHome: Boolean,
+    val error: String? = null
+)
+
+fun executeMovePure(
+    gridSize: GridSize,
+    pawns: List<Pawn>,
+    hasCapturedOpponent: Map<Int, Boolean>,
+    currentPlayerIndex: Int,
+    move: MoveOption,
+    currentRoll: CowryResult?
+): MoveExecutionResult {
+    if (move.grpPawns.isEmpty()) return MoveExecutionResult(pawns, hasCapturedOpponent, false, false, 0, emptyList(), -1, false, "grpPawns empty")
+    if (move.targetPathIndex < 0 || move.targetCoords.first < 0 || move.targetCoords.second < 0) {
+        return MoveExecutionResult(pawns, hasCapturedOpponent, false, false, 0, emptyList(), -1, false, "invalid target")
+    }
+
+    // Copy-on-write inputs (JS BUG-17 observational-purity parity).
+    val newPawns = pawns.map { it.copy() }
+    val newHasCaptured = hasCapturedOpponent.toMutableMap()
+    val grpIds = move.grpPawns.map { it.id }.toSet()
+
+    newPawns.forEach { pawn ->
+        if (pawn.id in grpIds) {
+            pawn.state = if (move.reachesHome) PawnState.FINISHED else PawnState.ON_TRACK
+            pawn.pathIndex = move.targetPathIndex
+        }
+    }
+
+    var extraTurn = currentRoll?.isExtraRoll == true
+    var gattiFormed = false
+    var capturedCount = 0
+    val capturedIds = mutableListOf<Int>()
+
+    if (move.isCapture && !TrackBuilder.isSafeCell(gridSize, move.targetCoords.first, move.targetCoords.second)) {
+        newPawns.forEach { p ->
+            if (p.playerIndex != currentPlayerIndex && p.state == PawnState.ON_TRACK &&
+                TrackBuilder.getPlayerPath(gridSize, p.playerIndex).getOrNull(p.pathIndex) == move.targetCoords
+            ) {
+                p.state = PawnState.HOME_BASE
+                p.pathIndex = -1
+                capturedCount++
+                capturedIds.add(p.id)
+            }
+        }
+        newHasCaptured[currentPlayerIndex] = true
+        extraTurn = true
+    }
+
+    val nowAtDest = newPawns.filter {
+        it.playerIndex == currentPlayerIndex &&
+            it.state == PawnState.ON_TRACK &&
+            it.pathIndex == move.targetPathIndex
+    }
+    if (nowAtDest.size >= 2 && nowAtDest.size > move.grpPawns.size) {
+        gattiFormed = true
+    }
+
+    val allDone = newPawns
+        .filter { it.playerIndex == currentPlayerIndex }
+        .all { it.state == PawnState.FINISHED }
+    val winnerIndex = if (allDone) currentPlayerIndex else -1
+
+    return MoveExecutionResult(
+        pawns = newPawns,
+        hasCapturedOpponent = newHasCaptured,
+        extraTurn = extraTurn,
+        gattiFormed = gattiFormed,
+        capturedCount = capturedCount,
+        capturedIds = capturedIds,
+        winnerIndex = winnerIndex,
+        reachesHome = move.reachesHome
+    )
+}
+
 class GameEngine(
     val gridSize: GridSize = GridSize.FIVE_BY_FIVE,
     val playerColors: List<PlayerColor> = listOf(PlayerColor.RED, PlayerColor.GREEN)
@@ -478,48 +568,36 @@ class GameEngine(
             "player" to currentPlayerIndex,
             "target" to listOf(move.targetCoords.first, move.targetCoords.second)
         ))
-        val target  = move.targetCoords
-        val isSafe  = TrackBuilder.isSafeCell(gridSize, target.first, target.second)
+        val isSafe = TrackBuilder.isSafeCell(gridSize, move.targetCoords.first, move.targetCoords.second)
 
         Telemetry.debug("engine", "move.start", "Executing move",
             mapOf(
                 "pawnIds" to move.grpPawns.map { it.id },
                 "targetPathIndex" to move.targetPathIndex,
-                "targetCoords" to listOf(target.first, target.second),
+                "targetCoords" to listOf(move.targetCoords.first, move.targetCoords.second),
                 "isCapture" to move.isCapture,
                 "reachesHome" to move.reachesHome,
                 "isSafe" to isSafe
             )
         )
 
-        // Move all pawns in group
-        move.grpPawns.forEach { pawn ->
-            pawn.state     = if (move.reachesHome) PawnState.FINISHED else PawnState.ON_TRACK
-            pawn.pathIndex = move.targetPathIndex
-        }
+        // All rule application lives in the PURE executeMovePure (parity with
+        // web/game-engine.js); this wrapper only projects the result onto
+        // engine state: telemetry spans, log messages, turn bookkeeping.
+        val res = executeMovePure(gridSize, pawns.toList(), hasCapturedOpponent.toMap(), currentPlayerIndex, move, currentRoll)
 
-        var extraTurn = currentRoll?.isExtraRoll == true
-        var gattiFormed = false
+        pawns.clear()
+        pawns.addAll(res.pawns)
+        hasCapturedOpponent.clear()
+        hasCapturedOpponent.putAll(res.hasCapturedOpponent)
 
-        // Handle capture
-        if (move.isCapture && !isSafe) {
-            val captured = pawns.filter { p ->
-                p.playerIndex != currentPlayerIndex &&
-                p.state == PawnState.ON_TRACK &&
-                TrackBuilder.getPlayerPath(gridSize, p.playerIndex).getOrNull(p.pathIndex) == target
-            }
-            captured.forEach { c ->
-                c.state     = PawnState.HOME_BASE
-                c.pathIndex = -1
-            }
-            hasCapturedOpponent[currentPlayerIndex] = true
-            extraTurn = true
+        if (res.capturedCount > 0) {
             gameLogMessage = "✂️ CUT! Opponent pawn captured. Inner path unlocked! Extra turn!"
-            Telemetry.info("engine", "move.capture", "Player $currentPlayerIndex captured ${captured.size} opponent pawns",
+            Telemetry.info("engine", "move.capture", "Player $currentPlayerIndex captured ${res.capturedCount} opponent pawns",
                 mapOf(
                     "byPlayer" to currentPlayerIndex,
-                    "capturedIds" to captured.map { it.id },
-                    "targetCoords" to listOf(target.first, target.second)
+                    "capturedIds" to res.capturedIds,
+                    "targetCoords" to listOf(move.targetCoords.first, move.targetCoords.second)
                 )
             )
         }
@@ -530,18 +608,17 @@ class GameEngine(
         //  - BUG-02: a pre-existing Gatti repositioning alone does NOT re-announce.
         //  - BUG-03: a capture onto a cell holding our own pawn still forms a Gatti.
         //  - EC-16 : a moving Gatti landing on our own single pawn grows to size 3.
-        val nowAtDest = pawns.filter {
-            it.playerIndex == currentPlayerIndex &&
-            it.state == PawnState.ON_TRACK &&
-            it.pathIndex == move.targetPathIndex
-        }
-        if (nowAtDest.size >= 2 && nowAtDest.size > move.grpPawns.size) {
-            gattiFormed = true
+        if (res.gattiFormed) {
+            val nowAtDest = res.pawns.filter {
+                it.playerIndex == currentPlayerIndex &&
+                it.state == PawnState.ON_TRACK &&
+                it.pathIndex == move.targetPathIndex
+            }
             gameLogMessage = "🔗 GATTI! Your pawns are toughened at this square!"
             Telemetry.info("engine", "move.gatti_formed", "Player $currentPlayerIndex formed a Gatti",
                 mapOf(
                     "byPlayer" to currentPlayerIndex,
-                    "targetCoords" to listOf(target.first, target.second),
+                    "targetCoords" to listOf(move.targetCoords.first, move.targetCoords.second),
                     "count" to nowAtDest.size,
                     "pawnIds" to nowAtDest.map { it.id }
                 )
@@ -549,11 +626,10 @@ class GameEngine(
         }
 
         // Victory check
-        val allDone = pawns.filter { it.playerIndex == currentPlayerIndex }.all { it.state == PawnState.FINISHED }
-        if (allDone) {
-            winner = playerColors[currentPlayerIndex]
+        if (res.winnerIndex != -1) {
+            winner = playerColors[res.winnerIndex]
             // Preserve Gatti message if it was just formed on the winning move
-            if (gattiFormed) {
+            if (res.gattiFormed) {
                 gameLogMessage += "\n🎉 VICTORY! ${winner?.displayName} wins!"
             } else {
                 gameLogMessage = "🎉 VICTORY! ${winner?.displayName} wins!"
@@ -571,7 +647,7 @@ class GameEngine(
                     "hasCaptured" to hasCapturedOpponent[currentPlayerIndex]
                 )
             )
-            Telemetry.endSpan(spanId, mapOf("outcome" to "victory", "reachesHome" to true, "gattiFormed" to gattiFormed))
+            Telemetry.endSpan(spanId, mapOf("outcome" to "victory", "reachesHome" to true, "gattiFormed" to res.gattiFormed))
             return true
         }
 
@@ -579,7 +655,7 @@ class GameEngine(
         rollActor = -1
         validMoves  = emptyList()
 
-        if (!extraTurn) {
+        if (!res.extraTurn) {
             advanceTurn()
         } else {
             gameLogMessage += " 🎲 Extra roll!"
@@ -587,7 +663,7 @@ class GameEngine(
                 mapOf("playerIndex" to currentPlayerIndex, "reason" to if (move.isCapture) "capture" else "score"))
         }
 
-        Telemetry.endSpan(spanId, mapOf("outcome" to "applied", "extraTurn" to extraTurn, "gattiFormed" to gattiFormed))
+        Telemetry.endSpan(spanId, mapOf("outcome" to "applied", "extraTurn" to res.extraTurn, "gattiFormed" to res.gattiFormed))
         return true
     }
 

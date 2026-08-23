@@ -171,15 +171,106 @@ scenarios.forEach((s, i) => {
         }));
 });
 
+// --- move EXECUTION scenarios ------------------------------------------
+// Each entry replays a chosen legal move through the reference executeMove
+// and freezes the full result (pawn states, capture flags, winner, extra
+// turn). Both engines must reproduce these outcomes identically.
+function buildMoveExecution(label, grid, player, hasCaptured, pawnsBefore, roll, pick) {
+    const valid = E.calculateValidMoves(grid, pawnsBefore, player, hasCaptured, roll.score);
+    if (!valid.length) throw new Error(`${label}: no valid moves to execute`);
+    const move = pick(valid);
+    const res = E.executeMove(grid, pawnsBefore, hasCaptured, player, move, roll);
+    if (res.error) throw new Error(`${label}: reference execution failed: ${res.error}`);
+    return {
+        label,
+        gridSize: grid,
+        player,
+        // Only the extra-roll flag of the pending roll influences execution.
+        rollIsExtraRoll: !!roll.isExtraRoll,
+        hasCapturedBefore: hasCaptured,
+        pawnsBefore: pawnsBefore.map(p => ({ ...p })),
+        move: {
+            pawnIds: move.grpPawns.map(p => p.id),
+            targetPathIndex: move.targetPathIndex,
+            targetCoords: move.targetCoords,
+            isCapture: move.isCapture,
+            reachesHome: move.reachesHome,
+            isGattiGroup: !!move.isGattiGroup
+        },
+        expected: {
+            pawnsAfter: res.pawns.map(p => ({ id: p.id, playerIndex: p.playerIndex, state: p.state, pathIndex: p.pathIndex }))
+                .sort((a, b) => a.id - b.id),
+            hasCapturedAfter: res.hasCapturedOpponent,
+            winnerIndex: res.winner === null ? -1 : res.winner,
+            extraTurn: res.extraTurn,
+            gattiFormed: res.gattiFormed,
+            capturedCount: res.capturedCount,
+            reachesHome: res.reachesHome
+        }
+    };
+}
+
+const first = (valid) => valid[0];
+const findCapture = (valid) => valid.find(m => m.isCapture);
+
+// Opponent helper: place an opponent pawn on its own path at cell (r,c).
+function oppPawn(player, id, grid, r, c) {
+    const pi = idxOf(grid, player, r, c);
+    if (pi < 0) throw new Error(`(${r},${c}) not on P${player} ${grid}x${grid} path`);
+    return trackPawn(id, player, pi);
+}
+
+const moveExecutions = [
+    // Plain home-entry advance: turn passes (no extra roll).
+    buildMoveExecution('plain-home-advance', 5, 0, {},
+        [homePawn(0, 0), homePawn(1, 0), homePawn(2, 0), homePawn(3, 0)],
+        { score: 2, isExtraRoll: false }, first),
+
+    // Capture: pawn cut, gate flag flips on for P0, extra turn granted.
+    buildMoveExecution('capture-extra-turn', 5, 0, {},
+        [trackPawn(0, 0, 3), homePawn(1, 0), homePawn(2, 0), homePawn(3, 0),
+         oppPawn(1, 4, 5, 1, 4)],
+        { score: 2, isExtraRoll: false },
+        findCapture),
+
+    // Moving Gatti group advances together as one unit.
+    buildMoveExecution('gatti-group-move', 5, 0, { 0: true },
+        [trackPawn(0, 0, 5), trackPawn(1, 0, 5), homePawn(2, 0), homePawn(3, 0)],
+        { score: 3, isExtraRoll: false }, first),
+
+    // Reaching the center finishes ALL of P0's pawns -> victory.
+    buildMoveExecution('reach-home-victory', 5, 0, { 0: true },
+        [trackPawn(0, 0, 23)],
+        { score: 1, isExtraRoll: false }, first),
+
+    // Chowka extra roll keeps the seat after a plain advance (extraTurn true).
+    buildMoveExecution('extra-roll-flag', 5, 0, {},
+        [homePawn(0, 0), homePawn(1, 0), homePawn(2, 0), homePawn(3, 0)],
+        { score: 4, isExtraRoll: true }, first),
+
+    // Safe-square landing onto an opponent: coexist, no capture, no unlock.
+    buildMoveExecution('safe-coexist', 5, 0, {},
+        [homePawn(0, 0), homePawn(1, 0), homePawn(2, 0), homePawn(3, 0),
+         oppPawn(1, 4, 5, 4, 2)],
+        { score: 1, isExtraRoll: false },
+        first)
+];
+
+moveExecutions.forEach(m => {
+    m.expected.hasCapturedAfter = Object.keys(m.expected.hasCapturedAfter)
+        .sort().reduce((acc, k) => { acc[k] = m.expected.hasCapturedAfter[k]; return acc; }, {});
+});
+
 const corpus = {
-    formatVersion: 1,
+    formatVersion: 2,
     paths,
     safeCells,
     cowryRolls,
     validMoves: scenarios.map(s => ({
         label: s.label, gridSize: s.grid, player: s.player, score: s.score,
         hasCaptured: s.hasCaptured, pawns: s.pawns, expected: s.expected
-    }))
+    })),
+    moveExecutions
 };
 
 const outFile = path.join(__dirname, '..', 'parity', 'parity-corpus.json');
@@ -198,3 +289,4 @@ console.log(`  paths:        ${paths.length}`);
 console.log(`  safeCells:    5x5=${safeCells[5].length}, 7x7=${safeCells[7].length}`);
 console.log(`  cowryRolls:   ${cowryRolls.length}`);
 console.log(`  validMoves:   ${scenarios.length} scenario(s)`);
+console.log(`  moveExecs:    ${moveExecutions.length} scenario(s)`);

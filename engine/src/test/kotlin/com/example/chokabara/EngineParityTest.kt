@@ -1,15 +1,18 @@
 package com.example.chokabara
 
+import com.chokabarah.game.engine.CowryResult
 import com.chokabarah.game.engine.GridSize
 import com.chokabarah.game.engine.Pawn
 import com.chokabarah.game.engine.PawnState
 import com.chokabarah.game.engine.TrackBuilder
 import com.chokabarah.game.engine.calculateValidMoves
+import com.chokabarah.game.engine.executeMovePure
 import com.chokabarah.game.engine.scoreShells
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -152,6 +155,74 @@ class EngineParityTest {
                 assertEquals("scen$i reachesHome", exp.getBoolean("reachesHome"), m.reachesHome)
                 assertEquals("scen$i isGattiGroup", exp.getBoolean("isGattiGroup"), m.isGattiGroup)
             }
+        }
+    }
+
+    @Test
+    fun executeMoveMatchesCorpus() {
+        // Full move-execution differential: replay each frozen scenario through
+        // the pure Kotlin executor and compare pawn states, capture flags,
+        // winner, extra-turn and Gatti outcomes with the JS reference.
+        val arr = corpus().getJSONArray("moveExecutions")
+        for (i in 0 until arr.length()) {
+            val scen = arr.getJSONObject(i)
+            val label = scen.optString("label", "moveExec$i")
+            val gridSize = gridSize(scen.getInt("gridSize"))
+            val player = scen.getInt("player")
+
+            val pawnsBefore = mutableListOf<Pawn>()
+            val pawnArr = scen.getJSONArray("pawnsBefore")
+            for (k in 0 until pawnArr.length()) {
+                val p = pawnArr.getJSONObject(k)
+                pawnsBefore.add(Pawn(p.getInt("id"), p.getInt("playerIndex"), stateName(p.getString("state")), p.getInt("pathIndex")))
+            }
+
+            val hasCapturedBefore = mutableMapOf<Int, Boolean>()
+            val cap = scen.getJSONObject("hasCapturedBefore")
+            cap.keys().forEach { key -> hasCapturedBefore[key.toInt()] = cap.getBoolean(key) }
+
+            val mv = scen.getJSONObject("move")
+            val ids = mv.getJSONArray("pawnIds").toIntList()
+            val coords = mv.getJSONArray("targetCoords")
+            val liveMove = com.chokabarah.game.engine.MoveOption(
+                grpPawns = pawnsBefore.filter { it.id in ids },
+                targetPathIndex = mv.getInt("targetPathIndex"),
+                targetCoords = coords.getInt(0) to coords.getInt(1),
+                isCapture = mv.getBoolean("isCapture"),
+                reachesHome = mv.getBoolean("reachesHome"),
+                isGattiGroup = mv.getBoolean("isGattiGroup")
+            )
+            val roll: CowryResult? = if (scen.getBoolean("rollIsExtraRoll")) {
+                CowryResult(emptyList(), 0, true, "corpus")
+            } else {
+                CowryResult(emptyList(), 0, false, "corpus")
+            }
+
+            val res = executeMovePure(gridSize, pawnsBefore, hasCapturedBefore, player, liveMove, roll)
+            assertNull("${label} error", res.error)
+
+            val expected = scen.getJSONObject("expected")
+            val pawnsAfter = expected.getJSONArray("pawnsAfter")
+            assertEquals("$label pawn count", pawnsAfter.length(), res.pawns.size)
+            for (k in 0 until pawnsAfter.length()) {
+                val p = pawnsAfter.getJSONObject(k)
+                val kp = res.pawns.first { it.id == p.getInt("id") }
+                assertEquals("$label pawn ${p.getInt("id")} playerIndex", p.getInt("playerIndex"), kp.playerIndex)
+                assertEquals("$label pawn ${p.getInt("id")} state", stateName(p.getString("state")), kp.state)
+                assertEquals("$label pawn ${p.getInt("id")} pathIndex", p.getInt("pathIndex"), kp.pathIndex)
+            }
+
+            val capturedAfter = expected.getJSONObject("hasCapturedAfter")
+            assertEquals(
+                "$label hasCaptured",
+                capturedAfter.keys().asSequence().map { it.toInt() to capturedAfter.getBoolean(it) }.toMap(),
+                res.hasCapturedOpponent
+            )
+            assertEquals("$label winnerIndex", expected.getInt("winnerIndex"), res.winnerIndex)
+            assertEquals("$label extraTurn", expected.getBoolean("extraTurn"), res.extraTurn)
+            assertEquals("$label gattiFormed", expected.getBoolean("gattiFormed"), res.gattiFormed)
+            assertEquals("$label capturedCount", expected.getInt("capturedCount"), res.capturedCount)
+            assertEquals("$label reachesHome", expected.getBoolean("reachesHome"), res.reachesHome)
         }
     }
 

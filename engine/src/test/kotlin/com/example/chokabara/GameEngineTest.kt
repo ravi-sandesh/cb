@@ -143,8 +143,10 @@ class GameEngineTest {
         )
         val ok = engine.executeMove(move)
         assertTrue(ok)
-        assertEquals(PawnState.ON_TRACK, pawn.state)
-        assertEquals(targetIdx, pawn.pathIndex)
+        // executeMovePure copies state; read back through the engine's list.
+        val moved = engine.pawns.first { it.id == pawn.id }
+        assertEquals(PawnState.ON_TRACK, moved.state)
+        assertEquals(targetIdx, moved.pathIndex)
     }
 
     @Test
@@ -170,8 +172,9 @@ class GameEngineTest {
         )
         engine.executeMove(move)
 
-        assertEquals(PawnState.HOME_BASE, opponent.state)
-        assertEquals(-1, opponent.pathIndex)
+        val capturedNow = engine.pawns.first { it.id == opponent.id }
+        assertEquals(PawnState.HOME_BASE, capturedNow.state)
+        assertEquals(-1, capturedNow.pathIndex)
         assertEquals(true, engine.hasCapturedOpponent[0])
     }
 
@@ -194,7 +197,8 @@ class GameEngineTest {
         )
         engine.executeMove(move)
 
-        assertEquals(PawnState.FINISHED, pawn.state)
+        val moved = engine.pawns.first { it.id == pawn.id }
+        assertEquals(PawnState.FINISHED, moved.state)
     }
 
     @Test
@@ -309,9 +313,11 @@ class GameEngineTest {
         val ok = engine.executeMove(move)
 
         assertTrue(ok)
-        assertEquals(PawnState.FINISHED, a.state)
-        assertEquals(PawnState.ON_TRACK, b.state) // smaller Gatti remains
-        assertEquals(last - 1, b.pathIndex)
+        val aNow = engine.pawns.first { it.id == a.id }
+        val bNow = engine.pawns.first { it.id == b.id }
+        assertEquals(PawnState.FINISHED, aNow.state)
+        assertEquals(PawnState.ON_TRACK, bNow.state) // smaller Gatti remains
+        assertEquals(last - 1, bNow.pathIndex)
         assertNull(engine.winner) // 2 pawns still on track -> no victory
     }
 

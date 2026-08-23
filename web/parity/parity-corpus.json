@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "paths": [
     {
       "gridSize": 5,
@@ -3440,6 +3440,487 @@
         }
       ],
       "expected": []
+    }
+  ],
+  "moveExecutions": [
+    {
+      "label": "plain-home-advance",
+      "gridSize": 5,
+      "player": 0,
+      "rollIsExtraRoll": false,
+      "hasCapturedBefore": {},
+      "pawnsBefore": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "move": {
+        "pawnIds": [
+          0
+        ],
+        "targetPathIndex": 1,
+        "targetCoords": [
+          4,
+          3
+        ],
+        "isCapture": false,
+        "reachesHome": false,
+        "isGattiGroup": false
+      },
+      "expected": {
+        "pawnsAfter": [
+          {
+            "id": 0,
+            "playerIndex": 0,
+            "state": "ON_TRACK",
+            "pathIndex": 1
+          },
+          {
+            "id": 1,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          },
+          {
+            "id": 2,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          },
+          {
+            "id": 3,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          }
+        ],
+        "hasCapturedAfter": {},
+        "winnerIndex": -1,
+        "extraTurn": false,
+        "gattiFormed": false,
+        "capturedCount": 0,
+        "reachesHome": false
+      }
+    },
+    {
+      "label": "capture-extra-turn",
+      "gridSize": 5,
+      "player": 0,
+      "rollIsExtraRoll": false,
+      "hasCapturedBefore": {},
+      "pawnsBefore": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 3
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 4,
+          "playerIndex": 1,
+          "state": "ON_TRACK",
+          "pathIndex": 13
+        }
+      ],
+      "move": {
+        "pawnIds": [
+          0
+        ],
+        "targetPathIndex": 5,
+        "targetCoords": [
+          1,
+          4
+        ],
+        "isCapture": true,
+        "reachesHome": false,
+        "isGattiGroup": false
+      },
+      "expected": {
+        "pawnsAfter": [
+          {
+            "id": 0,
+            "playerIndex": 0,
+            "state": "ON_TRACK",
+            "pathIndex": 5
+          },
+          {
+            "id": 1,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          },
+          {
+            "id": 2,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          },
+          {
+            "id": 3,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          },
+          {
+            "id": 4,
+            "playerIndex": 1,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          }
+        ],
+        "hasCapturedAfter": {
+          "0": true
+        },
+        "winnerIndex": -1,
+        "extraTurn": true,
+        "gattiFormed": false,
+        "capturedCount": 1,
+        "reachesHome": false
+      }
+    },
+    {
+      "label": "gatti-group-move",
+      "gridSize": 5,
+      "player": 0,
+      "rollIsExtraRoll": false,
+      "hasCapturedBefore": {
+        "0": true
+      },
+      "pawnsBefore": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 5
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 5
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "move": {
+        "pawnIds": [
+          0,
+          1
+        ],
+        "targetPathIndex": 8,
+        "targetCoords": [
+          0,
+          2
+        ],
+        "isCapture": false,
+        "reachesHome": false,
+        "isGattiGroup": true
+      },
+      "expected": {
+        "pawnsAfter": [
+          {
+            "id": 0,
+            "playerIndex": 0,
+            "state": "ON_TRACK",
+            "pathIndex": 8
+          },
+          {
+            "id": 1,
+            "playerIndex": 0,
+            "state": "ON_TRACK",
+            "pathIndex": 8
+          },
+          {
+            "id": 2,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          },
+          {
+            "id": 3,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          }
+        ],
+        "hasCapturedAfter": {
+          "0": true
+        },
+        "winnerIndex": -1,
+        "extraTurn": false,
+        "gattiFormed": false,
+        "capturedCount": 0,
+        "reachesHome": false
+      }
+    },
+    {
+      "label": "reach-home-victory",
+      "gridSize": 5,
+      "player": 0,
+      "rollIsExtraRoll": false,
+      "hasCapturedBefore": {
+        "0": true
+      },
+      "pawnsBefore": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "ON_TRACK",
+          "pathIndex": 23
+        }
+      ],
+      "move": {
+        "pawnIds": [
+          0
+        ],
+        "targetPathIndex": 24,
+        "targetCoords": [
+          2,
+          2
+        ],
+        "isCapture": false,
+        "reachesHome": true,
+        "isGattiGroup": false
+      },
+      "expected": {
+        "pawnsAfter": [
+          {
+            "id": 0,
+            "playerIndex": 0,
+            "state": "FINISHED",
+            "pathIndex": 24
+          }
+        ],
+        "hasCapturedAfter": {
+          "0": true
+        },
+        "winnerIndex": 0,
+        "extraTurn": false,
+        "gattiFormed": false,
+        "capturedCount": 0,
+        "reachesHome": true
+      }
+    },
+    {
+      "label": "extra-roll-flag",
+      "gridSize": 5,
+      "player": 0,
+      "rollIsExtraRoll": true,
+      "hasCapturedBefore": {},
+      "pawnsBefore": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        }
+      ],
+      "move": {
+        "pawnIds": [
+          0
+        ],
+        "targetPathIndex": 3,
+        "targetCoords": [
+          3,
+          4
+        ],
+        "isCapture": false,
+        "reachesHome": false,
+        "isGattiGroup": false
+      },
+      "expected": {
+        "pawnsAfter": [
+          {
+            "id": 0,
+            "playerIndex": 0,
+            "state": "ON_TRACK",
+            "pathIndex": 3
+          },
+          {
+            "id": 1,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          },
+          {
+            "id": 2,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          },
+          {
+            "id": 3,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          }
+        ],
+        "hasCapturedAfter": {},
+        "winnerIndex": -1,
+        "extraTurn": true,
+        "gattiFormed": false,
+        "capturedCount": 0,
+        "reachesHome": false
+      }
+    },
+    {
+      "label": "safe-coexist",
+      "gridSize": 5,
+      "player": 0,
+      "rollIsExtraRoll": false,
+      "hasCapturedBefore": {},
+      "pawnsBefore": [
+        {
+          "id": 0,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 1,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 2,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 3,
+          "playerIndex": 0,
+          "state": "HOME_BASE",
+          "pathIndex": -1
+        },
+        {
+          "id": 4,
+          "playerIndex": 1,
+          "state": "ON_TRACK",
+          "pathIndex": 8
+        }
+      ],
+      "move": {
+        "pawnIds": [
+          0
+        ],
+        "targetPathIndex": 0,
+        "targetCoords": [
+          4,
+          2
+        ],
+        "isCapture": false,
+        "reachesHome": false,
+        "isGattiGroup": false
+      },
+      "expected": {
+        "pawnsAfter": [
+          {
+            "id": 0,
+            "playerIndex": 0,
+            "state": "ON_TRACK",
+            "pathIndex": 0
+          },
+          {
+            "id": 1,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          },
+          {
+            "id": 2,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          },
+          {
+            "id": 3,
+            "playerIndex": 0,
+            "state": "HOME_BASE",
+            "pathIndex": -1
+          },
+          {
+            "id": 4,
+            "playerIndex": 1,
+            "state": "ON_TRACK",
+            "pathIndex": 8
+          }
+        ],
+        "hasCapturedAfter": {},
+        "winnerIndex": -1,
+        "extraTurn": false,
+        "gattiFormed": false,
+        "capturedCount": 0,
+        "reachesHome": false
+      }
     }
   ]
 }
