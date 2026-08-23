@@ -4,95 +4,242 @@ import androidx.lifecycle.SavedStateHandle
 import com.chokabarah.game.ScreenState
 import com.chokabarah.game.engine.GameMode
 import com.chokabarah.game.engine.GridSize
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
-// Process-death survival contract, exercised on the JVM: the ViewModel mirrors
-// every mutation into SavedStateHandle primitives, so replaying those exact
-// key/value pairs into a fresh instance must rebuild an equivalent match.
-// (No emulator needed — SavedStateHandle stores our String/Int values in a
-// plain map until the system actually saves.)
+// ViewModel contract tests. The engine is fully encapsulated now: every
+// assertion reads the published GameUiState, exactly like the UI does.
+@OptIn(ExperimentalCoroutinesApi::class)
 class GameViewModelTest {
 
-    @Test
-    fun freshInstanceStartsAtHomeWithoutEngine() {
+    private val dispatcher = StandardTestDispatcher()
+
+    private fun idle() = dispatcher.scheduler.advanceUntilIdle()
+    private fun runNow() = dispatcher.scheduler.runCurrent()
+    private fun timeTravel(ms: Long) { dispatcher.scheduler.advanceTimeBy(ms); dispatcher.scheduler.advanceUntilIdle() }
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(dispatcher)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    private fun freshViewModel(): GameViewModel {
         val vm = GameViewModel(SavedStateHandle())
-        assertEquals(ScreenState.HOME, vm.screen)
-        assertNull(vm.engine)
-        assertEquals(0, vm.revision)
+        idle()
+        return vm
+    }
+
+    private fun playToHumanMove(vm: GameViewModel) {
+        var attempts = 0
+        while (vm.uiState.value.board!!.validMoves.isEmpty()) {
+            if (vm.uiState.value.board!!.winner != null) break
+            vm.rollCowries()
+            // runCurrent (NOT advanceUntilIdle): execute queued publication
+            // work without advancing virtual time, which would let a queued
+            // bot job play through its delays and take over the game.
+            runNow()
+            check(++attempts < 200) { "Never rolled a move" }
+        }
+    }
+
+    @Test
+    fun freshInstanceStartsAtHomeWithoutBoard() {
+        val ui = freshViewModel().uiState.value
+        assertEquals(ScreenState.HOME, ui.screen)
+        assertNull(ui.board)
+        assertFalse(ui.isBotTurn)
+        assertFalse(ui.canRoll)
     }
 
     @Test
     fun startGameSeedsAPlayingMatch() {
-        val vm = GameViewModel(SavedStateHandle())
+        val vm = freshViewModel()
         vm.startGame(GridSize.SEVEN_BY_SEVEN, 3, GameMode.VS_BOT)
-        assertEquals(ScreenState.PLAYING, vm.screen)
-        assertEquals(GridSize.SEVEN_BY_SEVEN, vm.gridSize)
-        assertEquals(3, vm.playerCount)
-        assertEquals(GameMode.VS_BOT, vm.gameMode)
-        assertNotNull(vm.engine)
+        idle()
+        val ui = vm.uiState.value
+        assertEquals(ScreenState.PLAYING, ui.screen)
+        assertEquals(GridSize.SEVEN_BY_SEVEN, ui.gridSize)
+        assertEquals(3, ui.playerCount)
+        assertEquals(GameMode.VS_BOT, ui.gameMode)
+        assertNotNull(ui.board)
+        // VS_BOT starts on seat 0 (human), so input is allowed.
+        assertFalse(ui.isBotTurn)
     }
 
     @Test
     fun startGameClampsInvalidPlayerCounts() {
-        val vm = GameViewModel(SavedStateHandle())
+        val vm = freshViewModel()
         vm.startGame(GridSize.FIVE_BY_FIVE, 1, GameMode.PASS_AND_PLAY)
-        assertEquals(2, vm.playerCount) // BUG-08 defensive clamp
+        assertEquals(2, vm.uiState.value.playerCount) // BUG-08 defensive clamp
         vm.startGame(GridSize.FIVE_BY_FIVE, 9, GameMode.PASS_AND_PLAY)
-        assertEquals(4, vm.playerCount)
+        assertEquals(4, vm.uiState.value.playerCount)
     }
 
     @Test
-    fun mutationsBumpTheRevision() {
-        val vm = GameViewModel(SavedStateHandle())
+    fun rollCowriesPublishesARollOrPassesTheTurn() {
+        val vm = freshViewModel()
         vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.PASS_AND_PLAY)
-        val before = vm.revision
         vm.rollCowries()
-        assertEquals(before + 1, vm.revision)
+        idle()
+        val board = vm.uiState.value.board!!
+        // Either a pending roll exists or a dead roll already passed the turn.
+        assertTrue(board.currentRoll != null || board.currentPlayerIndex == 1)
+    }
+
+    @Test
+    fun executeValidMoveAppliesAndRepublishes() {
+        val vm = freshViewModel()
+        vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.PASS_AND_PLAY)
+        playToHumanMove(vm)
+        val before = vm.uiState.value.board!!
+        val move = before.validMoves.first()
+
+        assertTrue(vm.executeValidMove(move))
+        idle()
+        val after = vm.uiState.value.board!!
+        // Roll consumed and turn advanced (score 1..3 has no extra turn).
+        assertNull(after.currentRoll)
+        assertTrue(after.validMoves.isEmpty())
+    }
+
+    @Test
+    fun staleMovesAreRejectedWithoutMutatingTheEngine() {
+        val vm = freshViewModel()
+        vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.PASS_AND_PLAY)
+        vm.rollCowries()
+        idle()
+        val forged = MoveUi(pawnIds = listOf(0, 1, 2), targetCoords = 99 to 99, isCapture = false)
+        assertFalse(vm.executeValidMove(forged))
+        // Engine state unchanged: still player 0's business.
+        assertEquals(0, vm.uiState.value.board!!.currentPlayerIndex)
+    }
+
+    @Test
+    fun onCellClickedSelectsAPawnOnItsStartCell() {
+        val vm = freshViewModel()
+        vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.PASS_AND_PLAY)
+        val start = com.chokabarah.game.engine.TrackBuilder
+            .getPlayerPath(GridSize.FIVE_BY_FIVE, 0)[0]
+        vm.onCellClicked(start.first, start.second)
+        runNow()
+        assertNotNull(vm.uiState.value.selectedPawnId)
+
+        // Tapping an empty cell clears the selection again.
+        vm.onCellClicked(4, 4)
+        runNow()
+        assertNull(vm.uiState.value.selectedPawnId)
+    }
+
+    @Test
+    fun pauseMenuBlocksHumanActionsAndSuspendsTheBot() {
+        val vm = freshViewModel()
+        vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.VS_BOT)
+        vm.setShowPauseMenu(true)
+        idle()
+        assertTrue(vm.uiState.value.showPauseMenu)
+        val rollsBefore = vm.uiState.value.board!!.currentRoll
+
+        // Roll attempts while paused are ignored.
+        vm.rollCowries()
+        idle()
+        assertEquals(rollsBefore, vm.uiState.value.board!!.currentRoll)
+
+        vm.setShowPauseMenu(false)
+        idle()
+        assertFalse(vm.uiState.value.showPauseMenu)
+    }
+
+    @Test
+    fun botTurnCompletesOnItsOwn() {
+        val vm = freshViewModel()
+        vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.VS_BOT)
+        playToHumanMove(vm)
+        val move = vm.uiState.value.board!!.validMoves.first()
+        vm.executeValidMove(move)
+        // Let every queued bot segment (including its delays) run to completion.
+        timeTravel(60_000)
+        idle()
+
+        val board = vm.uiState.value.board!!
+        // The bot consumed the roll; the game either ended or the turn came
+        // back to the human seat. No pending roll may leak across segments.
+        assertNull(board.currentRoll)
+        assertTrue(board.winner != null || board.currentPlayerIndex == 0)
     }
 
     @Test
     fun sessionSurvivesSimulatedProcessDeath() {
-        val original = GameViewModel(SavedStateHandle())
+        val original = freshViewModel()
         original.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.VS_BOT)
-        // Drive real gameplay: roll until moves exist, then take the best move.
-        var attempts = 0
-        while (original.engine!!.validMoves.isEmpty() && original.engine!!.winner == null) {
-            original.rollCowries()
-            check(++attempts < 200) { "Never rolled a move" }
-        }
-        original.engine!!.getBestBotMove()?.let { original.executeMove(it) }
+        playToHumanMove(original)
+        original.uiState.value.board!!.validMoves.firstOrNull()?.let { original.executeValidMove(it) }
         original.selectPawn(3)
+        runNow()
 
-        val revived = GameViewModel(rebornHandleOf(original))
-        assertEquals(ScreenState.PLAYING, revived.screen)
-        assertEquals(original.gridSize, revived.gridSize)
-        assertEquals(original.playerCount, revived.playerCount)
-        assertEquals(original.gameMode, revived.gameMode)
+        // Rebuild the handle exactly as the OS would after process death:
+        // only the persisted primitives survive.
+        val revivedHandle = SavedStateHandle(buildMap {
+            put("cb_screen", ScreenState.PLAYING.name)
+            put("cb_grid_columns", original.uiState.value.gridSize.columns)
+            put("cb_player_count", original.uiState.value.playerCount)
+            put("cb_game_mode", original.uiState.value.gameMode.name)
+            put("cb_engine_snapshot", original.savedState.get<String>("cb_engine_snapshot")!!)
+            put("cb_selected_pawn_id", original.uiState.value.selectedPawnId)
+        })
+        val revived = GameViewModel(revivedHandle)
+        runNow()
 
-        val src = original.engine!!
-        val dst = requireNotNull(revived.engine)
-        assertEquals(src.currentPlayerIndex, dst.currentPlayerIndex)
-        assertEquals(src.winner, dst.winner)
-        assertEquals(src.currentRoll?.shells, dst.currentRoll?.shells)
-        assertEquals(src.hasCapturedOpponent, dst.hasCapturedOpponent)
-        assertEquals(
-            src.pawns.map { Triple(it.id, it.state, it.pathIndex) },
-            dst.pawns.map { Triple(it.id, it.state, it.pathIndex) }
-        )
-        assertEquals(3, revived.selectedPawnId)
-        // A live match keeps flowing after revival: rolling still mutates.
-        val revBefore = revived.revision
-        revived.rollCowries()
-        assertEquals(revBefore + 1, revived.revision)
+        val src = original.uiState.value
+        val dst = revived.uiState.value
+        assertEquals(ScreenState.PLAYING, dst.screen)
+        assertEquals(src.gridSize, dst.gridSize)
+        assertEquals(src.playerCount, dst.playerCount)
+        assertEquals(src.gameMode, dst.gameMode)
+        assertEquals(src.selectedPawnId, dst.selectedPawnId)
+
+        val srcBoard = src.board!!
+        val dstBoard = dst.board!!
+        assertEquals(srcBoard.currentPlayerIndex, dstBoard.currentPlayerIndex)
+        assertEquals(srcBoard.winner, dstBoard.winner)
+        assertEquals(srcBoard.currentRoll?.shells, dstBoard.currentRoll?.shells)
+        assertEquals(srcBoard.pawns, dstBoard.pawns)
+        assertEquals(srcBoard.validMoves, dstBoard.validMoves)
+
+        // A live match keeps flowing after revival — unless it landed on the
+        // bot's seat, in which case input is (correctly) refused.
+        if (!dst.isBotTurn) {
+            val before = revived.uiState.value.board!!
+            revived.rollCowries()
+            timeTravel(60_000)
+            idle()
+            assertTrue(
+                before.currentPlayerIndex != revived.uiState.value.board!!.currentPlayerIndex ||
+                    before.currentRoll?.shells != revived.uiState.value.board!!.currentRoll?.shells ||
+                    before.winner != null
+            )
+        }
     }
 
     @Test
-    fun corruptSnapshotFallsBackToFreshHomeFlow() {
-        // Screen says PLAYING but the payload is garbage: the ViewModel must
-        // not crash and must not pretend a match was restored.
+    fun corruptSnapshotFallsBackToHomeFlow() {
+        // Screen says PLAYING but the payload is garbage: must not crash and
+        // must not pretend a match was restored.
         val handle = SavedStateHandle(
             mapOf(
                 "cb_screen" to ScreenState.PLAYING.name,
@@ -103,34 +250,20 @@ class GameViewModelTest {
             )
         )
         val vm = GameViewModel(handle)
-        assertNull(vm.engine)
+        idle()
+        assertNull(vm.uiState.value.board)
+        assertEquals(ScreenState.HOME, vm.uiState.value.screen)
     }
 
     @Test
     fun exitToMenuClearsTheMatch() {
-        val vm = GameViewModel(SavedStateHandle())
+        val vm = freshViewModel()
         vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.PASS_AND_PLAY)
         vm.exitToMenu()
-        assertEquals(ScreenState.HOME, vm.screen)
-        assertNull(vm.engine)
-        assertNull(vm.selectedPawnId)
-    }
-
-    // ---- helpers ----
-
-    private fun rebornHandleOf(vm: GameViewModel): SavedStateHandle {
-        // Rebuild the handle exactly as the system would after process death:
-        // only the persisted primitives survive.
-        return SavedStateHandle(buildMap {
-            put("cb_screen", vm.screen.name)
-            put("cb_grid_columns", vm.gridSize.columns)
-            put("cb_player_count", vm.playerCount)
-            put("cb_game_mode", vm.gameMode.name)
-            vm.engine?.let {
-                put("cb_engine_snapshot",
-                    com.chokabarah.game.engine.GameSnapshotCodec.encode(it.snapshot()))
-            }
-            vm.selectedPawnId?.let { put("cb_selected_pawn_id", it) }
-        })
+        idle()
+        val ui = vm.uiState.value
+        assertEquals(ScreenState.HOME, ui.screen)
+        assertNull(ui.board)
+        assertNull(ui.selectedPawnId)
     }
 }

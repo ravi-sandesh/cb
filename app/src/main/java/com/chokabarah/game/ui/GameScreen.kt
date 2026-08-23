@@ -18,16 +18,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,13 +36,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.SavedStateHandle
 import com.chokabarah.game.engine.GameMode
 import com.chokabarah.game.engine.GridSize
-import com.chokabarah.game.engine.MoveOption
-import com.chokabarah.game.engine.Pawn
-import com.chokabarah.game.engine.PawnState
 import com.chokabarah.game.engine.PlayerColor
-import com.chokabarah.game.engine.TrackBuilder
 import com.chokabarah.game.telemetry.Telemetry
-import kotlinx.coroutines.delay
 
 // Legacy entry point kept for previews/tests: builds a composition-scoped
 // session. Production navigation goes through MainActivity, which owns a real
@@ -65,59 +58,24 @@ fun GameScreen(
     GameScreen(session, seniorMode, onBackToMenu)
 }
 
+// Renders exclusively from the ViewModel's StateFlow<GameUiState>: every
+// engine mutation republishes an immutable snapshot, so recomposition is
+// data-driven (no revision counters, no manual triggers). All input is
+// routed back through the session's action methods.
 @Composable
 fun GameScreen(
     state: GameViewModel,
     seniorMode: Boolean = false,
     onBackToMenu: () -> Unit
 ) {
-    val gameEngine = requireNotNull(state.engine)
-    // Bump point for engine mutations: every roll/move/restart increments the
-    // revision in the ViewModel, re-reading the engine's plain fields here.
-    val revision = state.revision
+    // Keep the bot's pacing in sync with the accessibility profile.
+    LaunchedEffect(seniorMode) { state.setSeniorPacing(seniorMode) }
 
-    // Derived straight from the observable selection id, so pawn highlighting
-    // updates without an explicit recomposition trigger.
-    val selectedPawn: Pawn? = gameEngine.pawns.firstOrNull { it.id == state.selectedPawnId }
+    val ui by state.uiState.collectAsState()
+    val board = requireNotNull(ui.board)
 
-    val currentPlayer = gameEngine.playerColors[gameEngine.currentPlayerIndex]
-    val isBotTurn = state.gameMode == GameMode.VS_BOT && gameEngine.currentPlayerIndex != 0
-
-    // Bot turn automation
-    LaunchedEffect(
-        gameEngine.currentPlayerIndex,
-        gameEngine.currentRoll,
-        gameEngine.validMoves,
-        revision,
-        isBotTurn,
-        state.showPauseMenu
-    ) {
-        // Pausing the game must also pause a bot that is mid-turn; a bot must
-        // not keep rolling/moving (and thus telemetry-spanning) behind the
-        // pause dialog (BUG-16). Cancelling mid-flight must not strand the
-        // botProcessing latch, or the bot would never move again after resume.
-        if (state.showPauseMenu) {
-            state.botProcessing = false
-            return@LaunchedEffect
-        }
-        if (isBotTurn && gameEngine.winner == null && !state.botProcessing) {
-            state.botProcessing = true
-            // Senior mode gives the bot a longer "thinking" beat so a slower
-            // player can follow what happened turn by turn (700ms -> 1500ms).
-            val botDelayMs = if (seniorMode) 1500L else 700L
-            delay(botDelayMs)
-            if (gameEngine.currentRoll == null) {
-                state.rollCowries()
-            }
-            delay(botDelayMs)
-            val botMove = gameEngine.getBestBotMove()
-            if (botMove != null) {
-                state.executeMove(botMove)
-            }
-            state.selectPawn(null)
-            state.botProcessing = false
-        }
-    }
+    val currentPlayer = board.playerColors[board.currentPlayerIndex]
+    val selectedPawnId = ui.selectedPawnId
 
     val headerColor = Color(0xFFFFD54F)
     val accentColor = Color(0xFFFFB74D)
@@ -148,9 +106,9 @@ fun GameScreen(
                             "ui",
                             "menu.opened",
                             "Pause menu opened",
-                            mapOf("gridSize" to state.gridSize.columns, "mode" to state.gameMode.name)
+                            mapOf("gridSize" to ui.gridSize.columns, "mode" to ui.gameMode.name)
                         )
-                        state.showPauseMenu = true
+                        state.setShowPauseMenu(true)
                     },
                     shape = RoundedCornerShape(12.dp)
                 ) {
@@ -164,7 +122,7 @@ fun GameScreen(
                 Spacer(Modifier.weight(1f))
 
                 Text(
-                    text = "${state.gridSize.columns}x${state.gridSize.columns} CHOKA BARAH",
+                    text = "${ui.gridSize.columns}x${ui.gridSize.columns} CHOKA BARAH",
                     color = headerColor,
                     fontSize = if (seniorMode) 20.sp else 16.sp,
                     fontWeight = FontWeight.Bold,
@@ -179,7 +137,7 @@ fun GameScreen(
                             "ui",
                             "game.restarted",
                             "Game restarted by user",
-                            mapOf("gridSize" to state.gridSize.columns)
+                            mapOf("gridSize" to ui.gridSize.columns)
                         )
                         state.restart()
                     },
@@ -210,17 +168,15 @@ fun GameScreen(
                     ) {
                         Text(
                             text = "TURN: ${currentPlayer.displayName}" +
-                                (if (isBotTurn) " \uD83E\uDD16 (BOT)" else ""),
+                                (if (ui.isBotTurn) " \uD83E\uDD16 (BOT)" else ""),
                             color = Color.White,
                             fontSize = if (seniorMode) 21.sp else 16.sp,
                             fontWeight = FontWeight.Bold
                         )
 
-                        val isCutUnlocked =
-                            gameEngine.hasCapturedOpponent[gameEngine.currentPlayerIndex] == true
                         Text(
-                            text = if (isCutUnlocked) "\uD83D\uDD13 INNER UNLOCKED" else "\uD83D\uDD12 CUT REQUIRED",
-                            color = if (isCutUnlocked) unlockedColor else headerColor,
+                            text = if (board.isCutUnlocked) "\uD83D\uDD13 INNER UNLOCKED" else "\uD83D\uDD12 CUT REQUIRED",
+                            color = if (board.isCutUnlocked) unlockedColor else headerColor,
                             fontSize = if (seniorMode) 15.sp else 12.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -229,64 +185,10 @@ fun GameScreen(
                     Spacer(Modifier.height(8.dp))
 
                     BoardCanvas(
-                        gameEngine = gameEngine,
-                        selectedPawn = selectedPawn,
+                        board = board,
+                        selectedPawnId = selectedPawnId,
                         seniorMode = seniorMode,
-                        onCellClicked = { row, col ->
-                            if (!isBotTurn && gameEngine.winner == null) {
-                                val matchingMove = gameEngine.validMoves.firstOrNull {
-                                    it.targetCoords == row to col
-                                }
-                                if (matchingMove != null) {
-                                    Telemetry.debug(
-                                        "input",
-                                        "board.tapped_move",
-                                        "User tapped cell to move pawn",
-                                        mapOf(
-                                            "row" to row,
-                                            "col" to col,
-                                            "pawnIds" to matchingMove.grpPawns.map { it.id }
-                                        )
-                                    )
-                                    state.executeMove(matchingMove)
-                                    state.selectPawn(null)
-                                } else {
-                                    // Selecting a pawn to preview its moves
-                                    val clickedPawn = gameEngine.pawns.firstOrNull { pawn ->
-                                        pawn.playerIndex == gameEngine.currentPlayerIndex && when (pawn.state) {
-                                            PawnState.HOME_BASE ->
-                                                TrackBuilder.getPlayerPath(gameEngine.gridSize, pawn.playerIndex)
-                                                    .getOrNull(0) == row to col
-                                            PawnState.ON_TRACK ->
-                                                pawn.pathIndex >= 0 &&
-                                                    TrackBuilder.getPlayerPath(gameEngine.gridSize, pawn.playerIndex)
-                                                        .getOrNull(pawn.pathIndex) == row to col
-                                            PawnState.FINISHED -> false
-                                        }
-                                    }
-                                    if (clickedPawn != null) {
-                                        Telemetry.debug(
-                                            "input",
-                                            "pawn.selected_via_tap",
-                                            "User selected a pawn on the board",
-                                            mapOf(
-                                                "pawnIds" to listOf(clickedPawn.id),
-                                                "targetPathIndex" to clickedPawn.pathIndex
-                                            )
-                                        )
-                                        state.selectPawn(clickedPawn.id)
-                                    } else {
-                                        Telemetry.trace(
-                                            "input",
-                                            "board.tapped_empty",
-                                            "User tapped an empty/non-move cell",
-                                            mapOf("row" to row, "col" to col)
-                                        )
-                                        state.selectPawn(null)
-                                    }
-                                }
-                            }
-                        }
+                        onCellClicked = { row, col -> state.onCellClicked(row, col) }
                     )
                 }
             }
@@ -309,29 +211,24 @@ fun GameScreen(
                         fontWeight = FontWeight.Bold
                     )
 
-                    if (gameEngine.validMoves.isNotEmpty() && !isBotTurn) {
+                    if (board.validMoves.isNotEmpty() && !ui.isBotTurn) {
                         Spacer(Modifier.height(4.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            gameEngine.validMoves.forEach { move ->
-                                val lead = move.grpPawns.first()
-                                val isSelected = selectedPawn?.id == lead.id
-                                val pawnName = if (lead.state == PawnState.HOME_BASE)
-                                    "Start"
-                                else
-                                    "PAWN #${lead.id % 4 + 1}"
+                            board.validMoves.forEachIndexed { index, move ->
+                                val isSelected = move.pawnIds.contains(selectedPawnId)
+                                val pawnName = if (isHomeBaseLead(board, move)) "Start" else "PAWN #${move.pawnIds.first() % 4 + 1}"
                                 Button(
                                     onClick = {
                                         Telemetry.debug(
                                             "input",
                                             "pawn.selected_via_list",
                                             "User selected a pawn via quick-list",
-                                            mapOf("pawnIds" to move.grpPawns.map { it.id })
+                                            mapOf("pawnIds" to move.pawnIds)
                                         )
-                                        state.executeMove(move)
-                                        state.selectPawn(null)
+                                        state.executeValidMove(move)
                                     },
                                     modifier = Modifier
                                         .weight(1f)
@@ -343,7 +240,7 @@ fun GameScreen(
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Text(
-                                        text = pawnName + (if (move.grpPawns.size > 1) " [GATTI]" else ""),
+                                        text = pawnName + (if (move.pawnIds.size > 1) " [GATTI]" else ""),
                                         fontSize = if (seniorMode) 17.sp else 13.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -357,28 +254,27 @@ fun GameScreen(
             Spacer(Modifier.height(16.dp))
 
             CowryRollSection(
-                currentRoll = gameEngine.currentRoll,
-                canRoll = gameEngine.currentRoll == null && !isBotTurn && gameEngine.winner == null,
+                currentRoll = board.currentRoll,
+                canRoll = ui.canRoll,
                 onRollRequested = {
                     Telemetry.debug(
                         "input",
                         "dice.roll_requested",
                         "User requested a cowry roll",
-                        mapOf("playerIndex" to gameEngine.currentPlayerIndex)
+                        mapOf("playerIndex" to board.currentPlayerIndex)
                     )
                     state.rollCowries()
-                    state.selectPawn(null)
                 },
-                gridSize = state.gridSize,
+                gridSize = ui.gridSize,
                 seniorMode = seniorMode
             )
 
             Spacer(Modifier.height(16.dp))
 
             Text(
-                text = "Board: ${state.gridSize.columns}x${state.gridSize.columns}   " +
-                    "Players: ${state.playerCount}   " +
-                    "Mode: ${if (state.gameMode == GameMode.PASS_AND_PLAY) "Pass & Play" else "vs Bot"}",
+                text = "Board: ${ui.gridSize.columns}x${ui.gridSize.columns}   " +
+                    "Players: ${ui.playerCount}   " +
+                    "Mode: ${if (ui.gameMode == GameMode.PASS_AND_PLAY) "Pass & Play" else "vs Bot"}",
                 color = Color.White,
                 fontSize = if (seniorMode) 15.sp else 12.sp,
                 textAlign = TextAlign.Center
@@ -387,9 +283,9 @@ fun GameScreen(
     }
 
     // Pause menu dialog
-    if (state.showPauseMenu) {
+    if (ui.showPauseMenu) {
         AlertDialog(
-            onDismissRequest = { state.showPauseMenu = false },
+            onDismissRequest = { state.setShowPauseMenu(false) },
             title = {
                 Text(
                     text = "GAME PAUSED",
@@ -400,17 +296,17 @@ fun GameScreen(
             text = {
                 Column {
                     Text(
-                        text = "Board: ${state.gridSize.columns}x${state.gridSize.columns}",
+                        text = "Board: ${ui.gridSize.columns}x${ui.gridSize.columns}",
                         color = Color.White
                     )
-                    Text(text = "Players: ${state.playerCount}", color = Color.White)
+                    Text(text = "Players: ${ui.playerCount}", color = Color.White)
                     Text(
-                        text = "Mode: ${if (state.gameMode == GameMode.PASS_AND_PLAY) "Pass & Play" else "vs Bot"}",
+                        text = "Mode: ${if (ui.gameMode == GameMode.PASS_AND_PLAY) "Pass & Play" else "vs Bot"}",
                         color = Color.White
                     )
                     Spacer(Modifier.height(12.dp))
                     Button(
-                        onClick = { state.showPauseMenu = false },
+                        onClick = { state.setShowPauseMenu(false) },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037))
@@ -427,9 +323,9 @@ fun GameScreen(
                         "ui",
                         "menu.exit",
                         "User exited to menu from pause",
-                        mapOf("gridSize" to state.gridSize.columns)
+                        mapOf("gridSize" to ui.gridSize.columns)
                     )
-                    state.showPauseMenu = false
+                    state.setShowPauseMenu(false)
                     onBackToMenu()
                 }) {
                     Text("EXIT TO MENU", color = Color(0xFFFF5252))
@@ -439,7 +335,7 @@ fun GameScreen(
     }
 
     // Victory dialog
-    gameEngine.winner?.let { winner ->
+    board.winner?.let { winner ->
         AlertDialog(
             onDismissRequest = {
                 Telemetry.info(
@@ -498,3 +394,7 @@ fun GameScreen(
         )
     }
 }
+
+private fun isHomeBaseLead(board: BoardUi, move: MoveUi): Boolean =
+    board.pawns.firstOrNull { it.id == move.pawnIds.first() }?.state ==
+        com.chokabarah.game.engine.PawnState.HOME_BASE

@@ -13,22 +13,21 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import com.chokabarah.game.engine.GameEngine
-import com.chokabarah.game.engine.MoveOption
-import com.chokabarah.game.engine.Pawn
 import com.chokabarah.game.engine.PawnState
 import com.chokabarah.game.engine.TrackBuilder
 import com.chokabarah.game.telemetry.Telemetry
 
+// Renders purely from the immutable BoardUi projection — it never touches
+// the engine, so a draw pass can never observe a half-applied move.
 @Composable
 fun BoardCanvas(
-    gameEngine: GameEngine,
-    selectedPawn: Pawn?,
+    board: BoardUi,
+    selectedPawnId: Int?,
     onCellClicked: (row: Int, col: Int) -> Unit,
     modifier: Modifier = Modifier,
     seniorMode: Boolean = false
 ) {
-    val gridSize = gameEngine.gridSize.columns
+    val gridSize = board.gridSize.columns
     // Senior mode keeps the board square (cells scale naturally) but thickens
     // the grid strokes and enlarges pawn/safe-cell markings so each cell reads
     // more clearly (low-vision accessibility profile).
@@ -37,7 +36,7 @@ fun BoardCanvas(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .pointerInput(gameEngine.validMoves, selectedPawn) {
+            .pointerInput(board.validMoves, selectedPawnId) {
                 detectTapGestures { offset ->
                     val cellSize = size.width.toFloat() / gridSize
                     val col = (offset.x / cellSize).toInt().coerceIn(0, gridSize - 1)
@@ -50,8 +49,8 @@ fun BoardCanvas(
                             "row" to row,
                             "col" to col,
                             "gridSize" to gridSize,
-                            "validMoveCount" to gameEngine.validMoves.size,
-                            "hasSelectedPawn" to (selectedPawn != null)
+                            "validMoveCount" to board.validMoves.size,
+                            "hasSelectedPawn" to (selectedPawnId != null)
                         )
                     )
                     onCellClicked(row, col)
@@ -63,7 +62,7 @@ fun BoardCanvas(
 
         for (row in 0 until gridSize) {
             for (col in 0 until gridSize) {
-                val isSafe = TrackBuilder.isSafeCell(gameEngine.gridSize, row, col)
+                val isSafe = TrackBuilder.isSafeCell(board.gridSize, row, col)
                 val isCenter = row == gridSize / 2 && col == gridSize / 2
                 val cellBgColor = when {
                     isCenter -> Color(0xFFD81B60)
@@ -88,7 +87,7 @@ fun BoardCanvas(
             }
         }
 
-        for (move in gameEngine.validMoves) {
+        for (move in board.validMoves) {
             val target = move.targetCoords
             val highlightColor = if (move.isCapture) Color(0xFFFF5252) else Color(0xFF76FF03)
             val center = Offset(target.second * cellSize + cellSize / 2f, target.first * cellSize + cellSize / 2f)
@@ -96,13 +95,13 @@ fun BoardCanvas(
             drawCircle(highlightColor, cellSize * 0.38f, center, style = Stroke(if (seniorMode) 9f else 6f))
         }
 
-        val cellPawnsMap = mutableMapOf<Pair<Int, Int>, MutableList<Pawn>>()
+        val cellPawnsMap = mutableMapOf<Pair<Int, Int>, MutableList<PawnUi>>()
         // BUG-10 (parity with web): only pawns still ON_TRACK are drawn. FINISHED
         // pawns have reached center home and belong to the victory overlay, not a
         // board stack (and must never merge into a Gatti-looking bundle at center).
-        for (pawn in gameEngine.pawns) {
+        for (pawn in board.pawns) {
             if (pawn.state != PawnState.ON_TRACK) continue
-            val coords = TrackBuilder.getPlayerPath(gameEngine.gridSize, pawn.playerIndex)[pawn.pathIndex]
+            val coords = TrackBuilder.getPlayerPath(board.gridSize, pawn.playerIndex)[pawn.pathIndex]
             cellPawnsMap.getOrPut(coords) { mutableListOf() }.add(pawn)
         }
         for ((coords, pawnsOnCell) in cellPawnsMap) {
@@ -110,9 +109,9 @@ fun BoardCanvas(
             val col = coords.second
             val cellCenterX = col * cellSize + cellSize / 2f
             val cellCenterY = row * cellSize + cellSize / 2f
-            drawPawnsGroup(pawnsOnCell, cellCenterX, cellCenterY, cellSize, selectedPawn, gameEngine, seniorMode)
+            drawPawnsGroup(pawnsOnCell, cellCenterX, cellCenterY, cellSize, selectedPawnId, board.playerColors, seniorMode)
         }
-        drawHomeBasePawns(gameEngine, cellSize, selectedPawn, seniorMode)
+        drawHomeBasePawns(board, cellSize, selectedPawnId, seniorMode)
     }
 }
 
@@ -144,12 +143,12 @@ private fun DrawScope.drawCenterHomeMarking(row: Int, col: Int, cellSize: Float)
 }
 
 private fun DrawScope.drawPawnsGroup(
-    pawnsOnCell: List<Pawn>,
+    pawnsOnCell: List<PawnUi>,
     centerX: Float,
     centerY: Float,
     cellSize: Float,
-    selectedPawn: Pawn?,
-    gameEngine: GameEngine,
+    selectedPawnId: Int?,
+    playerColors: List<com.chokabarah.game.engine.PlayerColor>,
     seniorMode: Boolean = false
 ) {
     val pawnRadius = cellSize * (if (seniorMode) 0.22f else 0.18f)
@@ -157,8 +156,8 @@ private fun DrawScope.drawPawnsGroup(
     val count = pawnsOnCell.size
     for (i in 0 until count) {
         val pawn = pawnsOnCell[i]
-        val pColor = gameEngine.playerColors[pawn.playerIndex]
-        val isSelected = selectedPawn?.id == pawn.id
+        val pColor = playerColors[pawn.playerIndex]
+        val isSelected = selectedPawnId == pawn.id
         val offset = when {
             count == 1 -> Offset(0f, 0f)
             count == 2 -> if (i == 0) Offset(-pawnRadius * 0.7f, -pawnRadius * 0.7f) else Offset(pawnRadius * 0.7f, pawnRadius * 0.7f)
@@ -184,13 +183,13 @@ private fun DrawScope.drawPawnsGroup(
     }
 }
 
-private fun DrawScope.drawHomeBasePawns(gameEngine: GameEngine, cellSize: Float, selectedPawn: Pawn?, seniorMode: Boolean = false) {
-    for (pIndex in 0 until gameEngine.playerColors.size) {
-        val startCoords = TrackBuilder.getPlayerPath(gameEngine.gridSize, pIndex)[0]
-        val homePawns = gameEngine.pawns.filter { it.playerIndex == pIndex && it.state == PawnState.HOME_BASE }
+private fun DrawScope.drawHomeBasePawns(board: BoardUi, cellSize: Float, selectedPawnId: Int?, seniorMode: Boolean = false) {
+    for (pIndex in board.playerColors.indices) {
+        val startCoords = TrackBuilder.getPlayerPath(board.gridSize, pIndex)[0]
+        val homePawns = board.pawns.filter { it.playerIndex == pIndex && it.state == PawnState.HOME_BASE }
         if (homePawns.isEmpty()) continue
         val cellCenterX = startCoords.second * cellSize + cellSize / 2f
         val cellCenterY = startCoords.first * cellSize + cellSize / 2f
-        drawPawnsGroup(homePawns, cellCenterX, cellCenterY, cellSize, selectedPawn, gameEngine, seniorMode)
+        drawPawnsGroup(homePawns, cellCenterX, cellCenterY, cellSize, selectedPawnId, board.playerColors, seniorMode)
     }
 }

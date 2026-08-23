@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -91,8 +92,9 @@ fun ChokaBarahApp(session: GameViewModel) {
     // Restore the persisted accessibility preference so a player who enabled it
     // never has to hunt for the toggle again on the next launch.
     var seniorMode by remember { mutableStateOf(readSeniorMode(context)) }
+    val ui by session.uiState.collectAsState()
 
-    when (session.screen) {
+    when (ui.screen) {
         ScreenState.HOME -> {
             HomeScreen(
                 seniorMode = seniorMode,

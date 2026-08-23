@@ -31,14 +31,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.chokabarah.game.engine.CowryResult
 import com.chokabarah.game.engine.GridSize
 import com.chokabarah.game.telemetry.Telemetry
 import kotlinx.coroutines.launch
 
 @Composable
 fun CowryRollSection(
-    currentRoll: CowryResult?,
+    currentRoll: RollUi?,
     canRoll: Boolean,
     onRollRequested: () -> Unit,
     gridSize: GridSize = GridSize.FIVE_BY_FIVE,
