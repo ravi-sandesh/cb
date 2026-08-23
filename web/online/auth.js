@@ -159,9 +159,9 @@ async function loginUser(db, username, password) {
     return { ok: false, error: 'credentials' };
   }
   clearLoginFailures(uname);
-  // Rotate: kill any older sessions for this user so a stolen token does not
-  // outlive a legit re-login from the same account.
-  db.deleteUserSessions(user.id);
+  // Session policy: EXISTING sessions stay valid on re-login (multi-device
+  // friendly). Revocation happens explicitly via /api/logout or the sweeper
+  // when tokens expire.
   const token = newSessionToken();
   db.insertSession(token, user.id, new Date(Date.now() + SESSION_TTL_MS).toISOString());
   return { ok: true, user: { id: user.id, username: user.username }, token };

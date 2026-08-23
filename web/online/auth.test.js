@@ -57,7 +57,7 @@ describe('auth register / login / logout', () => {
     expect((await auth.registerUser(db, 'taken', 'secret123')).error).toBe('username-taken');
   });
 
-  test('login with credentials issues a token that authenticates', async () => {
+  test('login issues a token that authenticates; old sessions survive re-login', async () => {
     const db = freshStore();
     await auth.registerUser(db, 'bob', 'secret123');
     const lg = await auth.loginUser(db, 'bob', 'secret123');
@@ -65,9 +65,10 @@ describe('auth register / login / logout', () => {
     const authd = auth.authenticateToken(db, lg.token);
     expect(authd.ok).toBe(true);
     expect(authd.user.id).toBe(lg.user.id);
-    // Re-login rotates: old token dies, new one works.
+    // Session policy: re-login ADDS a session instead of rotating, so a
+    // second device is not logged out by the first.
     const lg2 = await auth.loginUser(db, 'bob', 'secret123');
-    expect(auth.authenticateToken(db, lg.token).ok).toBe(false);
+    expect(auth.authenticateToken(db, lg.token).ok).toBe(true);
     expect(auth.authenticateToken(db, lg2.token).ok).toBe(true);
   });
 

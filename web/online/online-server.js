@@ -62,6 +62,11 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
     const base = url.pathname;
 
     if (req.method === 'POST' && base === '/api/register') {
+      // No session identity exists yet, so the bucket is IP-only; the scrypt
+      // cost makes unthrottled registration a CPU DoS vector.
+      if (!rateAllow(`register:${(req.socket && req.socket.remoteAddress) || 'unknown'}`, REGISTER_RATE.max, REGISTER_RATE.windowMs)) {
+        return send(res, 429, { error: 'try-again-later' });
+      }
       try {
         const { username, password } = await json(req);
         const out = await auth.registerUser(store, username, password);
@@ -154,6 +159,7 @@ function bearer(req) {
 // dependency. Keys are lazily expired on read.
 const JOIN_RATE = { max: 10, windowMs: 60 * 1000 };   // 10 joins/min
 const CREATE_RATE = { max: 5, windowMs: 60 * 1000 };  // 5 creates/min
+const REGISTER_RATE = { max: 5, windowMs: 60 * 1000 }; // 5 registers/min per IP
 const rateBuckets = new Map(); // key -> { count, firstAt }
 
 // Returns true when the action is ALLOWED under the window budget.

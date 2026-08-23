@@ -191,6 +191,29 @@ describe('online-server HTTP API', () => {
     expect(fake.status).toBe(401);
   });
 
+  test('register is rate limited per IP', async () => {
+    resetRateLimits();
+    let last;
+    for (let i = 0; i < 6; i++) {
+      last = await apiRequest(port, 'POST', '/api/register', { body: { username: `spam${i}`, password: 'secret123' } });
+    }
+    expect(last.status).toBe(429);
+    expect(last.body.error).toBe('try-again-later');
+    resetRateLimits();
+  });
+
+  test('login keeps prior sessions alive (multi-device policy)', async () => {
+    const first = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
+    const second = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
+    expect(second.status).toBe(200);
+    // Both tokens authenticate — no forced logout of the first device.
+    for (const tok of [first.body.token, second.body.token]) {
+      const r = await apiRequest(port, 'POST', '/api/match/create', { token: tok, body: { gridSize: 5 } });
+      expect(r.status).toBe(201);
+    }
+    resetRateLimits(); // two creates consumed this identity's create budget
+  });
+
   test('logout invalidates the session token', async () => {
     const lg = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
     const out = await apiRequest(port, 'POST', '/api/logout', { token: lg.body.token });
