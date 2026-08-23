@@ -30,7 +30,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20, 22]
+        # node:sqlite (online backend) requires Node >= 22.5, so older LTS
+        # lines cannot run the full suite.
+        node: [22, 24]
     defaults:
       run:
         working-directory: web
