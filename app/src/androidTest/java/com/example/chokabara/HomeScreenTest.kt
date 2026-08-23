@@ -59,8 +59,11 @@ class HomeScreenTest {
     fun testHomeScreenHasStartAndRulesButtons() {
         setAppContent()
 
-        composeRule.onNodeWithText("▶ START GAME").assertIsDisplayed()
-        composeRule.onNodeWithText("📖 HOW TO PLAY RULES").assertIsDisplayed()
+        // The action buttons live at the bottom of the scrollable home
+        // column — assert their PRESENCE rather than on-screen visibility,
+        // which depends on the device viewport.
+        composeRule.onNodeWithText("▶ START GAME").assertExists()
+        composeRule.onNodeWithText("📖 HOW TO PLAY RULES").assertExists()
     }
 
     @Test
