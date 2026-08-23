@@ -307,7 +307,8 @@ class GameViewModel(internal val savedState: SavedStateHandle) : ViewModel() {
                 currentPlayerIndex = eng.currentPlayerIndex,
                 isCutUnlocked = eng.hasCapturedOpponent[eng.currentPlayerIndex] == true,
                 currentRoll = eng.currentRoll?.let { RollUi(it.shells.toList(), it.label, it.isExtraRoll) },
-                winner = eng.winner
+                winner = eng.winner,
+                logMessage = eng.gameLogMessage
             ),
             selectedPawnId = selectedPawnIdValue,
             showPauseMenu = showPauseMenuValue

@@ -281,6 +281,22 @@ fun GameScreen(
 
             Spacer(Modifier.height(16.dp))
 
+            // Game log: the engine's narrative line (cuts, Gatti formations,
+            // no-move explanations) — parity with the web app's game log.
+            if (board.logMessage.isNotBlank()) {
+                Text(
+                    text = board.logMessage,
+                    color = Color(0xFFFFF8E1),
+                    fontSize = if (seniorMode) 16.sp else 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+
             CowryRollSection(
                 currentRoll = board.currentRoll,
                 canRoll = ui.canRoll,

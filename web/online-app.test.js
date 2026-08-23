@@ -312,6 +312,17 @@ describe('app.js online match (server-authoritative flow)', () => {
     expect(holder.docEls['game-log'].innerText).toContain('VICTORY');
   });
 
+  test('an out-of-range winner index degrades to a placeholder instead of crashing', () => {
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    seatAs(oc, 0);
+    // A hostile/buggy relay can broadcast a winner index with no seat.
+    expect(() => oc.__hooks.onBoard(boardFrom(5, 0, { winner: 9 }))).not.toThrow();
+    expect(holder.docEls['game-log'].innerText).toContain('VICTORY');
+    expect(holder.docEls['game-log'].innerText).toContain('Unknown');
+    expect(holder.docEls['btn-roll'].disabled).toBe(true);
+  });
+
   test('peer-left while in game returns to the home screen', () => {
     const { w, oc } = fresh();
     w.setGameMode('online');

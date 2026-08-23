@@ -55,7 +55,13 @@ data class BoardUi(
     /** Inner-gate unlock flag for the player ON TURN. */
     val isCutUnlocked: Boolean,
     val currentRoll: RollUi?,
-    val winner: PlayerColor?
+    val winner: PlayerColor?,
+    /**
+     * Engine-authored narrative line ("✂️ CUT!", "🔗 GATTI!", no-moves
+     * explanations) — mirrors the web app's #game-log. Blank on a fresh game
+     * before the first roll.
+     */
+    val logMessage: String = ""
 )
 
 data class GameUiState(

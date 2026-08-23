@@ -396,7 +396,11 @@ function applyServerBoard(board) {
         reachesHome: m.reachesHome,
         isGattiGroup: !!m.isGattiGroup
     }));
-    winner = (board.winner === null || board.winner === undefined) ? null : playerColors[board.winner];
+    // Guard the seat index: a hostile/buggy relay could broadcast an
+    // out-of-range winner, which must degrade to a placeholder — never throw.
+    const rawWinner = (board.winner === null || board.winner === undefined)
+        ? null : playerColors[board.winner];
+    winner = rawWinner || (board.winner == null ? null : { name: 'Unknown', hexColor: 0xFFFFB74D });
 
     if (winner !== null) {
         currentRoll = null;
