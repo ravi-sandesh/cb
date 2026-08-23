@@ -49,7 +49,10 @@ function json(req) {
 
 function send(res, status, obj) {
   const payload = JSON.stringify(obj);
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) });
+  res.writeHead(status, Object.assign(
+    { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+    { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }
+  ));
   res.end(payload);
 }
 

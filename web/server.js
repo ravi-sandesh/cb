@@ -27,6 +27,38 @@ const MIME = {
   '.ico': 'image/x-icon'
 };
 
+// Never served: local databases and dotfiles (.env et al.) have no business
+// being downloadable from a dev server that binds loopback but is still
+// reachable by anything running on this machine.
+const FORBIDDEN_EXTENSIONS = new Set(['.db', '.db-journal', '.db-wal', '.db-shm', '.sqlite', '.sqlite3']);
+
+function isForbidden(urlPath) {
+  const segments = urlPath.split('/').filter(Boolean);
+  // Any dotfile/dot-directory segment (.env, .git/config, ...) is off-limits.
+  if (segments.some((s) => s.startsWith('.'))) return true;
+  const base = segments.pop() || '';
+  return FORBIDDEN_EXTENSIONS.has((base.match(/\.[^.]+$/) || [''])[0].toLowerCase());
+}
+
+// Baseline hardening headers for every response this server emits. The CSP
+// allows 'unsafe-inline' scripts because app.js wires controls through inline
+// onclick attributes (tracked debt); it still blocks all off-site script,
+// object and frame embedding.
+const SECURITY_HEADERS = {
+  'Content-Security-Policy':
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src https://fonts.gstatic.com; " +
+    "img-src 'self' data:; " +
+    "connect-src 'self' ws://localhost:* ws://127.0.0.1:*; " +
+    "object-src 'none'; frame-ancestors 'none'; base-uri 'self'",
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Cache-Control': 'no-cache'
+};
+
 function handleRequest(req, res) {
   let urlPath;
   try { urlPath = decodeURIComponent(req.url.split('?')[0]); } catch (e) { urlPath = '/'; }
@@ -37,13 +69,15 @@ function handleRequest(req, res) {
   // "...\web2\..." must NOT pass. Prefix matching (indexOf === 0) would allow it.
   const rel = path.relative(ROOT, filePath);
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    res.writeHead(403); res.end('Forbidden'); return;
+    res.writeHead(403, SECURITY_HEADERS); res.end('Forbidden'); return;
   }
 
+  if (isForbidden(urlPath)) { res.writeHead(403, SECURITY_HEADERS); res.end('Forbidden'); return; }
+
   fs.readFile(filePath, (err, data) => {
-    if (err) { res.writeHead(404); res.end('Not found'); return; }
+    if (err) { res.writeHead(404, SECURITY_HEADERS); res.end('Not found'); return; }
     const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    res.writeHead(200, Object.assign({ 'Content-Type': MIME[ext] || 'application/octet-stream' }, SECURITY_HEADERS));
     res.end(data);
   });
 }
@@ -60,9 +94,10 @@ function startServer(listenPort) {
   return srv;
 }
 
-// Start only when executed directly (allows require('./server.js') in tests).
+// Entry-point guard: only meaningful when executed directly.
+/* istanbul ignore next */
 if (require.main === module) {
   startServer();
 }
 
-module.exports = { createServer, handleRequest, startServer, MIME, PORT };
+module.exports = { createServer, handleRequest, startServer, MIME, PORT, SECURITY_HEADERS, isForbidden };

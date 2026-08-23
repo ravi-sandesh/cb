@@ -8,7 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const { createServer, handleRequest, startServer, MIME, PORT } = require('./server.js');
+const { createServer, handleRequest, startServer, MIME, PORT, isForbidden } = require('./server.js');
 
 // Mock response whose end() settles a promise, so tests can await the
 // async fs.readFile callback inside handleRequest.
@@ -38,6 +38,36 @@ describe('server routing', () => {
     expect(MIME['.html']).toContain('text/html');
     expect(MIME['.js']).toContain('application/javascript');
     expect(MIME['.css']).toContain('text/css');
+  });
+
+  test('deny-list: databases, journals and dotfiles are forbidden', async () => {
+    for (const p of ['/online-dev.db', '/data.sqlite3', '/x.db-journal', '/.env', '/.git/config']) {
+      const res = await request(p);
+      expect(res._status).toBe(403);
+    }
+    // Legitimate assets stay reachable.
+    const ok = await request('/index.html');
+    expect(ok._status).toBe(200);
+  });
+
+  test('deny-list helpers: extensionless and empty inputs', () => {
+    expect(isForbidden('/foo')).toBe(false);          // no extension -> allowed
+    expect(isForbidden('')).toBe(false);              // empty path
+    expect(isForbidden('/app.js')).toBe(false);       // real extension, not forbidden
+    expect(isForbidden('/x.db/config')).toBe(false);  // dotless final segment
+    expect(isForbidden('/x/.db')).toBe(true);         // dotfile segment
+  });
+
+  test('every response carries the security headers', async () => {
+    const ok = await request('/index.html');
+    expect(ok._headers['X-Content-Type-Options']).toBe('nosniff');
+    expect(ok._headers['X-Frame-Options']).toBe('DENY');
+    expect(ok._headers['Referrer-Policy']).toBe('no-referrer');
+    expect(String(ok._headers['Content-Security-Policy'])).toContain("default-src 'self'");
+    expect(String(ok._headers['Content-Security-Policy'])).toContain("frame-ancestors 'none'");
+
+    const denied = await request('/online-dev.db');
+    expect(denied._headers['X-Content-Type-Options']).toBe('nosniff');
   });
 
   test('GET / maps to index.html with 200 + text/html', async () => {
