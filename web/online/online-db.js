@@ -92,6 +92,11 @@ function migrateSchema(db) {
 // ledger, result) survives for auditing. Expired sessions are removed.
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
+// ABANDONED rows are kept for 30 days for auditing, then deleted outright.
+// The moves ledger cascades (moves.match_id REFERENCES matches ON DELETE
+// CASCADE, PRAGMA foreign_keys = ON).
+const ABANDONED_RETENTION_DAYS = 30;
+
 function sweepAbandoned(db) {
   const staleWaiting = db.prepare(
     "UPDATE matches SET status = 'ABANDONED' WHERE status = 'WAITING' AND created_at <= datetime('now', '-24 hours')"
@@ -103,10 +108,14 @@ function sweepAbandoned(db) {
   const deadSessions = db.prepare(
     'DELETE FROM sessions WHERE expires_at <= ?'
   ).run(new Date().toISOString());
+  const pruned = db.prepare(
+    "DELETE FROM matches WHERE status = 'ABANDONED' AND updated_at <= datetime('now', ? || ' days')"
+  ).run(-ABANDONED_RETENTION_DAYS);
   return {
     abandonedWaiting: Number(staleWaiting.changes),
     abandonedPlaying: Number(stalePlaying.changes),
-    deletedSessions: Number(deadSessions.changes)
+    deletedSessions: Number(deadSessions.changes),
+    prunedMatches: Number(pruned.changes)
   };
 }
 

@@ -193,7 +193,7 @@ function sweepTick(store) {
     console.error('[online] sweep failed:', e && e.message);
     return null;
   }
-  if (reaped.abandonedWaiting || reaped.abandonedPlaying || reaped.deletedSessions) {
+  if (reaped.abandonedWaiting || reaped.abandonedPlaying || reaped.deletedSessions || reaped.prunedMatches) {
     console.log(`[online] sweep: ${JSON.stringify(reaped)}`);
   }
   return reaped;

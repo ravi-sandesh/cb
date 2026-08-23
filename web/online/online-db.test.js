@@ -199,7 +199,7 @@ describe('online-db lifecycle sweeper', () => {
     seedLifecycle();
     sweepAbandoned(store.db);
     const second = sweepAbandoned(store.db);
-    expect(second).toEqual({ abandonedWaiting: 0, abandonedPlaying: 0, deletedSessions: 0 });
+    expect(second).toEqual({ abandonedWaiting: 0, abandonedPlaying: 0, deletedSessions: 0, prunedMatches: 0 });
   });
 
   test('FINISHED matches are never swept regardless of age', () => {
@@ -209,5 +209,23 @@ describe('online-db lifecycle sweeper', () => {
     store.db.prepare("UPDATE matches SET finished_at = datetime('now', '-30 days') WHERE code = 'DONE01'").run();
     sweepAbandoned(store.db);
     expect(store.getMatchByCode('DONE01').status).toBe('FINISHED');
+  });
+
+  test('long-dead ABANDONED rooms are pruned with their move ledger; recent ones survive', () => {
+    const h = store.createUser('host', 'h');
+    const ancient = store.createMatch({ code: 'OLD001', gridSize: 5, playerCount: 2, hostUserId: h.id });
+    const fresh = store.createMatch({ code: 'NEW001', gridSize: 5, playerCount: 2, hostUserId: h.id });
+
+    // Mark both ABANDONED; age only the ancient one past retention.
+    store.db.prepare("UPDATE matches SET status = 'ABANDONED' WHERE code IN ('OLD001','NEW001')").run();
+    store.db.prepare("UPDATE matches SET updated_at = datetime('now', '-31 days') WHERE code = 'OLD001'").run();
+    store.appendMove(ancient.id, 1, 0, '{"historic":true}');
+
+    const report = sweepAbandoned(store.db);
+    expect(report.prunedMatches).toBe(1);
+    expect(store.getMatchByCode('OLD001')).toBeUndefined();
+    // Ledger cascaded away with its match.
+    expect(store.countMoves(ancient.id)).toBe(0);
+    expect(store.getMatchByCode('NEW001').status).toBe('ABANDONED'); // within retention
   });
 });
