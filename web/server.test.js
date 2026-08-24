@@ -64,6 +64,7 @@ describe('server routing', () => {
     expect(ok._headers['X-Frame-Options']).toBe('DENY');
     expect(ok._headers['Referrer-Policy']).toBe('no-referrer');
     expect(String(ok._headers['Content-Security-Policy'])).toContain("default-src 'self'");
+    expect(String(ok._headers['Content-Security-Policy'])).toContain("script-src 'self';");
     expect(String(ok._headers['Content-Security-Policy'])).toContain("frame-ancestors 'none'");
 
     const denied = await request('/online-dev.db');

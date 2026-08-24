@@ -36,22 +36,41 @@ class Relay {
 
   handleUpgrade(req, socket, head) {
     if (!(req.headers.upgrade || '').toLowerCase().includes('websocket')) { socket.destroy(); return; }
-    this.acceptSocket(req, socket, head);
+    // Preferred identity source: the HttpOnly session cookie (never visible
+    // to JS, never in a URL). Browsers attach it automatically to same-origin
+    // upgrades. Without a valid cookie the handshake still completes and the
+    // {type:'auth', token} first-message fallback applies (tests / non-cookie
+    // clients).
+    const cookies = {};
+    for (const pair of String(req.headers.cookie || '').split(';')) {
+      const i = pair.indexOf('=');
+      if (i > -1) cookies[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+    }
+    const token = cookies.cb_session || null;
+    const session = token && this.auth.authenticateToken(this.db, token);
+    this.acceptSocket(req, socket, head, session && session.ok ? session : null);
   }
 
-  // The handshake completes WITHOUT credentials; identity arrives as the
-  // first text frame ({type:'auth', token}). This keeps bearer tokens out of
-  // upgrade URLs, where they leak into proxy and access logs.
-  acceptSocket(req, socket, head) {
+  acceptSocket(req, socket, head, session) {
     const key = req.headers['sec-websocket-key'];
     const { acceptKey, encodeFrame, encodeText, encodeClose, OP, Framer } = require('./ws.js');
     if (!key) { socket.destroy(); return; }
 
-    const conn = {
-      socket, framer: new Framer(), alive: true,
-      authed: false,
-      userId: null, username: null, room: null
-    };
+    let conn;
+    if (session) {
+      // Cookie-authenticated at upgrade: trusted immediately.
+      conn = {
+        socket, framer: new Framer(), alive: true,
+        authed: true,
+        userId: session.user.id, username: session.user.username, room: null
+      };
+    } else {
+      conn = {
+        socket, framer: new Framer(), alive: true,
+        authed: false,
+        userId: null, username: null, room: null
+      };
+    }
     socket.write(
       'HTTP/1.1 101 Switching Protocols\r\n' +
       'Upgrade: websocket\r\n' +
@@ -84,12 +103,24 @@ class Relay {
     socket.on('pong', () => { conn.alive = true; });
     conn._heartbeat = heartbeat;
 
-    // Unauthenticated conns are tracked for teardown but do not occupy the
-    // authenticated per-user socket budget until their token checks out.
+    // Authenticated conns occupy the per-user socket budget; unauthenticated
+    // ones are tracked only for teardown until their token checks out.
+    if (conn.authed) {
+      let socketsForUser = 0;
+      for (const info of this.conns.values()) {
+        if (info.userId === conn.userId && ++socketsForUser >= MAX_SOCKETS_PER_USER) {
+          this.close(conn, 1013); // try again later
+          return;
+        }
+      }
+      this.conns.set(conn, { userId: conn.userId, username: conn.username });
+      this.send(conn, { type: 'authed', user: { id: conn.userId, username: conn.username } });
+    }
     this.allConns.add(conn);
   }
 
-  // First-message authentication. Returns true when the conn is now trusted.
+  // First-message authentication fallback (non-cookie clients). Returns true
+  // when the conn is now trusted.
   authenticateConn(conn, msg) {
     const token = msg && typeof msg.token === 'string' ? msg.token : null;
     const session = token && this.auth.authenticateToken(this.db, token);

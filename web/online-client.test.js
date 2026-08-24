@@ -46,13 +46,14 @@ function installFakes() {
   fetchImpl = jest.fn(async (url, opts) => {
     const u = String(url);
     if (u === '/api/register') return respond(201, { token: 'T-REG', user: { id: 1, username: 'amy' } });
+    if (u === '/api/me') return respond(globalThis.__meStatus || 200, { ok: true, user: globalThis.__meUser || null });
     if (u === '/api/login') {
       const body = JSON.parse(opts.body || '{}');
       if (body.username === 'unknown') return respond(401, { error: 'bad-credentials' });
       return respond(200, { token: 'T-LOG', user: { id: 2, username: body.username } });
     }
-    if (u === '/api/match/create') return respond(201, { code: 'ABCDEF', gridSize: 5, wsPath: '/ws?token=T' });
-    if (u === '/api/match/join') return respond(200, { code: 'ABCDEF', gridSize: 5, wsPath: '/ws?token=T' });
+    if (u === '/api/match/create') return respond(201, { code: 'ABCDEF', gridSize: 5, wsPath: '/ws' });
+    if (u === '/api/match/join') return respond(200, { code: 'ABCDEF', gridSize: 5, wsPath: '/ws' });
     if (u === '/api/logout') return respond(200, { ok: true });
     if (u === '/api/health') return respond(200, { ok: true });
     return respond(404, { error: 'not-found' });
@@ -80,14 +81,19 @@ afterEach(() => {
 function oc() { return globalThis.OnlineClient; }
 
 describe('online-client auth + sessions', () => {
-  test('register signs in and persists the token', async () => {
+  test('register signs in via cookie and persists only the display name', async () => {
     const calls = [];
     oc().onStatus((m) => calls.push([m, false]));
     await oc().register('amy', 'pw');
-    expect(fetchImpl).toHaveBeenCalledWith('/api/register', expect.objectContaining({ method: 'POST' }));
-    expect(oc().token).toBe('T-REG');
+    expect(fetchImpl).toHaveBeenCalledWith('/api/register', expect.objectContaining({
+      method: 'POST',
+      credentials: 'same-origin'
+    }));
+    expect(oc().authed).toBe(true);
     expect(oc().username).toBe('amy');
-    expect(storage['cb_online_token']).toBe('T-REG');
+    // No token may ever touch localStorage — the cookie is HttpOnly.
+    expect(storage['cb_online_token']).toBeUndefined();
+    expect(storage['cb_online_user']).toBe('amy');
     expect(calls.some(([m]) => /Registered and signed in/.test(m))).toBe(true);
   });
 
@@ -96,29 +102,48 @@ describe('online-client auth + sessions', () => {
     oc().onStatus((m, err) => { if (err) errors.push(m); });
     const out = await oc().login('unknown', 'nope');
     expect(out).toBeNull();
-    expect(oc().token).toBeNull();
+    expect(oc().authed).toBe(false);
     await oc().login('bob', 'pw');
-    expect(oc().token).toBe('T-LOG');
+    expect(oc().authed).toBe(true);
     expect(oc().username).toBe('bob');
   });
 
-  test('logout clears token, persists, and disconnects', async () => {
+  test('logout clears the session flag and disconnects', async () => {
     await oc().register('amy', 'pw');
     await oc().createRoom(5);
     expect(wsInstances.length).toBe(1);
     await oc().logout();
-    expect(oc().token).toBeNull();
-    expect(storage['cb_online_token']).toBeUndefined();
+    expect(oc().authed).toBe(false);
+    expect(storage['cb_online_user']).toBeUndefined();
     expect(oc().connected).toBe(false);
   });
 
-  test('restores a persisted session at load', async () => {
-    storage['cb_online_token'] = 'T-RESTORE';
+  test('whoami restores the signed-in state from the session cookie', async () => {
+    globalThis.__meUser = { id: 7, username: 'carol' };
+    const name = await oc().whoami();
+    expect(name).toBe('carol');
+    expect(oc().authed).toBe(true);
+
+    globalThis.__meStatus = 401;
+    globalThis.__meUser = null;
+    expect(await oc().whoami()).toBeNull();
+    expect(oc().authed).toBe(false);
+  });
+
+  test('boot no longer reads a token from localStorage', () => {
+    storage['cb_online_token'] = 'SHOULD-BE-IGNORED';
+    jest.resetModules();
+    jest.isolateModules(() => { require('./online-client.js'); });
+    expect(oc().authed).toBe(false); // trust comes from the cookie via whoami()
+  });
+
+  test('boot restores only the display name (auth comes from the cookie)', async () => {
+    storage['cb_online_token'] = 'T-RESTORE'; // must be ignored entirely
     storage['cb_online_user'] = 'carol';
     jest.resetModules();
     require('./online-client.js');
-    expect(oc().token).toBe('T-RESTORE');
     expect(oc().username).toBe('carol');
+    expect(oc().authed).toBe(false);
   });
 });
 
@@ -129,17 +154,16 @@ describe('online-client room lobby + WebSocket', () => {
     const code = await oc().createRoom(7);
     expect(code).toBe('ABCDEF');
     expect(fetchImpl).toHaveBeenCalledWith('/api/match/create', expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: 'Bearer T-REG' })
+      credentials: 'same-origin'
     }));
+    expect(fetchImpl.mock.calls.find((c) => c[0] === '/api/match/create')[1].headers.Authorization).toBeUndefined();
     expect(wsInstances.length).toBe(1);
     const ws = wsInstances[0];
     expect(ws.url).toContain('/ws');
     ws.open();
     expect(oc().connected).toBe(true);
-    // First-message auth goes out immediately; join waits for the reply.
-    expect(ws.sent).toEqual([JSON.stringify({ type: 'auth', token: 'T-REG' })]);
-    ws.server({ type: 'authed', user: { id: 1, username: 'amy' } });
-    expect(ws.sent[1]).toBe(JSON.stringify({ type: 'join', code: 'ABCDEF' }));
+    // Cookie-authenticated upgrade: the join goes out immediately.
+    expect(ws.sent).toEqual([JSON.stringify({ type: 'join', code: 'ABCDEF' })]);
     expect(oc().code).toBe('ABCDEF');
   });
 
@@ -150,9 +174,7 @@ describe('online-client room lobby + WebSocket', () => {
     expect(code).toBe('ABCDEF');
     expect(wsInstances.length).toBe(1);
     wsInstances[0].open();
-    expect(wsInstances[0].sent).toContain(JSON.stringify({ type: 'auth', token: 'T-REG' }));
-    wsInstances[0].server({ type: 'authed', user: { id: 1, username: 'amy' } });
-    expect(wsInstances[0].sent).toContain(JSON.stringify({ type: 'join', code: 'ABCDEF' }));
+    expect(wsInstances[0].sent).toEqual([JSON.stringify({ type: 'join', code: 'ABCDEF' })]);
   });
 
   test('joinRoom without a code reports an error and connects nothing', async () => {
@@ -237,13 +259,13 @@ describe('online-client failure + edge paths', () => {
   test('register surfaces the server error instead of signing in', async () => {
     fetchImpl.mockImplementationOnce(async (url) => {
       if (String(url) === '/api/register') return respond(400, { error: 'username-taken' });
-      return respond(201, { token: 'T', user: { username: 'x' } });
+      return respond(201, { user: { username: 'x' } });
     });
     const errs = [];
     oc().onStatus((m, err) => { if (err) errs.push(m); });
     const out = await oc().register('amy', 'pw');
     expect(out).toBeNull();
-    expect(oc().token).toBeNull();
+    expect(oc().authed).toBe(false);
     expect(errs.some((m) => /Registration failed: username-taken/.test(m))).toBe(true);
   });
 
@@ -251,7 +273,7 @@ describe('online-client failure + edge paths', () => {
     await oc().register('amy', 'pw');
     fetchImpl.mockImplementationOnce(async (url) => {
       if (String(url) === '/api/match/create') return respond(500, { error: 'boom' });
-      return respond(201, { code: 'ABCDEF', gridSize: 5, wsPath: '/ws?token=T' });
+      return respond(201, { code: 'ABCDEF', gridSize: 5, wsPath: '/ws' });
     });
     const errs = [];
     oc().onStatus((m, err) => { if (err) errs.push(m); });
@@ -267,7 +289,7 @@ describe('online-client failure + edge paths', () => {
     await oc().register('amy', 'pw');
     fetchImpl.mockImplementationOnce(async (url) => {
       if (String(url) === '/api/match/join') return respond(404, { error: 'no-such-room' });
-      return respond(200, { code: 'ABCDEF', gridSize: 5, wsPath: '/ws?token=T' });
+      return respond(200, { code: 'ABCDEF', gridSize: 5, wsPath: '/ws' });
     });
     const errs = [];
     oc().onStatus((m, err) => { if (err) errs.push(m); });
@@ -357,14 +379,14 @@ describe('online-client failure + edge paths', () => {
     o.onStatus(() => {});
     await o.register('amy', 'pw');
     await o.logout();
-    expect(o.token).toBeNull();
+    expect(o.authed).toBe(false);
   });
 
   test('logout without an existing session is harmless', async () => {
     const errs = [];
     oc().onStatus((m, err) => { if (err) errs.push(m); });
     await oc().logout();
-    expect(oc().token).toBeNull();
+    expect(oc().authed).toBe(false);
     expect(errs.length).toBe(0);
   });
 
@@ -396,7 +418,7 @@ describe('online-client failure + edge paths', () => {
     o.onStatus(() => {});
     await o.register('amy', 'pw');
     await o.createRoom(5);
-    expect(wsInstances[0].url).toBe('wss://game.example.com/ws?token=T');
+    expect(wsInstances[0].url).toBe('wss://game.example.com/ws');
     delete globalThis.window;
     delete globalThis.OnlineClient;
   });
@@ -409,6 +431,6 @@ describe('online-client failure + edge paths', () => {
     o.onStatus(() => {});
     const out = await o.register('amy', 'pw');
     expect(out).not.toBeNull();
-    expect(o.token).toBe('T-REG'); // memory session kept even without storage
+    expect(o.authed).toBe(true); // cookie session survives missing localStorage
   });
 });

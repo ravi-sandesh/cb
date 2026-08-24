@@ -47,11 +47,12 @@ function json(req) {
   });
 }
 
-function send(res, status, obj) {
+function send(res, status, obj, extraHeaders) {
   const payload = JSON.stringify(obj);
   res.writeHead(status, Object.assign(
     { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
-    { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' }
+    { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' },
+    extraHeaders || {}
   ));
   res.end(payload);
 }
@@ -71,7 +72,7 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
         const { username, password } = await json(req);
         const out = await auth.registerUser(store, username, password);
         if (!out.ok) return send(res, 400, { error: out.error });
-        return send(res, 201, { token: out.token, user: out.user });
+        return send(res, 201, { token: out.token, user: out.user }, { 'Set-Cookie': sessionCookie(out.token) });
       } catch { return send(res, 400, { error: 'bad-json' }); }
     }
 
@@ -80,22 +81,29 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
         const { username, password } = await json(req);
         const out = await auth.loginUser(store, username, password);
         if (!out.ok) return send(res, 401, { error: out.error });
-        return send(res, 200, { token: out.token, user: out.user });
+        return send(res, 200, { token: out.token, user: out.user }, { 'Set-Cookie': sessionCookie(out.token) });
       } catch { return send(res, 400, { error: 'bad-json' }); }
     }
 
     if (req.method === 'POST' && base === '/api/logout') {
-      const token = bearer(req);
+      const token = bearer(req) || parseCookies(req)[SESSION_COOKIE] || null;
       if (!token) return send(res, 401, { error: 'unauthorized' });
       const session = auth.authenticateToken(store, token);
       if (!session || !session.ok) return send(res, 401, { error: 'unauthorized' });
       auth.logoutUser(store, token);
-      return send(res, 200, { ok: true });
+      return send(res, 200, { ok: true }, { 'Set-Cookie': clearedSessionCookie() });
+    }
+
+    // Session introspection for the browser client (cookie restores login
+    // after a page reload without any token in localStorage).
+    if (base === '/api/me') {
+      const session = sessionFromRequest(req, store);
+      if (!session) return send(res, 401, { error: 'unauthorized' });
+      return send(res, 200, { ok: true, user: { id: session.user.id, username: session.user.username } });
     }
 
     if (req.method === 'POST' && base === '/api/match/create') {
-      const token = bearer(req);
-      const session = token && auth.authenticateToken(store, token);
+      const session = sessionFromRequest(req, store);
       if (!session || !session.ok) return send(res, 401, { error: 'unauthorized' });
       try {
         const body = await json(req);
@@ -112,8 +120,7 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
     }
 
     if (req.method === 'POST' && base === '/api/match/join') {
-      const token = bearer(req);
-      const session = token && auth.authenticateToken(store, token);
+      const session = sessionFromRequest(req, store);
       if (!session || !session.ok) return send(res, 401, { error: 'unauthorized' });
       try {
         const body = await json(req);
@@ -151,6 +158,38 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
 function bearer(req) {
   const h = req.headers.authorization || '';
   return h.startsWith('Bearer ') ? h.slice(7).trim() : null;
+}
+
+const SESSION_COOKIE = 'cb_session';
+
+// Zero-dep cookie parsing (values here are opaque hex tokens; no decoding).
+function parseCookies(req) {
+  const out = {};
+  const raw = req.headers.cookie;
+  if (!raw) return out;
+  for (const pair of raw.split(';')) {
+    const i = pair.indexOf('=');
+    if (i > -1) out[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+  }
+  return out;
+}
+
+// Session resolution order: explicit bearer (tests/API clients) first, then
+// the HttpOnly cookie the browser attaches automatically.
+function sessionFromRequest(req, store) {
+  const token = bearer(req) || parseCookies(req)[SESSION_COOKIE] || null;
+  if (!token) return null;
+  const s = auth.authenticateToken(store, token);
+  return s && s.ok ? { ...s, token } : null;
+}
+
+function sessionCookie(token) {
+  // HttpOnly keeps the token invisible to JS (XSS can't exfiltrate it);
+  // SameSite=Strict doubles as CSRF defense for these JSON endpoints.
+  return `${SESSION_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800`;
+}
+function clearedSessionCookie() {
+  return `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`;
 }
 
 // ---- Match-endpoint rate limiting (per user+IP fixed window) --------------

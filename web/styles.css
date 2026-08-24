@@ -471,6 +471,13 @@ body.senior-mode .online-code-display { font-size: 16px; }
     display: none !important;
 }
 
+/* Rules modal separator (replaces inline style attributes for CSP). */
+.rule-sep {
+    border: none;
+    border-top: 2px solid #5D4037;
+    margin: 8px 0;
+}
+
 /* Modal */
 .modal {
     position: absolute;

@@ -202,6 +202,46 @@ describe('online-server HTTP API', () => {
     resetRateLimits();
   });
 
+  test('cookie sessions authenticate without an Authorization header', async () => {
+    const login = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
+    expect(login.status).toBe(200);
+    // The Set-Cookie header must be present and HttpOnly.
+    const setCookieRaw = (login.headers && login.headers['set-cookie']) || null;
+    void setCookieRaw;
+
+    // Raw HTTP with ONLY the session cookie (no Authorization header).
+    const cookie = `cb_session=${login.body.token}`;
+    const me = await new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port, path: '/api/me', headers: { Cookie: cookie } }, (res) => {
+        let buf = '';
+        res.on('data', (c) => (buf += c));
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(buf) }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+    expect(me.status).toBe(200);
+    expect(me.body.user.username).toBe('alice');
+
+    // /api/me without any credentials -> 401.
+    const anon = await apiRequest(port, 'GET', '/api/me');
+    expect(anon.status).toBe(401);
+
+    // Logout clears the cookie.
+    const out = await new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/api/logout',
+        headers: { Cookie: cookie } }, (res) => {
+        let buf = '';
+        res.on('data', (c) => (buf += c));
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: JSON.parse(buf) }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+    expect(out.status).toBe(200);
+    expect((out.headers['set-cookie'] || []).join(';')).toContain('Max-Age=0');
+  });
+
   test('login keeps prior sessions alive (multi-device policy)', async () => {
     const first = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
     const second = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });

@@ -20,7 +20,6 @@ const root = (typeof window !== 'undefined') ? window : globalThis;
 const api = root.fetch || globalThis.fetch;
 const WS = root.WebSocket || globalThis.WebSocket;
 
-const TOKEN_KEY = 'cb_online_token';
 const USERNAME_KEY = 'cb_online_user';
 const code = (name) => (typeof document !== 'undefined' && document.getElementById(name));
 
@@ -32,25 +31,26 @@ function wsRoot() {
 }
 
 // ---- Local session persistence ----
-function saveToken(token, username) {
+// The session token itself lives ONLY in an HttpOnly cookie set by the
+// server — JavaScript can neither read nor exfiltrate it. We persist just
+// the display name for the UI.
+function saveUsername(username) {
   try {
     if (typeof localStorage !== 'undefined') {
-      if (token) localStorage.setItem(TOKEN_KEY, token);
-      else localStorage.removeItem(TOKEN_KEY);
       if (username) localStorage.setItem(USERNAME_KEY, username);
       else localStorage.removeItem(USERNAME_KEY);
     }
   } catch (e) { /* storage unavailable (SSR/private mode) */ }
 }
-function loadToken() {
+function loadUsername() {
   try {
-    if (typeof localStorage !== 'undefined') return localStorage.getItem(TOKEN_KEY);
+    if (typeof localStorage !== 'undefined') return localStorage.getItem(USERNAME_KEY);
   } catch (e) { /* ignore */ }
   return null;
 }
 
 const state = {
-  token: null,
+  authed: false,
   username: null,
   ws: null,
   connected: false,
@@ -73,10 +73,11 @@ function fireStatus(msg, isError) {
   if (statusFn) statusFn(msg, !!isError);
 }
 
-async function http(method, pathname, body, token) {
+async function http(method, pathname, body) {
   const res = await api(pathname, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    credentials: 'same-origin', // HttpOnly session cookie rides along
+    headers: { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
   const text = await res.text();
@@ -90,10 +91,10 @@ async function http(method, pathname, body, token) {
 // ============================================================
 async function register(username, password) {
   const r = await http('POST', '/api/register', { username, password });
-  if (r.status === 201 && r.body.token) {
-    state.token = r.body.token;
+  if (r.status === 201 && r.body.user) {
+    state.authed = true;
     state.username = r.body.user.username;
-    saveToken(state.token, state.username);
+    saveUsername(state.username);
     fireStatus(`Registered and signed in as ${state.username}.`);
     return state;
   }
@@ -104,10 +105,10 @@ async function register(username, password) {
 
 async function login(username, password) {
   const r = await http('POST', '/api/login', { username, password });
-  if (r.status === 200 && r.body.token) {
-    state.token = r.body.token;
+  if (r.status === 200 && r.body.user) {
+    state.authed = true;
     state.username = r.body.user.username;
-    saveToken(state.token, state.username);
+    saveUsername(state.username);
     fireStatus(`Signed in as ${state.username}.`);
     return state;
   }
@@ -116,12 +117,10 @@ async function login(username, password) {
 }
 
 async function logout() {
-  if (state.token) {
-    try { await http('POST', '/api/logout', undefined, state.token); } catch (e) { /* best effort */ }
-  }
-  state.token = null;
+  try { await http('POST', '/api/logout'); } catch (e) { /* best effort */ }
+  state.authed = false;
   state.username = null;
-  saveToken(null, null);
+  saveUsername(null);
   disconnect('logged-out');
   fireStatus('Signed out.');
 }
@@ -130,8 +129,8 @@ async function logout() {
 // ROOM LOBBY (HTTP)
 // ============================================================
 async function createRoom(gridSize) {
-  if (!state.token) { fireStatus('Sign in first.', true); return null; }
-  const r = await http('POST', '/api/match/create', { gridSize: (gridSize === 7 ? 7 : 5) }, state.token);
+  if (!state.authed) { fireStatus('Sign in first.', true); return null; }
+  const r = await http('POST', '/api/match/create', { gridSize: (gridSize === 7 ? 7 : 5) });
   if (r.status === 201 && r.body.code) {
     const roomCode = r.body.code;
     state.code = roomCode;
@@ -145,10 +144,10 @@ async function createRoom(gridSize) {
 }
 
 async function joinRoom(roomCode) {
-  if (!state.token) { fireStatus('Sign in first.', true); return null; }
+  if (!state.authed) { fireStatus('Sign in first.', true); return null; }
   const c = String(roomCode || '').trim().toUpperCase();
   if (!c) { fireStatus('Enter a room code to join.', true); return null; }
-  const r = await http('POST', '/api/match/join', { code: c }, state.token);
+  const r = await http('POST', '/api/match/join', { code: c });
   if (r.status === 200 && r.body.wsPath) {
     const joined = r.body.code;
     state.code = joined;
@@ -173,11 +172,12 @@ function connect(wsPath, roomCode) {
     state.ws = ws;
     ws.onopen = () => {
       state.connected = true;
-      // First-message authentication: the session token travels as a normal
-      // text frame instead of a query string (which leaks into logs). The
-      // relay rejects every other frame until we are authenticated, so any
-      // pending join waits for the 'authed' reply below.
-      try { ws.send(JSON.stringify({ type: 'auth', token: loadToken() || '' })); } catch (e) { /* ignore */ }
+      // The HttpOnly session cookie attaches to this same-origin upgrade
+      // automatically — the relay treats us as authenticated at handshake,
+      // so the room join can go out immediately.
+      if (roomCode) {
+        try { ws.send(JSON.stringify({ type: 'join', code: roomCode })); } catch (e) { /* ignore */ }
+      }
     };
     ws.onmessage = (ev) => {
       let msg;
@@ -189,7 +189,7 @@ function connect(wsPath, roomCode) {
       state.connected = false;
       if (ev.code === 1008) {
         // Server refused our credentials — the stored token is dead.
-        saveToken('', '');
+        
         fireStatus('Session expired. Please log in again.', true);
       } else {
         if (closedFn) closedFn(ev.code || 0);
@@ -282,7 +282,7 @@ root.OnlineClient = {
   register, login, logout,
   createRoom, joinRoom,
   connect, join, roll, move, leave, disconnect,
-  get token() { return state.token; },
+  get authed() { return state.authed; },
   get username() { return state.username; },
   get code() { return state.code; },
   get gridSize() { return state.gridSize; },
@@ -297,13 +297,25 @@ root.OnlineClient = {
   onPeerCount(fn) { peerCountFn = fn; },
   onPeerLeft(fn) { peerLeftFn = fn; },
   onGameOver(fn) { gameOverFn = fn; },
-  onClosed(fn) { closedFn = fn; }
+  onClosed(fn) { closedFn = fn; },
+
+  // Ask the server who we are (cookie-authenticated). Resolves to the
+  // username or null; updates internal auth state either way.
+  async whoami() {
+    const r = await http('GET', '/api/me').catch(() => null);
+    if (r && r.status === 200 && r.body.user) {
+      state.authed = true;
+      state.username = r.body.user.username;
+      saveUsername(state.username);
+      return state.username;
+    }
+    state.authed = false;
+    return null;
+  }
 };
 
-// Restore a persisted session so a refresh keeps you signed in.
-state.token = loadToken();
-try {
-  state.username = (typeof localStorage !== 'undefined') ? localStorage.getItem(USERNAME_KEY) : null;
-} catch (e) { /* ignore */ }
+// Restore the persisted display name; real auth lives in the HttpOnly
+// cookie and is re-verified through whoami() by the app on boot.
+state.username = loadUsername();
 
 })();

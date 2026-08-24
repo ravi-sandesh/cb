@@ -20,11 +20,11 @@
             <div class="card-section">
                 <h2>1. SELECT BOARD SIZE</h2>
                 <div class="chip-group">
-                    <button class="chip active" id="btn-grid-5" onclick="setGridSize(5)">
+                    <button class="chip active" id="btn-grid-5">
                         <span class="chip-title">5-Column (5x5)</span>
                         <span class="chip-sub">Classic Board</span>
                     </button>
-                    <button class="chip" id="btn-grid-7" onclick="setGridSize(7)">
+                    <button class="chip" id="btn-grid-7">
                         <span class="chip-title">7-Column (7x7)</span>
                         <span class="chip-sub">Ashta Chamma</span>
                     </button>
@@ -34,15 +34,15 @@
             <div class="card-section">
                 <h2>2. NUMBER OF PLAYERS</h2>
                 <div class="chip-group">
-                    <button class="chip active" id="btn-p2" onclick="setPlayers(2)">
+                    <button class="chip active" id="btn-p2">
                         <span class="chip-title">2 Players</span>
                         <span class="chip-sub">1v1 Duel</span>
                     </button>
-                    <button class="chip" id="btn-p3" onclick="setPlayers(3)">
+                    <button class="chip" id="btn-p3">
                         <span class="chip-title">3 Players</span>
                         <span class="chip-sub">3-Way</span>
                     </button>
-                    <button class="chip" id="btn-p4" onclick="setPlayers(4)">
+                    <button class="chip" id="btn-p4">
                         <span class="chip-title">4 Players</span>
                         <span class="chip-sub">4-Way</span>
                     </button>
@@ -52,60 +52,60 @@
             <div class="card-section">
                 <h2>3. GAME MODE</h2>
                 <div class="chip-group">
-                    <button class="chip active" id="btn-mode-pnp" onclick="setGameMode('pnp')">
+                    <button class="chip active" id="btn-mode-pnp">
                         <span class="chip-title">Pass & Play</span>
                         <span class="chip-sub">Local Friends</span>
                     </button>
-                    <button class="chip" id="btn-mode-bot" onclick="setGameMode('bot')">
+                    <button class="chip" id="btn-mode-bot">
                         <span class="chip-title">vs Bot (AI)</span>
                         <span class="chip-sub">Single Player</span>
                     </button>
-                    <button class="chip" id="btn-mode-online" onclick="setGameMode('online')">
+                    <button class="chip" id="btn-mode-online">
                         <span class="chip-title">Online</span>
                         <span class="chip-sub">Play a Friend</span>
                     </button>
                 </div>
             </div>
 
-            <div class="card-section" id="online-card" style="display:none">
+            <div class="card-section" id="online-card" class="hidden">
                 <h2>4. ONLINE — PLAY A FRIEND</h2>
                 <p class="senior-desc">Sign in, create a room and share its 6-letter code — or enter a friend's code to join. Games play over a server-authoritative WebSocket.</p>
 
-                <div id="online-authed" style="display:none">
+                <div id="online-authed" class="hidden">
                     <div class="online-chip-row">
-                        <button class="chip" id="btn-create-room" onclick="onlineCreateRoom()">
+                        <button class="chip" id="btn-create-room">
                             <span class="chip-title">CREATE ROOM</span>
                             <span class="chip-sub">Host a 6-letter code</span>
                         </button>
-                        <button class="chip" id="btn-logout" onclick="onlineLogout()">
+                        <button class="chip" id="btn-logout">
                             <span class="chip-title">LOG OUT</span>
                         </button>
                     </div>
                     <div class="online-join-row">
                         <input id="online-room-code" class="online-input" placeholder="ROOM CODE" maxlength="6" autocomplete="off">
-                        <button class="btn-secondary" id="btn-join-room" onclick="onlineJoinRoom()">JOIN ROOM</button>
+                        <button class="btn-secondary" id="btn-join-room">JOIN ROOM</button>
                     </div>
                     <p id="online-status" class="online-status"></p>
-                    <div id="online-waiting" style="display:none">
+                    <div id="online-waiting" class="hidden">
                         <p class="online-wait-text" id="online-wait-text">Waiting for opponent…</p>
                         <p class="online-code-display">Your room code: <b id="online-room-code-display"></b></p>
                     </div>
                 </div>
 
-                <div id="online-guest" style="display:none">
+                <div id="online-guest" class="hidden">
                     <p class="online-wait-text">You are a guest. Waiting for the host to start…</p>
                 </div>
 
-                <div id="online-auth" style="display:none">
+                <div id="online-auth" class="hidden">
                     <div class="online-join-row">
                         <input id="online-username" class="online-input" placeholder="USERNAME" autocomplete="username">
                         <input id="online-password" class="online-input" type="password" placeholder="PASSWORD" autocomplete="current-password">
                     </div>
                     <div class="online-chip-row">
-                        <button class="chip" id="btn-login" onclick="onlineLogin()">
+                        <button class="chip" id="btn-login">
                             <span class="chip-title">LOG IN</span>
                         </button>
-                        <button class="chip" id="btn-register" onclick="onlineRegister()">
+                        <button class="chip" id="btn-register">
                             <span class="chip-title">REGISTER</span>
                         </button>
                     </div>
@@ -116,23 +116,23 @@
             <div class="card-section" id="senior-card">
                 <h2>5. ACCESSIBILITY — EASY READING</h2>
                 <p class="senior-desc">Bigger text, bigger buttons, higher contrast and slower pacing for comfortable play.</p>
-                <button class="chip" id="btn-senior" onclick="toggleSeniorMode()">
+                <button class="chip" id="btn-senior">
                     <span class="chip-title" id="senior-title">Senior Mode: OFF</span>
                     <span class="chip-sub" id="senior-sub">Tap to turn ON</span>
                 </button>
             </div>
 
-            <button class="btn-primary" id="btn-start" onclick="startGame()">▶ START GAME</button>
-            <button class="btn-secondary" id="btn-rules" onclick="openRules()">📖 HOW TO PLAY RULES</button>
+            <button class="btn-primary" id="btn-start">▶ START GAME</button>
+            <button class="btn-secondary" id="btn-rules">📖 HOW TO PLAY RULES</button>
         </div>
 
         <!-- Game Screen -->
         <div id="game-screen" class="screen">
             <div class="header-bar">
-                <button class="btn-sm" onclick="showHomeScreen()">⚙ MENU</button>
+                <button class="btn-sm" id="btn-menu">⚙ MENU</button>
                 <h1 id="board-title">5x5 CHOKA BARAH</h1>
-                <button class="btn-sm btn-restart" onclick="restartGame()">🔄 RESTART</button>
-                <button class="btn-sm" id="btn-mute" onclick="toggleMute()">🔊</button>
+                <button class="btn-sm btn-restart" id="btn-restart-header">🔄 RESTART</button>
+                <button class="btn-sm" id="btn-mute">🔊</button>
             </div>
 
             <div class="turn-banner" id="turn-banner">
@@ -166,7 +166,7 @@
                     <div class="shell open"></div>
                     <div class="shell closed"></div>
                 </div>
-                <button id="btn-roll" class="btn-roll" onclick="handleRoll()">🎲 ROLL COWRIES</button>
+                <button id="btn-roll" class="btn-roll">🎲 ROLL COWRIES</button>
                 <div id="roll-score-display" class="roll-score-display"></div>
             </div>
         </div>
@@ -179,10 +179,10 @@
             <h2 id="rules-title">CHOKA BARAH RULES</h2>
             <div class="rules-body">
                 <p><strong>🎯 Objective:</strong> Race all 4 pawns anti-clockwise around the outer ring, then spiral inward to the Center Home.</p>
-                <hr style="border-color:#5D4037;margin:8px 0">
+                <hr class="rule-sep">
                 <p><strong>🐚 5-House (4 Shells):</strong> Mouths up = steps. All 4 up = Chowka (4 + EXTRA ROLL). All 4 down = Baara (8 + EXTRA ROLL).</p>
                 <p><strong>🐚 7-House (6 Shells):</strong> Mouths up = steps. All 6 up = Chowka (6 + EXTRA ROLL). All 6 down = Baara (12 + EXTRA ROLL).</p>
-                <hr style="border-color:#5D4037;margin:8px 0">
+                <hr class="rule-sep">
                 <p><strong>🔒 Cut Requirement:</strong> You MUST capture at least 1 opponent pawn before your pawns can enter the inner path toward Center Home.</p>
                 <p><strong>✂️ Capturing:</strong> Land on a square with an opponent → they return to Home Base. You earn an EXTRA TURN!</p>
                 <p><strong>🔗 Gatti (Doubles):</strong> If 2+ of YOUR pawns land on the same square, they form <em>Gatti</em> — they move together as one and CANNOT be captured by a single opponent pawn.</p>
@@ -190,7 +190,7 @@
                 <p><strong>🏠 Home Base Safety:</strong> Pawns in their own Home Base are completely safe — cannot be captured.</p>
                 <p><strong>🎲 Extra Rolls:</strong> On Chowka/Baara or after a capture, you get an extra roll. You may move a DIFFERENT pawn each extra roll!</p>
             </div>
-            <button class="btn-primary" onclick="closeRules()">GOT IT!</button>
+            <button class="btn-primary" id="btn-rules-close">GOT IT!</button>
         </div>
     </div>
 

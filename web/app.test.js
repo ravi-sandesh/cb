@@ -151,6 +151,11 @@ function boot() {
       const fn = document._listeners.keydown;
       if (fn) fn({ key, shiftKey, preventDefault: () => {} });
     },
+    // Dispatch a document-level click whose target is the given element.
+    fireDocClick(el) {
+      const fn = document._listeners.click;
+      if (fn) fn({ target: el, preventDefault: () => {} });
+    },
     getElementById: (id) => holder.docEls[id] || (holder.docEls[id] = makeElement(id)),
     createElement: (tag) => makeElement(`${tag}_${holder._eltSeq++}`)
   };
@@ -368,6 +373,69 @@ describe('navigation & config', () => {
 });
 
 describe('accessibility behaviors', () => {
+  // Reload app.js against the CURRENT mock DOM so the delegated click
+  // listener under test belongs to this exact environment.
+  function rewiringBoot() {
+    // Ensure the standard globals (window/document/T/engine/sound) exist.
+    fresh();
+    jest.resetModules();
+    // Transport stub: online actions must be no-throw without a server.
+    globalThis.window.OnlineClient = {
+      authed: false, username: null, code: null, gridSize: null, playerIndex: null, connected: false,
+      async login() { this.authed = true; this.username = 'u'; return this; },
+      async register() { this.authed = true; this.username = 'u'; return this; },
+      async logout() { this.authed = false; },
+      async whoami() { return this.authed ? this.username : null; },
+      async createRoom() { this.code = 'ABCDEF'; return this.code; },
+      async joinRoom() { this.code = 'ABCDEF'; return this.code; },
+      roll() {}, move() {}, leave() {},
+      onStatus() {}, onJoined() {}, onBoard() {}, onError() {},
+      onPeerCount() {}, onPeerLeft() {}, onGameOver() {}, onClosed() {}
+    };
+    jest.isolateModules(() => { require('./app.js'); });
+    return globalThis.document;
+  }
+
+  test('__cbClick routes every mapped element id to its action', () => {
+    const document = rewiringBoot();
+    const dispatch = globalThis.window.__cbClick;
+
+    // Drive EVERY mapped id through the dispatcher; none may throw.
+    const ids = [
+      'btn-grid-5', 'btn-grid-7', 'btn-p2', 'btn-p3', 'btn-p4',
+      'btn-mode-pnp', 'btn-mode-bot', 'btn-mode-online',
+      'btn-login', 'btn-register', 'btn-logout',
+      'btn-create-room', 'btn-join-room', 'btn-senior',
+      'btn-start', 'btn-rules', 'btn-rules-close',
+      'btn-mute', 'btn-roll', 'btn-menu', 'btn-restart-header'
+    ];
+    for (const id of ids) {
+      expect(() => dispatch(id)).not.toThrow();
+    }
+    expect(dispatch('nope')).toBe(false);
+    expect(dispatch('')).toBe(false);
+  });
+
+  test('__cbClick drives real handlers (grid chip example)', () => {
+    const document = rewiringBoot();
+    const dispatch = globalThis.window.__cbClick;
+    dispatch('btn-grid-7');
+    expect(document.getElementById('btn-grid-7').classList._set.active).toBe(true);
+    expect(!!document.getElementById('btn-grid-5').classList._set.active).toBe(false);
+  });
+
+  test('findClickTarget walks ancestors and stops safely', () => {
+    const find = globalThis.window.__cbFindTarget;
+    const actionable = { id: 'btn-roll', parentElement: { id: 'unrelated' } };
+    expect(find(actionable)).toBe(actionable);
+    // Child of an actionable element resolves via parent walk.
+    const child = { id: '', parentElement: actionable };
+    expect(find(child)).toBe(actionable);
+    // Chain with no actionable id terminates at null.
+    expect(find({ id: 'x', parentElement: { id: 'y', parentElement: null } })).toBeNull();
+    expect(find({})).toBeNull();
+    expect(find(null)).toBeNull();
+  });
   // Drive a deterministic roll with moves, then hand back the harness.
   function startWithMoves(w) {
     useSeededRandom(12345);

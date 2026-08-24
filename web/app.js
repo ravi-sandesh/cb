@@ -105,7 +105,7 @@ function setGameMode(m) {
     document.getElementById('btn-mode-bot').classList.toggle('active', m === 'bot');
     document.getElementById('btn-mode-online').classList.toggle('active', m === 'online');
     const card = document.getElementById('online-card');
-    if (card) card.style.display = m === 'online' ? '' : 'none';
+    if (card) card.classList.toggle('hidden', m !== 'online');
     if (m === 'online') refreshOnlineSections();
 }
 // ---- Rules modal (accessible dialog) ----
@@ -299,10 +299,11 @@ function setOnlineStatus(msg, isError) {
     }
 }
 
-function refreshOnlineSections() {
+async function refreshOnlineSections() {
     const oc = onlineClient();
-    const authed = !!oc && !!oc.token;
-    const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+    let authed = !!oc && !!oc.authed;
+    try { authed = !!(oc && (await oc.whoami())); } catch (e) { /* offline: fall back to cached flag */ }
+    const show = (id, on) => { const el = document.getElementById(id); if (el) el.classList.toggle('hidden', !on); };
     show('online-auth', !authed);
     show('online-authed', authed && onlineSeat !== 1);
     show('online-guest', authed && onlineSeat === 1);
@@ -310,7 +311,7 @@ function refreshOnlineSections() {
 
 function showOnlineWaiting(on) {
     const el = document.getElementById('online-waiting');
-    if (el) el.style.display = on ? '' : 'none';
+    if (el) el.classList.toggle('hidden', !on);
     if (on) {
         const oc = onlineClient();
         const codeEl = document.getElementById('online-room-code-display');
@@ -1263,5 +1264,61 @@ window.onlineRegister  = onlineRegister;
 window.onlineLogout    = onlineLogout;
 window.onlineCreateRoom = onlineCreateRoom;
 window.onlineJoinRoom  = onlineJoinRoom;
+
+// ---- Delegated click wiring (CSP: no inline event handlers) ----
+// One document-level listener routes clicks by element id to the exported
+// window handler, using a data table (no per-id wrapper functions).
+const CLICK_ACTIONS = {
+    'btn-grid-5':         ['setGridSize', [5]],
+    'btn-grid-7':         ['setGridSize', [7]],
+    'btn-p2':             ['setPlayers', [2]],
+    'btn-p3':             ['setPlayers', [3]],
+    'btn-p4':             ['setPlayers', [4]],
+    'btn-mode-pnp':       ['setGameMode', ['pnp']],
+    'btn-mode-bot':       ['setGameMode', ['bot']],
+    'btn-mode-online':    ['setGameMode', ['online']],
+    'btn-create-room':    ['onlineCreateRoom', []],
+    'btn-logout':         ['onlineLogout', []],
+    'btn-join-room':      ['onlineJoinRoom', []],
+    'btn-login':          ['onlineLogin', []],
+    'btn-register':       ['onlineRegister', []],
+    'btn-senior':         ['toggleSeniorMode', []],
+    'btn-start':          ['startGame', []],
+    'btn-rules':          ['openRules', []],
+    'btn-rules-close':    ['closeRules', []],
+    'btn-mute':           ['toggleMute', []],
+    'btn-roll':           ['handleRoll', []],
+    'btn-menu':           ['showHomeScreen', []],
+    'btn-restart-header': ['restartGame', []]
+};
+
+window.__cbClick = dispatchClickById;
+window.__cbFindTarget = findClickTarget;
+
+function dispatchClickById(id) {
+    const action = CLICK_ACTIONS[id];
+    if (action && typeof window[action[0]] === 'function') {
+        window[action[0]](...action[1]);
+        return true;
+    }
+    return false;
+}
+
+// Nearest actionable ancestor (or null): pure walk, unit-testable.
+function findClickTarget(target) {
+    let t = target;
+    while (t) {
+        if (t.id && CLICK_ACTIONS[t.id]) return t;
+        t = t.parentElement || null;
+    }
+    return null;
+}
+
+if (typeof document.addEventListener === 'function') {
+    document.addEventListener('click', (e) => {
+        const el = findClickTarget(e.target);
+        if (el) dispatchClickById(el.id);
+    });
+}
 
 })();

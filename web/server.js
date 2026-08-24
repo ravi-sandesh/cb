@@ -41,13 +41,12 @@ function isForbidden(urlPath) {
 }
 
 // Baseline hardening headers for every response this server emits. The CSP
-// allows 'unsafe-inline' scripts because app.js wires controls through inline
-// onclick attributes (tracked debt); it still blocks all off-site script,
-// object and frame embedding.
+// is strict: no inline scripts (all wiring is delegated in app.js), styles
+// keep 'unsafe-inline' only for the few style="" attributes that remain.
 const SECURITY_HEADERS = {
   'Content-Security-Policy':
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline'; " +
+    "script-src 'self'; " +
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
     "font-src https://fonts.gstatic.com; " +
     "img-src 'self' data:; " +
