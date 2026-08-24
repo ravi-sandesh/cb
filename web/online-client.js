@@ -57,7 +57,10 @@ const state = {
   code: null,          // room code once created/joined
   gridSize: null,
   playerIndex: null,   // seat (0 host / 1 guest), set by 'joined'
-  lastError: null
+  lastError: null,
+  reconnectTimer: null,
+  reconnectAttempts: 0,
+  giveUpReconnect: false
 };
 
 let statusFn = null;         // (text, isError) -> void
@@ -161,17 +164,28 @@ async function joinRoom(roomCode) {
 }
 
 // ============================================================
-// WEBSOCKET
+// WEBSOCKET (with automatic reconnect + resume)
 // ============================================================
+const RECONNECT_MAX_ATTEMPTS = 6;
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 10000;
+
 function connect(wsPath, roomCode) {
+  // Preserve the reconnect bookkeeping across the internal disconnect().
+  const pendingAttempts = state.reconnectAttempts || 0;
+  const givingUp = state.giveUpReconnect || false;
+  stopReconnecting();
   disconnect('reconnect');
   // disconnect() clears state.code internally; restore the room we're joining.
   if (roomCode) state.code = roomCode;
+  state.reconnectAttempts = pendingAttempts;
+  state.giveUpReconnect = givingUp;
   try {
     const ws = new WS(wsRoot() + wsPath);
     state.ws = ws;
     ws.onopen = () => {
       state.connected = true;
+      state.reconnectAttempts = 0;
       // The HttpOnly session cookie attaches to this same-origin upgrade
       // automatically — the relay treats us as authenticated at handshake,
       // so the room join can go out immediately.
@@ -188,9 +202,33 @@ function connect(wsPath, roomCode) {
     ws.onclose = (ev) => {
       state.connected = false;
       if (ev.code === 1008) {
-        // Server refused our credentials — the stored token is dead.
-        
+        // Server refused our credentials — the session cookie is dead.
+        saveUsername(null);
+        state.authed = false;
         fireStatus('Session expired. Please log in again.', true);
+      } else if (ev.code === 1000 || ev.code === 4301) {
+        // Clean close: user-initiated leave or server-directed logout.
+        if (closedFn) closedFn(ev.code || 0);
+        fireStatus(ev.code === 4301 ? 'Disconnected.' : 'Disconnected from server.', true);
+      } else if (state.authed && state.code && !state.giveUpReconnect) {
+        // Abnormal drop mid-match: schedule an automatic reconnect that
+        // re-authenticates and re-joins, resuming the seat via the relay's
+        // grace window.
+        const attempt = (state.reconnectAttempts || 0) + 1;
+        state.reconnectAttempts = attempt;
+        if (attempt > RECONNECT_MAX_ATTEMPTS) {
+          state.giveUpReconnect = true;
+          fireStatus('Could not reconnect. Please sign in and rejoin the room.', true);
+          if (closedFn) closedFn(ev.code || 0);
+          return;
+        }
+        const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, attempt - 1), RECONNECT_MAX_MS);
+        fireStatus(`Connection lost — reconnecting (${attempt}/${RECONNECT_MAX_ATTEMPTS})…`, true);
+        state.reconnectTimer = setTimeout(() => {
+          state.reconnectTimer = null;
+          connect(wsPath, state.code);
+        }, delay);
+        if (typeof state.reconnectTimer.unref === 'function') state.reconnectTimer.unref();
       } else {
         if (closedFn) closedFn(ev.code || 0);
         fireStatus(ev.code === 4301 ? 'Disconnected.' : 'Disconnected from server.', true);
@@ -199,6 +237,12 @@ function connect(wsPath, roomCode) {
   } catch (e) {
     fireStatus('WebSocket unavailable in this browser/dev context.', true);
   }
+}
+
+function stopReconnecting() {
+  if (state.reconnectTimer) { clearTimeout(state.reconnectTimer); state.reconnectTimer = null; }
+  state.giveUpReconnect = false;
+  state.reconnectAttempts = 0;
 }
 
 function dispatch(msg) {
@@ -266,6 +310,7 @@ function leave() {
 }
 
 function disconnect(reason) {
+  stopReconnecting(); // an intentional disconnect never auto-reconnects
   if (state.ws) {
     try { state.ws.onclose = null; state.ws.close(4000, reason || 'bye'); } catch (e) { /* ignore */ }
     state.ws = null;

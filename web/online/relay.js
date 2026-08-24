@@ -21,9 +21,12 @@ const { newGame, doRoll, doMove, serializeBoard } = require('./game-server.js');
 const MAX_SOCKETS_PER_USER = 3;
 
 class Relay {
-  constructor(httpServer, { db, auth, buildRooms = true }) {
+  constructor(httpServer, { db, auth, buildRooms = true, resumeGraceMs = 90 * 1000 } = {}) {
     this.db = db;
     this.auth = auth;
+    // How long an emptied room is kept around for reconnecting players
+    // before its state is discarded.
+    this.resumeGraceMs = resumeGraceMs;
     this.rooms = new Map(); // code -> room
     this.conns = new Map(); // authenticated conn -> { userId, username }
     this.allConns = new Set(); // every accepted socket incl. pre-auth (teardown)
@@ -241,6 +244,8 @@ class Relay {
   // seat 1 — so a reconnecting host can never be demoted to guest just
   // because their socket re-attached after someone else's.
   attach(conn, room) {
+    // A reconnecting player cancels any pending room-close timer.
+    this.cancelRoomClose(room);
     if (conn.room) { this.sendErr(conn, 'already-in-room'); return; }
     // Same user already seated from another (still-live) socket.
     for (const [, seated] of room.sockets) {
@@ -321,11 +326,29 @@ class Relay {
     conn.room = null;
     conn.seat = null;
     if (room.sockets.size === 0) {
-      this.rooms.delete(room.code);
+      // Grace period: keep the room (and its authoritative board) alive so a
+      // dropped player can reconnect and resume instead of losing the match.
+      this.scheduleRoomClose(room);
     } else {
       this.broadcast(room, { type: 'member-count', count: room.sockets.size, playerNum: room.state.playerNum });
       this.broadcast(room, { type: 'peer-left', userId: conn.userId });
     }
+  }
+
+  scheduleRoomClose(room) {
+    if (room._closeTimer) return;
+    room._closeTimer = setTimeout(() => {
+      const current = this.rooms.get(room.code);
+      if (current === room && room.sockets.size === 0) {
+        this.rooms.delete(room.code);
+      }
+      room._closeTimer = null;
+    }, this.resumeGraceMs);
+    if (typeof room._closeTimer.unref === 'function') room._closeTimer.unref();
+  }
+
+  cancelRoomClose(room) {
+    if (room._closeTimer) { clearTimeout(room._closeTimer); room._closeTimer = null; }
   }
 
   close(conn, code) {
@@ -340,6 +363,9 @@ class Relay {
   // Hard teardown: kill every connection and clear all timers. Used by tests
   // so no heartbeat interval survives past the mocked http server.
   shutdown() {
+    for (const room of this.rooms.values()) {
+      if (room._closeTimer) { clearTimeout(room._closeTimer); room._closeTimer = null; }
+    }
     for (const conn of [...this.allConns]) {
       if (conn._heartbeat) { clearInterval(conn._heartbeat); conn._heartbeat = null; }
       try { conn.socket.destroy(); } catch {}

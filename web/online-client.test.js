@@ -147,6 +147,80 @@ describe('online-client auth + sessions', () => {
   });
 });
 
+describe('online-client reconnect + resume', () => {
+  // Uses its OWN module instance so the facade always matches the sockets.
+  function bootFresh() {
+    installFakes();
+    delete globalThis.OnlineClient; // force a fresh facade from the reload
+    jest.resetModules();
+    jest.isolateModules(() => { require('./online-client.js'); });
+    return globalThis.OnlineClient;
+  }
+
+  test('an abnormal drop schedules an automatic reconnect that resumes', async () => {
+    jest.useFakeTimers();
+    const c = bootFresh();
+    c.onStatus(() => {});
+    await c.register('amy', 'pw');
+    await c.createRoom(5);
+    expect(wsInstances.length).toBe(1);
+    wsInstances[0].open();
+    wsInstances[0].drop(1006); // abnormal network drop
+
+    // Backoff (1s) elapses -> a NEW socket opens for the same path and the
+    // join re-sent automatically (cookie-authenticated).
+    jest.advanceTimersByTime(1000);
+    expect(wsInstances.length).toBe(2);
+    expect(wsInstances[1].url).toContain('/ws');
+    wsInstances[1].open();
+    expect(wsInstances[1].sent).toEqual([JSON.stringify({ type: 'join', code: 'ABCDEF' })]);
+  });
+
+  test('gives up after the attempt budget and reports it', async () => {
+    jest.useFakeTimers();
+    const c = bootFresh();
+    c.onStatus(() => {});
+    await c.register('amy', 'pw');
+    await c.createRoom(5);
+    wsInstances[0].open();
+    const errs = [];
+    c.onStatus((m, err) => { if (err) errs.push(m); });
+
+    // Drop -> wait out backoff -> client redials -> drop again, until the
+    // attempt budget is spent and the give-up status is surfaced.
+    // Simulate a host that is permanently unreachable: every redial fails
+    // before ever reaching OPEN, until the budget trips the give-up status.
+    wsInstances[wsInstances.length - 1].drop(1006);
+    for (let i = 0; i < 12 && !errs.some((m) => /Could not reconnect/.test(m)); i++) {
+      jest.advanceTimersByTime(20000); // covers max backoff
+      const cur = wsInstances[wsInstances.length - 1];
+      cur.drop(1006); // redial fails immediately again
+    }
+    expect(errs.some((m) => /Could not reconnect/.test(m))).toBe(true);
+    const count = wsInstances.length;
+    jest.advanceTimersByTime(60000);
+    expect(wsInstances.length).toBe(count); // no further dials
+    // eslint-disable-next-line no-console
+    
+  });
+
+  test('a clean close (1000) never triggers reconnection', async () => {
+    const c = bootFresh();
+    c.onStatus(() => {});
+    await c.register('amy', 'pw');
+    await c.createRoom(5);
+    wsInstances[0].open();
+    jest.useFakeTimers();
+    try {
+      wsInstances[0].drop(1000);
+      jest.advanceTimersByTime(60000);
+      expect(wsInstances.length).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
 describe('online-client room lobby + WebSocket', () => {
   test('createRoom hits the API, opens a socket, and auto-joins on open', async () => {
     oc().onStatus(() => {});

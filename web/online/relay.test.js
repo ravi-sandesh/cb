@@ -143,8 +143,9 @@ function upgradeReq({ upgrade = true, key = true, protocol = false } = {}) {
 let store;
 let relay;
 
-function freshRelay() {
-  relay = new Relay({ on: () => {} }, { db: store, auth: { authenticateToken: () => null }, buildRooms: false });
+function freshRelay(opts = {}) {
+  relay = new Relay({ on: () => {} }, Object.assign(
+    { db: store, auth: { authenticateToken: () => null }, buildRooms: false }, opts));
   relay.auth = require('./auth.js');
   return relay;
 }
@@ -264,6 +265,64 @@ describe('Relay handshake', () => {
     expect(protoText).toContain('Sec-WebSocket-Protocol: chokabarah');
     expect(protoText).toContain(acceptKey('dGhlIHNhbXBsZSBub25jZQ=='));
   });
+  test('cookie-authenticated upgrades seat the conn immediately and enforce the per-user cap', async () => {
+    const alice = await makeUser('alice');
+    relay = freshRelay();
+    openRoom('ROOM01', alice.user.id);
+
+    const mkCookieConn = () => {
+      const sock = new FakeSocket();
+      relay.handleUpgrade({
+        headers: {
+          upgrade: 'websocket',
+          'sec-websocket-key': 'k',
+          cookie: `cb_session=${alice.token}`
+        }
+      }, sock, null);
+      return sock;
+    };
+
+    const s1 = mkCookieConn();
+    const s2 = mkCookieConn();
+    const s3 = mkCookieConn();
+    expect(relay.conns.size).toBe(3);
+    // All three are authenticated at handshake (authed message sent).
+    for (const s of [s1, s2, s3]) {
+      expect(received(s)[0].type).toBe('authed');
+    }
+
+    // Fourth socket for the same account trips the upgrade-time cap.
+    const s4 = mkCookieConn();
+    expect(lastCloseCode(s4)).toBe(1013);
+    expect(s1.destroyed).toBe(false);
+    expect(relay.conns.size).toBe(3);
+
+    // An INVALID cookie still handshakes but stays unauthenticated.
+    const stranger = new FakeSocket();
+    relay.handleUpgrade({
+      headers: {
+        upgrade: 'websocket',
+        'sec-websocket-key': 'k2',
+        cookie: 'cb_session=garbage'
+      }
+    }, stranger, null);
+    expect(handshakeOk(stranger)).toBe(true);
+    expect(stranger.destroyed).toBe(false);
+    expect(received(stranger).length).toBe(0); // no authed message
+    // And the pre-auth protocol guard applies: any frame other than auth.
+    stranger.emit('data', clientText({ type: 'roll' }));
+    expect(lastCloseCode(stranger)).toBe(1008);
+  });
+
+  test('malformed cookie headers are tolerated during upgrade', () => {
+    const alice = { user: { id: 1, username: 'x' } };
+    void alice;
+    relay = freshRelay();
+    const sock = new FakeSocket();
+    relay.handleUpgrade({ headers: { upgrade: 'websocket', 'sec-websocket-key': 'k', cookie: 'garbage' } }, sock, null);
+    expect(sock.destroyed).toBe(false); // parsed as no session -> falls to legacy seating
+  });
+
   test('caps concurrent sockets per account', async () => {
     const u = await makeUser('alice');
     relay = freshRelay();
@@ -715,12 +774,15 @@ describe('Relay teardown', () => {
 
   test('socket error detaches and destroys the conn', async () => {
     const alice = await makeUser('alice');
-    relay = freshRelay();
+    relay = freshRelay({ resumeGraceMs: 20 });
     openRoom('ROOM01', alice.user.id);
     const host = connect(alice.token);
     host.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
     host.emit('error', new Error('boom'));
     expect(host.destroyed).toBe(true);
+    // Room survives the grace window, then is discarded.
+    expect(relay.rooms.get('ROOM01')).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 60));
     expect(relay.rooms.get('ROOM01')).toBeUndefined();
   });
 
@@ -763,14 +825,32 @@ describe('Relay teardown', () => {
     expect(sock.destroyed).toBe(true);
   });
 
-  test('closing the last member removes the room', async () => {
+  test('closing the last member keeps the room for the grace window, then discards it', async () => {
     const alice = await makeUser('alice');
-    relay = freshRelay();
+    relay = freshRelay({ resumeGraceMs: 20 });
     openRoom('ROOM01', alice.user.id);
     const host = connect(alice.token);
     host.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
     host.emit('close');
+    // Within the grace window the room (and its board) survives.
+    expect(relay.rooms.get('ROOM01')).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 60));
     expect(relay.rooms.get('ROOM01')).toBeUndefined();
+  });
+
+  test('rejoining during the grace window cancels the close timer', async () => {
+    const alice = await makeUser('alice');
+    relay = freshRelay({ resumeGraceMs: 40 });
+    openRoom('ROOM01', alice.user.id);
+    const host = connect(alice.token);
+    host.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    host.emit('close'); // room enters grace
+    // Rejoin before expiry.
+    const again = connect(alice.token);
+    again.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(again.destroyed).toBe(false);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(relay.rooms.has('ROOM01')).toBe(true);
   });
 
   test('leaving an occupied room broadcasts member-count and peer-left', async () => {
