@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -6,9 +9,27 @@ plugins {
 // Enable structured telemetry via: ./gradlew assembleDebug -PtelemetryEnabled=true
 val telemetryEnabled: String = (project.findProperty("telemetryEnabled") as? String)?.toBoolean()?.toString() ?: "false"
 
+// Release signing: reads keystore.properties (gitignored) when present so a
+// real signed APK can be built locally. Without it (e.g. CI) the release
+// build falls back to the unsigned output — never fails.
+val keystorePropsFile = file("keystore.properties")
+val releaseSigning = if (keystorePropsFile.exists()) "release" else null
+
 android {
     namespace = "com.chokabarah.game"
     compileSdk = 34
+
+    signingConfigs {
+        if (keystorePropsFile.exists()) {
+            val props = Properties().apply { load(FileInputStream(keystorePropsFile)) }
+            create("release") {
+                storeFile = file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.chokabarah.game"
@@ -33,6 +54,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (releaseSigning != null) {
+                signingConfig = signingConfigs.getByName(releaseSigning)
+            }
         }
     }
     compileOptions {
