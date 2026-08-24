@@ -462,7 +462,10 @@ body.senior-mode .online-code-display { font-size: 16px; }
     border: none;
     border-radius: 8px;
     padding: 6px 10px;
-    font-size: 11px;
+    /* Touch-target minimum (WCAG 2.5.5 / Material): quick-select buttons
+       must be comfortably tappable without senior mode. */
+    min-height: 48px;
+    font-size: 12px;
     font-weight: 700;
     cursor: pointer;
 }

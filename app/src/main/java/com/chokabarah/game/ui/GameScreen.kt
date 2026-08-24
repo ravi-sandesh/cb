@@ -235,11 +235,16 @@ fun GameScreen(
                         ) {
                             board.validMoves.forEach { move ->
                                 val isSelected = move.pawnIds.contains(selectedPawnId)
-                                val pawnName = if (isHomeBaseLead(board, move))
-                                    stringResource(R.string.pawn_start)
-                                else
-                                    stringResource(R.string.pawn_nth, move.pawnIds.first() % 4 + 1)
+                                // Always number the pawn (id%4+1) so multiple
+                                // home-base pawns never render identical labels,
+                                // and append the target cell for full clarity.
+                                val pawnNumber = move.pawnIds.first() % 4 + 1
+                                val pawnName = stringResource(R.string.pawn_nth, pawnNumber)
                                 val gattiTag = if (move.pawnIds.size > 1) stringResource(R.string.gatti_tag) else ""
+                                val targetSuffix = stringResource(
+                                    R.string.target_suffix,
+                                    move.targetCoords.first, move.targetCoords.second
+                                )
                                 val buttonDescription = stringResource(
                                     R.string.cd_move_button,
                                     pawnName,
@@ -259,7 +264,7 @@ fun GameScreen(
                                     },
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(if (seniorMode) 56.dp else 40.dp)
+                                        .height(if (seniorMode) 56.dp else 48.dp)
                                         .semantics { contentDescription = buttonDescription },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = if (isSelected) Color(0xFFFFD54F) else Color(0xFF5D4037),
@@ -268,7 +273,7 @@ fun GameScreen(
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Text(
-                                        text = pawnName + gattiTag,
+                                        text = pawnName + gattiTag + targetSuffix,
                                         fontSize = if (seniorMode) 17.sp else 13.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -433,7 +438,3 @@ fun GameScreen(
         )
     }
 }
-
-private fun isHomeBaseLead(board: BoardUi, move: MoveUi): Boolean =
-    board.pawns.firstOrNull { it.id == move.pawnIds.first() }?.state ==
-        com.chokabarah.game.engine.PawnState.HOME_BASE

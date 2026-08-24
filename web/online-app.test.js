@@ -196,7 +196,7 @@ describe('app.js online lobby (auth + rooms)', () => {
     w.setGameMode('online');
     expect(holder.docEls['btn-mode-online'].classList._set.active).toBe(true);
     expect(holder.docEls['btn-mode-pnp'].classList._set.active).toBe(false);
-    expect(holder.docEls['online-card'].style.display).toBe('');
+    expect(holder.docEls['online-card'].classList._set.hidden).toBe(false);
   });
 
   test('onlineLogin/onlineRegister/onlineLogout drive the transport', async () => {
@@ -217,7 +217,7 @@ describe('app.js online lobby (auth + rooms)', () => {
     w.setGameMode('online');
     await w.onlineCreateRoom();
     expect(oc._calls.create).toBe(1);
-    expect(holder.docEls['online-waiting'].style.display).toBe('');
+    expect(holder.docEls['online-waiting'].classList._set.hidden).toBe(false);
     expect(holder.docEls['online-room-code-display'].innerText).toBe('ABCDEF');
   });
 
