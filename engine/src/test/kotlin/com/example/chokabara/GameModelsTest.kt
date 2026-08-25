@@ -32,6 +32,11 @@ class GameModelsTest {
         assertTrue(colors.map { it.displayName }.any { it.contains("Green") })
         assertTrue(colors.map { it.displayName }.any { it.contains("Yellow") })
         assertTrue(colors.map { it.displayName }.any { it.contains("Blue") })
+        // Every light variant must be an opaque ARGB color: a mistyped
+        // literal (e.g. 6 hex digits) silently yields alpha=0x00.
+        for (c in colors) {
+            assertEquals("${c.name}.lightHexColor must be fully opaque", 0xFF000000L, c.lightHexColor and 0xFF000000L)
+        }
     }
 
     @Test

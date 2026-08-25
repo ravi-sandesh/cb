@@ -14,9 +14,9 @@ enum class PlayerColor(
     val lightHexColor: Long
 ) {
     RED(0, "Red (South)", 0xFFE53935, 0xFFFFCDD2),
-    GREEN(1, "Green (North)", 0xFF43A047, 0xC8E6C9),
-    YELLOW(2, "Yellow (East)", 0xFFFDD835, 0xFFF9C4),
-    BLUE(3, "Blue (West)", 0xFF1E88E5, 0xBBDEFB)
+    GREEN(1, "Green (North)", 0xFF43A047, 0xFFC8E6C9),
+    YELLOW(2, "Yellow (East)", 0xFFFDD835, 0xFFFFF9C4),
+    BLUE(3, "Blue (West)", 0xFF1E88E5, 0xFFBBDEFB)
 }
 
 enum class PawnState {
