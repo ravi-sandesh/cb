@@ -119,8 +119,30 @@ fun BoardCanvas(
     }
 }
 
-private fun DrawScope.drawSafeCellMarking(row: Int, col: Int, cellSize: Float, seniorMode: Boolean) {
-    val margin = cellSize * 0.15f
+// Pure layout math for a stack of `count` pawns, slot `index` (0-based).
+// 1/2/3 pawns keep the classic tight patterns; 4+ spread evenly on a circle
+// so every pawn occupies a DISTINCT position (the old i % 4 table wrapped
+// and drew the 5th+ pawns exactly on top of the first four).
+fun pawnStackOffset(count: Int, index: Int, radius: Float): Pair<Float, Float> {
+    if (count <= 1) return 0f to 0f
+    if (count == 2) {
+        return if (index == 0) -radius * 0.7f to -radius * 0.7f
+        else radius * 0.7f to radius * 0.7f
+    }
+    if (count == 3) {
+        return when (index) {
+            0 -> 0f to -radius * 0.8f
+            1 -> -radius * 0.8f to radius * 0.8f
+            else -> radius * 0.8f to radius * 0.8f
+        }
+    }
+    // count >= 4: even circular distribution — distinct by construction.
+    val angle = (2.0 * Math.PI * index / count).toFloat()
+    val r = radius * (if (count == 4) 0.85f else 0.95f)
+    return (kotlin.math.cos(angle) * r) to (kotlin.math.sin(angle) * r)
+}
+
+private fun DrawScope.drawSafeCellMarking(row: Int, col: Int, cellSize: Float, seniorMode: Boolean) {    val margin = cellSize * 0.15f
     val strokeWidth = if (seniorMode) 8f else 5f
     val color = Color(0xFF8D6E63)
     val left = col * cellSize + margin
@@ -162,23 +184,9 @@ private fun DrawScope.drawPawnsGroup(
         val pawn = pawnsOnCell[i]
         val pColor = playerColors[pawn.playerIndex]
         val isSelected = selectedPawnId == pawn.id
-        val offset = when {
-            count == 1 -> Offset(0f, 0f)
-            count == 2 -> if (i == 0) Offset(-pawnRadius * 0.7f, -pawnRadius * 0.7f) else Offset(pawnRadius * 0.7f, pawnRadius * 0.7f)
-            count == 3 -> when (i) {
-                0 -> Offset(0f, -pawnRadius * 0.8f)
-                1 -> Offset(-pawnRadius * 0.8f, pawnRadius * 0.8f)
-                else -> Offset(pawnRadius * 0.8f, pawnRadius * 0.8f)
-            }
-            else -> when (i % 4) {
-                0 -> Offset(-pawnRadius * 0.8f, -pawnRadius * 0.8f)
-                1 -> Offset(pawnRadius * 0.8f, -pawnRadius * 0.8f)
-                2 -> Offset(-pawnRadius * 0.8f, pawnRadius * 0.8f)
-                else -> Offset(pawnRadius * 0.8f, pawnRadius * 0.8f)
-            }
-        }
-        val pawnCenterX = centerX + offset.x
-        val pawnCenterY = centerY + offset.y
+        val offset = pawnStackOffset(count, i, pawnRadius)
+        val pawnCenterX = centerX + offset.first
+        val pawnCenterY = centerY + offset.second
         drawCircle(Color(pColor.hexColor), pawnRadius, Offset(pawnCenterX, pawnCenterY))
         drawCircle(Color.White, pawnRadius, Offset(pawnCenterX, pawnCenterY), style = Stroke(pawnStroke))
         if (isSelected) {
