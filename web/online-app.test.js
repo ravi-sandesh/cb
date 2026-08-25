@@ -312,6 +312,27 @@ describe('app.js online match (server-authoritative flow)', () => {
     expect(holder.docEls['game-log'].innerText).toContain('VICTORY');
   });
 
+  test('hostile board fields degrade instead of crashing the client', () => {
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    seatAs(oc, 0);
+
+    // Out-of-range current player: clamped to a legal seat, no crash.
+    expect(() => oc.__hooks.onBoard(boardFrom(5, 42, {}))).not.toThrow();
+    expect(holder.docEls['turn-text'].innerText).toContain('Red'); // seat 0
+
+    // Absurd gridSize must be clamped to a legal board (render DoS guard).
+    const huge = boardFrom(999, 0, {});
+    huge.gridSize = 999;
+    expect(() => oc.__hooks.onBoard(huge)).not.toThrow();
+
+    // Pawn with out-of-range pathIndex must not crash the renderer.
+    const badPath = boardFrom(5, 0, {});
+    badPath.pawns = badPath.pawns.map((p, i) =>
+      i === 0 ? Object.assign({}, p, { state: 'ON_TRACK', pathIndex: 999 }) : p);
+    expect(() => oc.__hooks.onBoard(badPath)).not.toThrow();
+  });
+
   test('an out-of-range winner index degrades to a placeholder instead of crashing', () => {
     const { w, oc } = fresh();
     w.setGameMode('online');
