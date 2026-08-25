@@ -223,7 +223,17 @@ class Relay {
   // ---- Room management (called from HTTP layer) ----
 
   openRoom({ matchId, code, gridSize, hostUserId, invitedUserId }) {
-    if (this.rooms.has(code)) return this.rooms.get(code);
+    const existing = this.rooms.get(code);
+    if (existing) {
+      // A late invite must reach an ALREADY-OPEN room: /create opened it
+      // before any invitee existed, so its invitedUserId was null. Without
+      // this merge, the authorization recorded at join time would be
+      // silently dropped and anyone with the code could claim the seat.
+      if (invitedUserId !== undefined && existing.invitedUserId == null) {
+        existing.invitedUserId = invitedUserId;
+      }
+      return existing;
+    }
     const room = {
       matchId, code, gridSize,
       hostUserId: hostUserId === undefined ? null : hostUserId,
