@@ -166,6 +166,39 @@ class GameViewModelTest {
     }
 
     @Test
+    fun botConsumesExtraRollChainWithoutStalling() {
+        // Find a seed where the HUMAN's first roll is a plain 1-3 (turn passes)
+        // and the BOT's roll is a CHOWKA (all four mouths up = extra roll).
+        val seed = (0 until 5000).first { s ->
+            val r = kotlin.random.Random(s)
+            val human = List(4) { r.nextBoolean() }
+            val bot = List(4) { r.nextBoolean() }
+            val hScore = human.count { it }.let { if (it == 0) 8 else if (it == 4) 4 else it }
+            hScore in 1..3 && bot.all { it }
+        }
+
+        val vm = GameViewModel(SavedStateHandle(), rng = kotlin.random.Random(seed))
+        vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.VS_BOT)
+        playToHumanMove(vm)
+
+        // Human takes the first valid move; the seat passes to the bot.
+        val move = vm.uiState.value.board!!.validMoves.first()
+        vm.executeValidMove(move)
+        assertEquals(1, vm.uiState.value.board!!.currentPlayerIndex)
+
+        // The bot now rolls CHOWKA (extra roll). After its move it KEEPS the
+        // seat — the scheduler must chain into the next bot segment instead
+        // of stalling with an idle board and no pending roll.
+        timeTravel(60_000)
+
+        val board = vm.uiState.value.board!!
+        assertTrue(
+            "Bot stalled on its extra turn (no progress after Chowka)",
+            board.winner != null || board.currentPlayerIndex == 0
+        )
+    }
+
+    @Test
     fun botTurnCompletesOnItsOwn() {
         val vm = freshViewModel()
         vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.VS_BOT)

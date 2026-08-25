@@ -300,7 +300,9 @@ fun executeMovePure(
 
 class GameEngine(
     val gridSize: GridSize = GridSize.FIVE_BY_FIVE,
-    val playerColors: List<PlayerColor> = listOf(PlayerColor.RED, PlayerColor.GREEN)
+    val playerColors: List<PlayerColor> = listOf(PlayerColor.RED, PlayerColor.GREEN),
+    // Injectable so tests can force deterministic rolls (e.g. Chowka chains).
+    private val rng: Random = Random.Default
 ) {
     var currentPlayerIndex: Int = 0
         private set
@@ -460,7 +462,7 @@ class GameEngine(
             return currentRoll!!
         }
 
-        val shells = List(numCowries) { Random.nextBoolean() }
+        val shells = List(numCowries) { rng.nextBoolean() }
         val scoreShell = scoreShells(shells)
         val score = scoreShell.score
         val label = scoreShell.label

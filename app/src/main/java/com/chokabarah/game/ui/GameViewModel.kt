@@ -44,7 +44,11 @@ import kotlinx.coroutines.launch
 // can safely overwrite them during construction.
 // ============================================================
 
-class GameViewModel(internal val savedState: SavedStateHandle) : ViewModel() {
+class GameViewModel(
+    internal val savedState: SavedStateHandle,
+    // Injectable for deterministic bot tests; production uses the default.
+    private val rng: kotlin.random.Random = kotlin.random.Random.Default
+) : ViewModel() {
 
     companion object {
         private const val KEY_SCREEN = "cb_screen"
@@ -100,7 +104,8 @@ class GameViewModel(internal val savedState: SavedStateHandle) : ViewModel() {
         this.gameMode = gameMode
         engine = GameEngine(
             gridSize = gridSize,
-            playerColors = PlayerColor.entries.take(this.playerCount)
+            playerColors = PlayerColor.entries.take(this.playerCount),
+            rng = rng
         )
         resetTransientUiState()
         Telemetry.info("ui", "game.started", "New match started",
@@ -245,9 +250,15 @@ class GameViewModel(internal val savedState: SavedStateHandle) : ViewModel() {
                 publish() // shows the rolled shells while the bot "thinks"
             }
             delay(pace)
+            delay(pace)
             if (!isBotTurnNow()) return@launch
             eng.getBestBotMove()?.let { eng.executeMove(it) }
             selectedPawnIdValue = null
+            // Release the job slot BEFORE publishing: extra rolls (Chowka /
+            // Baara) and captures keep this seat on turn, and publish() must
+            // be able to chain the next bot segment — otherwise the game
+            // deadlocks with an idle board on the bot's extra turn.
+            botJob = null
             publish() // chains into the next segment when extra rolls keep the seat
         }
     }
