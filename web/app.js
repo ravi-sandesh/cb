@@ -1177,9 +1177,12 @@ function renderBoard() {
                 ox = Math.cos(angles[idx]) * pr * 0.85;
                 oy = Math.sin(angles[idx]) * pr * 0.85;
             } else if (list.length >= 4) {
-                const angles = [-Math.PI/4, Math.PI/4, 3*Math.PI/4, -3*Math.PI/4];
-                ox = Math.cos(angles[idx % 4]) * pr * 0.9;
-                oy = Math.sin(angles[idx % 4]) * pr * 0.9;
+                // Even circular distribution: every pawn in a 4+ stack gets a
+                // DISTINCT angle (the old idx % 4 table wrapped and drew the
+                // 5th+ pawns exactly on top of the first four).
+                const angle = (Math.PI * 2 * idx) / list.length - Math.PI / 4;
+                ox = Math.cos(angle) * pr * 0.9;
+                oy = Math.sin(angle) * pr * 0.9;
             }
 
             const px = cx0 + ox;
