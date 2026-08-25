@@ -3,7 +3,7 @@ const http = require('node:http');
 const net = require('node:net');
 const crypto = require('node:crypto');
 const { openDb, makeStore } = require('./online-db.js');
-const { createOnlineServer, makeRoomCode, startOnlineServer, sweepTick, resetRateLimits } = require('./online-server.js');
+const { createOnlineServer, makeRoomCode, startOnlineServer, sweepTick, resetRateLimits, rateAllow, rateBucketCount } = require('./online-server.js');
 
 // ---- tiny http client ----
 function apiRequest(port, method, pathname, { token, body } = {}) {
@@ -189,6 +189,23 @@ describe('online-server HTTP API', () => {
     expect(no.status).toBe(401);
     const fake = await apiRequest(port, 'POST', '/api/match/create', { token: 'invalidtoken', body: { gridSize: 5 } });
     expect(fake.status).toBe(401);
+  });
+
+  test('rate-limit buckets are pruned once expired (no unbounded growth)', () => {
+    resetRateLimits();
+    // 200 distinct identities hammer the limiter inside one window.
+    for (let i = 0; i < 200; i++) {
+      rateAllow(`join:user${i}@ip`, 10, 60 * 1000, 1000);
+    }
+    expect(rateBucketCount()).toBe(200);
+    // Time passes; a wave of DIFFERENT identities drives the periodic prune,
+    // which must evict all 200 expired buckets.
+    for (let i = 0; i < 64; i++) {
+      rateAllow(`join:w2-${i}@ip`, 10, 60 * 1000, 61 * 1000 + i);
+    }
+    const survivors = rateBucketCount();
+    expect(survivors).toBeLessThan(65);
+    resetRateLimits();
   });
 
   test('register is rate limited per IP', async () => {

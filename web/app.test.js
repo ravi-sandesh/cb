@@ -378,6 +378,10 @@ describe('accessibility behaviors', () => {
   function rewiringBoot() {
     // Ensure the standard globals (window/document/T/engine/sound) exist.
     fresh();
+    // Some suites save/restore or DELETE the global seams; always re-pin the
+    // canonical mock pair so the reloaded app.js binds to the right objects.
+    globalThis.window = booted.w;
+    globalThis.document = booted.document;
     jest.resetModules();
     // Transport stub: online actions must be no-throw without a server.
     globalThis.window.OnlineClient = {
@@ -435,6 +439,24 @@ describe('accessibility behaviors', () => {
     expect(find({ id: 'x', parentElement: { id: 'y', parentElement: null } })).toBeNull();
     expect(find({})).toBeNull();
     expect(find(null)).toBeNull();
+  });
+
+  test('the document click listener routes through the target walk', () => {
+    const document = rewiringBoot();
+    // Spy the exported handler: proves walk -> dispatch -> window call.
+    const calls = [];
+    const original = globalThis.window.setGridSize;
+    globalThis.window.setGridSize = (...a) => calls.push(a);
+    try {
+      // eslint-disable-next-line no-console
+      document.fireDocClick({ id: 'btn-grid-7' }); // element passed directly
+      expect(calls).toEqual([[7]]);
+      // Walk terminates at null for id-less targets without throwing.
+      expect(() => document.fireDocClick({})).not.toThrow();
+      expect(calls).toEqual([[7]]); // still exactly one dispatch
+    } finally {
+      globalThis.window.setGridSize = original;
+    }
   });
   // Drive a deterministic roll with moves, then hand back the harness.
   function startWithMoves(w) {

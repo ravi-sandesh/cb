@@ -206,10 +206,9 @@ function handleBoardKeydown(e) {
         if (boardCursor.row >= 0) actOnCell(boardCursor.row, boardCursor.col);
         return;
     }
-    // Direction lookup keeps the movement logic branch-light: every arrow
-    // moves the cursor (revealing it on first use), clamped to the grid.
+    // Direction lookup: every key reaching this point is an arrow (the
+    // whitelist above filtered everything else), so the map hit is total.
     const dir = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[key];
-    if (!dir) return;
     if (boardCursor.row < 0) {
         const start = getPlayerPath(currentGridSize, currentPlayerIndex)[0];
         boardCursor.row = start[0];

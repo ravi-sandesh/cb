@@ -202,9 +202,21 @@ const REGISTER_RATE = { max: 5, windowMs: 60 * 1000 }; // 5 registers/min per IP
 const rateBuckets = new Map(); // key -> { count, firstAt }
 
 // Returns true when the action is ALLOWED under the window budget.
+// Expired buckets are purged periodically (every 64 new-key inserts) so
+// unique identities cannot grow the map without bound on a long-running
+// process.
+let rateInsertionsSincePrune = 0;
+
 function rateAllow(key, max, windowMs, now = Date.now()) {
   let bucket = rateBuckets.get(key);
-  if (!bucket || now - bucket.firstAt >= windowMs) {
+  const isNewKey = !bucket || now - bucket.firstAt >= windowMs;
+  if (isNewKey) {
+    if (++rateInsertionsSincePrune >= 64) {
+      rateInsertionsSincePrune = 0;
+      for (const [k, b] of rateBuckets) {
+        if (now - b.firstAt >= windowMs) rateBuckets.delete(k);
+      }
+    }
     rateBuckets.set(key, { count: 1, firstAt: now });
     return true;
   }
@@ -212,7 +224,13 @@ function rateAllow(key, max, windowMs, now = Date.now()) {
   return bucket.count <= max;
 }
 
-function resetRateLimits() { rateBuckets.clear(); }
+// Test seam: exposes the live bucket count.
+function rateBucketCount() { return rateBuckets.size; }
+
+function resetRateLimits() {
+  rateInsertionsSincePrune = 0;
+  rateBuckets.clear();
+}
 
 function identityKey(req, session) {
   const ip = (req.socket && req.socket.remoteAddress) || 'unknown';
@@ -284,4 +302,4 @@ if (require.main === module) {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
-module.exports = { createOnlineServer, makeRoomCode, bearer, startOnlineServer, sweepTick, rateAllow, resetRateLimits };
+module.exports = { createOnlineServer, makeRoomCode, bearer, startOnlineServer, sweepTick, rateAllow, rateBucketCount, resetRateLimits };
