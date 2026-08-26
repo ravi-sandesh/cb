@@ -813,7 +813,9 @@ function renderCowryShells(shells) {
     container.innerHTML = '';
     const n = shells ? shells.length : numShells();
     for (let i = 0; i < n; i++) {
-        const isOpen = shells ? shells[i] : (i % 2 === 0);
+        // No roll yet: all shells closed (an alternating pattern would look
+        // like a legitimate roll result to the player).
+        const isOpen = shells ? (shells[i] || false) : false;
         const div = document.createElement('div');
         div.className = `shell ${isOpen ? 'open' : 'closed'}`;
         container.appendChild(div);
