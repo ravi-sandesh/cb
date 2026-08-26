@@ -132,12 +132,46 @@ class GameSnapshotTest {
     }
 
     @Test
-    fun restoreReproducesAStoredWinner() {
+    fun restoreRejectsWinnerDeclaredWithUnfinishedPawns() {
+        // A crafted snapshot claims victory for player 0 while two of their
+        // pawns are still on track - an impossible state the engine can only
+        // reach through a genuine win. Restore must reject it outright.
         val source = newEngine()
-        val tampered = GameSnapshotCodec.decode(GameSnapshotCodec.encode(source.snapshot()))
-            .copy(winnerIndex = 1)
+        source.hasCapturedOpponent[0] = true
+        val gate = TrackBuilder.innerGateIndex(GridSize.FIVE_BY_FIVE)
+        val pawns = List(8) { id ->
+            when {
+                id == 0 -> PawnSnapshot(id, PawnState.ON_TRACK, gate - 1)
+                id < 4 -> PawnSnapshot(id, PawnState.ON_TRACK, 5)
+                else -> PawnSnapshot(id, PawnState.HOME_BASE, -1)
+            }
+        }
+        val inconsistent = GameSnapshot(0, 0, 0, pawns, mapOf(0 to true, 1 to false),
+            RollSnapshot(listOf(true, true, true, true)))
         val target = newEngine()
-        assertTrue(target.restore(tampered))
+        assertFalse(target.restore(inconsistent),
+            "winner without all-finished pawns must be rejected")
+        // Target untouched.
+        assertEquals(-1, GameSnapshotCodec.decode(GameSnapshotCodec.encode(target.snapshot())).winnerIndex)
+        assertTrue(source.pawns.isNotEmpty()) // source untouched sanity
+    }
+
+
+    @Test
+    fun restoreReproducesAStoredWinner() {
+        // A legitimately FINISHED match: every seat-1 pawn is home, so a
+        // stored winner declaration for seat 1 is consistent and restorable.
+        val path = TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 1)
+        val last = path.lastIndex
+        val pawns = List(8) { id ->
+            when {
+                id in 4..7 -> PawnSnapshot(id, PawnState.FINISHED, last)
+                else -> PawnSnapshot(id, PawnState.HOME_BASE, -1)
+            }
+        }
+        val finished = GameSnapshot(1, -1, 1, pawns, mapOf(0 to false, 1 to false), null)
+        val target = newEngine()
+        assertTrue(target.restore(finished))
         assertEquals(PlayerColor.GREEN, target.winner)
         assertNull(target.currentRoll)
         assertTrue(target.validMoves.isEmpty())

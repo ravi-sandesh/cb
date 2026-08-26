@@ -394,6 +394,15 @@ class GameEngine(
             require(snapshot.winnerIndex == -1 || snapshot.winnerIndex in playerColors.indices) {
                 "Bad winner index ${snapshot.winnerIndex}"
             }
+            // A declared winner must be CONSISTENT with the pawn states: every
+            // pawn of that seat must be FINISHED. Anything else is an injected
+            // impossible state (victory dialog over a live board).
+            if (snapshot.winnerIndex != -1) {
+                val allFinished = pawns.all {
+                    it.playerIndex != snapshot.winnerIndex || it.state == PawnState.FINISHED
+                }
+                require(allFinished) { "Winner declared with unfinished pawns" }
+            }
             val roll = snapshot.currentRoll?.let {
                 require(it.shells.size == numCowries) { "Bad shell count ${it.shells.size}" }
                 scoreShells(it.shells).let { res -> CowryResult(res.shells, res.score, res.isExtraRoll, res.label) }
