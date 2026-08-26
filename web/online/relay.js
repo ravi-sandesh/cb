@@ -254,8 +254,6 @@ class Relay {
   // seat 1 — so a reconnecting host can never be demoted to guest just
   // because their socket re-attached after someone else's.
   attach(conn, room) {
-    // A reconnecting player cancels any pending room-close timer.
-    this.cancelRoomClose(room);
     if (conn.room) { this.sendErr(conn, 'already-in-room'); return; }
     // Same user already seated from another (still-live) socket.
     for (const [, seated] of room.sockets) {
@@ -274,6 +272,11 @@ class Relay {
       this.sendErr(conn, 'not-invited');
       return;
     }
+
+    // All checks passed — NOW cancel the pending close timer. Cancelling
+    // before validation would let a rejected probe permanently extend the
+    // room's lifetime (leak).
+    this.cancelRoomClose(room);
 
     conn.room = room;
     conn.seat = seat;

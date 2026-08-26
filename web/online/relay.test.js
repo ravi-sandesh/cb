@@ -879,6 +879,27 @@ describe('Relay teardown', () => {
     expect(relay.rooms.has('ROOM01')).toBe(true);
   });
 
+  test('rejected attach does NOT cancel the grace-period close timer', async () => {
+    const alice = await makeUser('alice');
+    const bob = await makeUser('bob');
+    const carol = await makeUser('carol');
+    relay = freshRelay({ resumeGraceMs: 40 });
+    openRoom('ROOM01', alice.user.id, bob.user.id);
+
+    const host = connect(alice.token);
+    host.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    host.emit('close'); // room enters grace (host was sole occupant)
+
+    // Stranger probes the room — gets rejected but must NOT cancel the timer.
+    const intruder = connect(carol.token);
+    intruder.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(received(intruder).at(-1)).toEqual({ type: 'error', code: 'not-invited' });
+
+    // After grace expires, the room is discarded despite the probe.
+    await new Promise((r) => setTimeout(r, 80));
+    expect(relay.rooms.has('ROOM01')).toBe(false);
+  });
+
   test('leaving an occupied room broadcasts member-count and peer-left', async () => {
     const alice = await makeUser('alice');
     const bob = await makeUser('bob');
