@@ -274,6 +274,9 @@ function restoreMutePreference() {
     try {
         if (typeof Sound !== 'undefined' && typeof localStorage !== 'undefined' && localStorage.getItem(MUTED_KEY) === '1') {
             Sound.setMuted(true);
+            // Sync the button icon so it doesn't show 🔊 while actually muted.
+            const btn = document.getElementById('btn-mute');
+            if (btn) btn.innerText = '🔇';
         }
     } catch (e) { /* storage unavailable (private mode) */ }
 }
