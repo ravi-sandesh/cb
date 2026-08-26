@@ -1340,10 +1340,12 @@ function dispatchClickById(id) {
 }
 
 // Nearest actionable ancestor (or null): pure walk, unit-testable.
+// Skips disabled controls so a programmatic .click() on a disabled button
+// cannot bypass the browser's built-in suppression.
 function findClickTarget(target) {
     let t = target;
     while (t) {
-        if (t.id && CLICK_ACTIONS[t.id]) return t;
+        if (t.id && !t.disabled && CLICK_ACTIONS[t.id]) return t;
         t = t.parentElement || null;
     }
     return null;
