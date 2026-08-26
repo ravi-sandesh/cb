@@ -357,6 +357,9 @@ async function onlineLogout() {
     if (oc) await oc.logout();
     onlineSeat = -1;
     onlineMemberCount = 0;
+    // If we were mid-game, properly exit to home so the player isn't left
+    // staring at a dead board with no opponent and a disconnected socket.
+    if (gameActive) showHomeScreen();
     refreshOnlineSections();
 }
 
