@@ -204,6 +204,43 @@ describe('online-client reconnect + resume', () => {
     
   });
 
+  test('give-up does NOT permanently suppress reconnection for a NEW room', async () => {
+    const c = bootFresh();
+    c.onStatus(() => {});
+    await c.register('amy', 'pw');
+
+    jest.useFakeTimers();
+    try {
+      // Room 1: initial dial works, then the server becomes unreachable.
+      await c.createRoom(5);
+      wsInstances[0].open();
+      wsInstances[0].drop(1006);
+
+      // Every redial also fails immediately (never reaches OPEN).
+      // Attempts climb 1..7 until the budget trips.
+      for (let i = 0; i < 12; i++) {
+        jest.advanceTimersByTime(20000); // fire the backoff timer -> redial
+        const cur = wsInstances[wsInstances.length - 1];
+        cur.drop(1006); // immediate failure (server unreachable)
+      }
+      const countAfterGiveUp = wsInstances.length;
+      // Confirm suppressed.
+      jest.advanceTimersByTime(60000);
+      expect(wsInstances.length).toBe(countAfterGiveUp);
+
+      // Server comes back; user joins a DIFFERENT room. Successful open
+      // must clear the suppression so future drops reconnect normally.
+      await c.joinRoom('NEWROOM');
+      const fresh = wsInstances[wsInstances.length - 1];
+      fresh.open();
+      fresh.drop(1006);
+      jest.advanceTimersByTime(20000);
+      expect(wsInstances.length).toBeGreaterThan(countAfterGiveUp + 1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('a clean close (1000) never triggers reconnection', async () => {
     const c = bootFresh();
     c.onStatus(() => {});

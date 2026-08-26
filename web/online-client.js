@@ -186,6 +186,10 @@ function connect(wsPath, roomCode) {
     ws.onopen = () => {
       state.connected = true;
       state.reconnectAttempts = 0;
+      // A successful connection clears any previous give-up suppression —
+      // otherwise one bad patch permanently killed reconnection even for
+      // future rooms the user joined afterwards.
+      state.giveUpReconnect = false;
       // The HttpOnly session cookie attaches to this same-origin upgrade
       // automatically — the relay treats us as authenticated at handshake,
       // so the room join can go out immediately.
