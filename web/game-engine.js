@@ -185,7 +185,10 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
         const { pawns: grpPawns, pathIndex: curIdx } = group;
         const isHome = curIdx === -1;
 
-        let nextIdx = isHome ? (score - 1) : (curIdx + score);
+        // A home pawn entering the track moves `score` steps from the start
+        // cell (path[0]) — same distance an on-track pawn covers from its
+        // current position. With score=2, both land at path[2].
+        let nextIdx = isHome ? score : (curIdx + score);
 
         if (nextIdx >= path.length) {
             T.trace('engine.move', 'move.overshoot_skipped', `Group at idx ${curIdx} + ${score} overshoots path (len ${path.length})`,

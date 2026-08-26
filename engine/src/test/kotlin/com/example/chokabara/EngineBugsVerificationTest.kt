@@ -175,8 +175,8 @@ class EngineBugsVerificationTest {
     fun bug04_homeEntryNeverReachesGate() {
         val engine = GameEngine(gridSize = GridSize.SEVEN_BY_SEVEN)
         engine.forceMoves(12)                       // max Baara entry on 7x7
-        // entry index = 12 - 1 = 11 < gate 24 -> the gate branch can never fire
-        assertTrue(engine.validMoves.all { it.targetPathIndex == 11 })
+        // entry index = 12 < gate 24 -> the gate branch can never fire
+        assertTrue(engine.validMoves.all { it.targetPathIndex == 12 })
     }
 
     // ============================================================

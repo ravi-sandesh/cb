@@ -182,8 +182,8 @@ describe('calculateValidMoves – Basic Movement', () => {
     expect(moves.length).toBe(2);
     // each move is a single-pawn group (fix #1: no mega-home-gatti)
     expect(moves.every(m => m.grpPawns.length === 1)).toBe(true);
-    // score 3 → nextIdx = 2
-    expect(moves.every(m => m.targetPathIndex === 2)).toBe(true);
+    // score 3 → nextIdx = 3 (home pawn moves `score` steps from start)
+    expect(moves.every(m => m.targetPathIndex === 3)).toBe(true);
   });
 
   test('ON_TRACK pawn moves forward by score', () => {
@@ -353,7 +353,7 @@ describe('executeMove – Core Execution', () => {
     const result = executeMove(5, pawns, {0:true,1:false}, 0, moves[0], { isExtraRoll: false });
     const out = result.pawns.filter(p => p.state === 'ON_TRACK' && p.playerIndex === 0);
     expect(out).toHaveLength(1); // ONLY one exited
-    expect(out[0].pathIndex).toBe(2); // score 3 - 1 = 2
+    expect(out[0].pathIndex).toBe(3); // home pawn moves `score` steps from start
   });
 
   test('does NOT move opponent pawns during execution', () => {

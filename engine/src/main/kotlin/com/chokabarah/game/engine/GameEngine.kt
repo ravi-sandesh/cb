@@ -110,9 +110,10 @@ fun calculateValidMoves(
         val grp = groups.getValue(key)
         val isHome = key.startsWith("HOME")
         val curIdx = if (isHome) -1 else key.toInt()
-        // A home pawn enters the track at its starting cell (index 0) and then advances
-        // the remaining (roll-1) steps → lands at path[score - 1].
-        val nextIdx = if (isHome) score - 1 else curIdx + score
+        // A home pawn entering the track moves `score` steps from the start
+        // cell (path[0]) — same distance an on-track pawn covers from its
+        // current position. With score=2, both land at path[2].
+        val nextIdx = if (isHome) score else curIdx + score
 
         if (nextIdx < 0 || nextIdx >= path.size) {
             Telemetry.trace("engine", "move.overshoot_skipped",

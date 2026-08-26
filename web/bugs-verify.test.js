@@ -127,7 +127,7 @@ describe('BUG-04 (informational) HOME entry can never hit the inner gate', () =>
     test('on 7x7 a fresh player has HOME-entry moves even past the gate-equivalent (score 12)', () => {
         const st = createInitialState(7, 2);
         const mv = calculateValidMoves(7, st.pawns, 0, st.hasCapturedOpponent, 12);
-        expect(mv.every(m => m.targetPathIndex === 11)).toBe(true); // 12-1
+        expect(mv.every(m => m.targetPathIndex === 12)).toBe(true); // score 12
         expect(mv.length).toBe(4);
     });
 });

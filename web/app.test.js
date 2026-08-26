@@ -702,11 +702,11 @@ describe('board canvas tap handling', () => {
     const { w, canvas } = fresh();
     w.setGameMode('pnp'); // isolate from bot-mode leakage set by earlier tests
     w.startGame();
-    // Score 1 (one cowry open) lets a HOME_BASE pawn move to path[0] = (4,2).
+    // Score 1 (one cowry open) lets a HOME_BASE pawn move to path[1] = (4,3).
     useScriptedRandom([0.6, 0.1, 0.1, 0.1]);
     w.handleRoll();
     expect(holder.docEls['btn-roll'].disabled).toBe(true);
-    expect(() => tapCell(canvas, 4, 2)).not.toThrow();
+    expect(() => tapCell(canvas, 4, 3)).not.toThrow();
     // Move executed: turn advanced to player 1 without an extra roll.
     expect(holder.docEls['game-log']._innerText).toContain("Green (North)'s turn");
     expect(holder.docEls['btn-roll'].disabled).toBe(false);
@@ -729,9 +729,9 @@ describe('board canvas tap handling', () => {
     // Human (P0) rolls score 1 and moves, advancing to the bot (P1).
     useScriptedRandom([0.6, 0.1, 0.1, 0.1]);
     w.handleRoll();
-    tapCell(canvas, 4, 2);
+    tapCell(canvas, 4, 3);
     expect(holder.docEls['turn-text']._innerText).toContain('🤖');
-    expect(() => tapCell(canvas, 4, 2)).not.toThrow();
+    expect(() => tapCell(canvas, 4, 3)).not.toThrow();
   });
 
   test('a second roll while a roll is pending is ignored', () => {
@@ -781,8 +781,8 @@ describe('BUG-17 roll display lifecycle (fresh roll = blank readout)', () => {
     const disp = holder.docEls['roll-score-display'];
     expect(disp._innerText).toContain('EXTRA ROLL');
     expect(disp.classList._set['is-extra']).toBe(true);
-    // Execute the only kind of move available (HOME -> path[3] = (3,4)).
-    tapCell(canvas, 3, 4);
+    // Execute the only kind of move available (HOME -> path[4] = (2,4)).
+    tapCell(canvas, 2, 4);
     // Extra turn keeps the same player; the consumed roll is gone.
     expect(holder.docEls['turn-text']._innerText).toContain('Red (South)');
     expect(disp._innerText).toBe('');
@@ -799,7 +799,7 @@ describe('BUG-17 roll display lifecycle (fresh roll = blank readout)', () => {
     w.startGame();
     useScriptedRandom([0.6, 0.1, 0.1, 0.1]); // score 1, no extra roll
     w.handleRoll();
-    tapCell(canvas, 4, 2); // HOME -> path[0] = (4,2)
+    tapCell(canvas, 4, 3); // HOME -> path[1] = (4,3)
     const disp = holder.docEls['roll-score-display'];
     expect(holder.docEls['turn-text']._innerText).toContain('Green (North)');
     expect(disp._innerText).toBe('');
