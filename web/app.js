@@ -407,6 +407,8 @@ function applyServerBoard(board) {
     // Hostile/buggy relay hardening: never trust numeric fields. A bad value
     // here used to crash the tab (undefined .hex) or hang the renderer.
     currentGridSize = (board.gridSize === 5 || board.gridSize === 7) ? board.gridSize : currentGridSize;
+    // Keep the board-title in sync when gridSize changes mid-match.
+    document.getElementById('board-title').innerText = `${currentGridSize}x${currentGridSize} CHOKA BARAH - ONLINE`;
     playerNum = (board.playerNum === 2 || board.playerNum === 3 || board.playerNum === 4) ? board.playerNum : 2;
     pawns = (board.pawns || []).map(p => Object.assign({}, p));
     hasCapturedOpponent = Object.assign({}, board.hasCapturedOpponent || {});

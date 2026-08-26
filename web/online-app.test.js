@@ -16,7 +16,8 @@ function makeCanvas(width) {
   const c = {
     width, height: width,
     _listeners: {},
-    _calls: calls
+    _calls: calls,
+    focus() {}
   };
   c.getContext = () => {
     return new Proxy({}, {
