@@ -383,10 +383,15 @@ function startOnlineGame() {
     onlineMemberCount = 2; // both seated; relay confirmed
     gameActive = true;
     clearScheduledTimers();
+    // Clear stale state from any previous local game: without this, the
+    // player briefly sees the OLD board's pawns/winner/cursor before the
+    // first server broadcast arrives.
+    initGameState();
     document.getElementById('home-screen').classList.remove('active');
     document.getElementById('game-screen').classList.add('active');
-    document.getElementById('board-title').innerText = `${currentGridSize}x${currentGridSize} CHOKA BARAH — ONLINE`;
+    document.getElementById('board-title').innerText = `${currentGridSize}x${currentGridSize} CHOKA BARAH - ONLINE`;
     Sound.play('game_start');
+    canvas.focus();
     renderBoard();
     updateUI();
 }
