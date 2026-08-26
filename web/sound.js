@@ -76,6 +76,10 @@ function createWebAudioSink(env) {
     play: function (effect) {
       try {
         if (!ctx) ctx = new Ctor();
+        // Browsers auto-suspend AudioContexts after tab inactivity or when
+        // created outside a gesture handler. Without resume() the context
+        // stays stuck and every sound is silently dropped.
+        if (ctx.state === 'suspended') ctx.resume();
         var now = ctx.currentTime;
         var osc = ctx.createOscillator();
         osc.type = 'sine';
