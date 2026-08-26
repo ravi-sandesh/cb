@@ -458,6 +458,21 @@ function applyServerBoard(board) {
     renderBoard();
     updateUI();
 
+    // Sound feedback for online events (parity with local executeMove path).
+    if (board.winner != null) {
+        Sound.play('victory');
+    } else if (board.capturedCount > 0) {
+        Sound.play('capture');
+    } else if (board.gattiFormed) {
+        Sound.play('gatti');
+    } else if (currentRoll !== null && currentRoll.isExtraRoll) {
+        Sound.play('extra_roll');
+    } else if (currentRoll !== null) {
+        Sound.play('roll');
+    } else {
+        Sound.play('move');
+    }
+
     const myTurn = (onlineSeat === currentPlayerIndex && winner === null);
     if (winner !== null) {
         setLog(`🎉 VICTORY! ${winner.name} has moved all 4 pawns to Center Home!`);
