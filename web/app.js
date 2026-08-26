@@ -424,7 +424,7 @@ function applyServerBoard(board) {
         isCapture: m.isCapture,
         reachesHome: m.reachesHome,
         isGattiGroup: !!m.isGattiGroup
-    }));
+    })).filter(m => m.grpPawns.length > 0); // drop moves referencing nonexistent pawns
     // Guard the seat index: a hostile/buggy relay could broadcast an
     // out-of-range winner, which must degrade to a placeholder — never throw.
     const rawWinner = (board.winner === null || board.winner === undefined)
