@@ -266,11 +266,27 @@ if (typeof document.addEventListener === 'function') {
     });
 }
 
-// Toggle sound mute (US-27). Reflects state in the mute button label.
+// Mute preference persistence (survives reloads; senior mode uses the same
+// localStorage pattern). Key mirrors the controller's on/off semantics.
+const MUTED_KEY = 'cb_muted';
+
+function restoreMutePreference() {
+    try {
+        if (typeof Sound !== 'undefined' && typeof localStorage !== 'undefined' && localStorage.getItem(MUTED_KEY) === '1') {
+            Sound.setMuted(true);
+        }
+    } catch (e) { /* storage unavailable (private mode) */ }
+}
+
+// Toggle sound mute (US-27). Reflects state in the mute button label and
+// persists the choice so a reload keeps the player's preference.
 function toggleMute() {
     const muted = Sound.toggleMute();
     const btn = document.getElementById('btn-mute');
     if (btn) btn.innerText = muted ? '🔇' : '🔊';
+    try {
+        if (typeof localStorage !== 'undefined') localStorage.setItem(MUTED_KEY, muted ? '1' : '0');
+    } catch (e) { /* storage unavailable */ }
     T.info('ui', 'sound.toggled', `Sound ${muted ? 'muted' : 'unmuted'}`, { muted });
     return muted;
 }
@@ -1328,5 +1344,8 @@ if (typeof document.addEventListener === 'function') {
         if (el) dispatchClickById(el.id);
     });
 }
+
+// Boot: restore persisted user preferences.
+restoreMutePreference();
 
 })();

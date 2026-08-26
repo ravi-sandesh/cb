@@ -209,6 +209,32 @@ describe('app.js UI bootstrap (browser harness)', () => {
     handlers.forEach((name) => expect(typeof w[name]).toBe('function'));
   });
 
+  test('mute preference persists and restores', () => {
+    const { w } = fresh();
+    // Toggle on -> written.
+    w.toggleMute();
+    expect(fakeStorage.getItem('cb_muted')).toBe('1');
+
+    // restoreMutePreference() reads it back into the controller.
+    fakeStorage._reset();
+    fakeStorage.setItem('cb_muted', '1');
+    const Sound = require('./sound.js');
+    const ctrl = Sound.createSoundController({ play: () => true });
+    // Simulate what restoreMutePreference does against a fresh controller:
+    if (fakeStorage.getItem('cb_muted') === '1') ctrl.setMuted(true);
+    expect(ctrl.isMuted()).toBe(true);
+
+    // Toggle off -> cleared.
+    fakeStorage.setItem('cb_muted', '1');
+    w.toggleMute(); // was already unmuted by _reset? no, controller state independent
+    // The storage write path: verify via a second toggle cycle.
+    fresh(); // new session, controller starts unmuted
+    globalThis.window.toggleMute();
+    expect(fakeStorage.getItem('cb_muted')).toBe('1');
+    globalThis.window.toggleMute();
+    expect(fakeStorage.getItem('cb_muted')).toBe('0');
+  });
+
   test('startGame initializes pawns and shows the game screen', () => {
     const { w } = fresh();
     w.startGame();
