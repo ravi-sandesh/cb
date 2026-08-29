@@ -8,7 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const { createServer, handleRequest, startServer, MIME, PORT, isForbidden } = require('./server.js');
+const { createServer, handleRequest, startServer, MIME, PORT, isForbidden, cacheControlFor } = require('./server.js');
 
 // Mock response whose end() settles a promise, so tests can await the
 // async fs.readFile callback inside handleRequest.
@@ -185,5 +185,43 @@ describe('startServer runtime path', () => {
       srv.close(() => done());
     });
     srv.on('error', () => done.fail('loopback bind failed'));
+  });
+});
+
+describe('static cache policy', () => {
+  test('HTML is never cached so asset references stay fresh', () => {
+    expect(cacheControlFor('/index.html', '.html')).toBe('no-cache');
+    expect(cacheControlFor('/', '.html')).toBe('no-cache');
+  });
+
+  test('plain assets are cacheable for the configured max-age (default 1h)', () => {
+    const prev = process.env.CB_STATIC_MAX_AGE;
+    delete process.env.CB_STATIC_MAX_AGE;
+    expect(cacheControlFor('/app.js', '.js')).toBe('public, max-age=3600');
+    expect(cacheControlFor('/sound.mp3', '.mp3')).toBe('public, max-age=3600');
+    process.env.CB_STATIC_MAX_AGE = prev;
+  });
+
+  test('CB_STATIC_MAX_AGE override is honoured', () => {
+    const prev = process.env.CB_STATIC_MAX_AGE;
+    process.env.CB_STATIC_MAX_AGE = '0';
+    expect(cacheControlFor('/app.js', '.js')).toBe('public, max-age=0');
+    process.env.CB_STATIC_MAX_AGE = '86400';
+    expect(cacheControlFor('/game-engine.js', '.js')).toBe('public, max-age=86400');
+    process.env.CB_STATIC_MAX_AGE = prev;
+  });
+
+  test('content-hashed assets are immutable', () => {
+    expect(cacheControlFor('/app.ab12cd34.js', '.js')).toBe('public, max-age=31536000, immutable');
+  });
+
+  test('200 responses carry the asset cache header while error responses stay no-cache', async () => {
+    const ok = await request('/app.js');
+    expect(ok._status).toBe(200);
+    expect(ok._headers['Cache-Control']).toBe('public, max-age=3600');
+    expect(ok._headers['Content-Security-Policy']).toBeDefined();
+    const missing = await request('/does-not-exist.js');
+    expect(missing._status).toBe(404);
+    expect(missing._headers['Cache-Control']).toBe('no-cache');
   });
 });

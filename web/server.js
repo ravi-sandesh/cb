@@ -58,6 +58,19 @@ const SECURITY_HEADERS = {
   'Cache-Control': 'no-cache'
 };
 
+// Per-asset Cache-Control. HTML stays no-cache so it always re-fetches the
+// latest asset references; content-hashed assets are immutable; everything else
+// is cacheable for CB_STATIC_MAX_AGE seconds (default 1h) to avoid re-fetching
+// app.js / game-engine.js / audio on every repeat visit.
+function cacheControlFor(urlPath, ext) {
+  if (ext === '.html') return 'no-cache';
+  const base = path.basename(urlPath);
+  if (/\.[0-9a-f]{8,}\.[^.]+$/.test(base)) return 'public, max-age=31536000, immutable';
+  const env = Number(process.env.CB_STATIC_MAX_AGE);
+  const seconds = Number.isFinite(env) && env >= 0 ? env : 3600;
+  return `public, max-age=${seconds}`;
+}
+
 function handleRequest(req, res) {
   let urlPath;
   try { urlPath = decodeURIComponent(req.url.split('?')[0]); } catch (e) { urlPath = '/'; }
@@ -76,7 +89,11 @@ function handleRequest(req, res) {
   fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404, SECURITY_HEADERS); res.end('Not found'); return; }
     const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, Object.assign({ 'Content-Type': MIME[ext] || 'application/octet-stream' }, SECURITY_HEADERS));
+    const cacheControl = cacheControlFor(urlPath, ext);
+    res.writeHead(200, Object.assign({}, SECURITY_HEADERS, {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Cache-Control': cacheControl
+    }));
     res.end(data);
   });
 }
@@ -99,4 +116,4 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = { createServer, handleRequest, startServer, MIME, PORT, SECURITY_HEADERS, isForbidden };
+module.exports = { createServer, handleRequest, startServer, MIME, PORT, SECURITY_HEADERS, isForbidden, cacheControlFor };
