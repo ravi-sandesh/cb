@@ -5,8 +5,13 @@
 // T is a no-op logger when telemetry is disabled / absent.
 // ============================================================
 
-// ---- Telemetry (zero-cost when disabled) ----
-const T = (typeof window !== 'undefined' && window.Telemetry) || { info(){}, debug(){}, warn(){}, error(){}, trace(){}, startSpan(){}, endSpan(){} };
+// ---- Telemetry ----
+// TELEMETRY_ENABLED gates the logging calls on the hot path. The message
+// template literals and structured-field objects are only built when a
+// telemetry sink is attached; otherwise isSafeCell/getPawnsAtCoords (called
+// per cell / per pawn) skip that allocation entirely.
+const TELEMETRY_ENABLED = !!(typeof window !== 'undefined' && window.Telemetry);
+const T = (typeof window !== 'undefined' && window.Telemetry) || { enabled:false, info(){}, debug(){}, warn(){}, error(){}, trace(){}, startSpan(){}, endSpan(){} };
 
 // ---- Board Paths ----
 
@@ -85,7 +90,7 @@ function isSafeCell(gridSize, r, c) {
               (r===0&&c===3)||(r===3&&c===0)||(r===3&&c===6)||(r===6&&c===3)||
               (r===1&&c===1)||(r===1&&c===5)||(r===5&&c===1)||(r===5&&c===5)||
               (r===3&&c===3);
-    T.trace('engine.track', 'track.safe_cell_check', `Checked safe status of (${r},${c})`, { gridSize, row: r, col: c, isSafe: safe });
+    if (TELEMETRY_ENABLED) T.trace('engine.track', 'track.safe_cell_check', `Checked safe status of (${r},${c})`, { gridSize, row: r, col: c, isSafe: safe });
     return safe;
 }
 
@@ -142,7 +147,7 @@ function getPawnsAtCoords(gridSize, pawns, r, c, excludePawnId = null) {
         const coord = getPawnCoords(gridSize, p);
         return coord && coord[0] === r && coord[1] === c;
     });
-    T.trace('engine.move', 'move.pawns_at_coords', `Found ${found.length} pawns at (${r},${c})`, { row: r, col: c, count: found.length, ids: found.map(p => p.id) });
+    if (TELEMETRY_ENABLED) T.trace('engine.move', 'move.pawns_at_coords', `Found ${found.length} pawns at (${r},${c})`, { row: r, col: c, count: found.length, ids: found.map(p => p.id) });
     return found;
 }
 
