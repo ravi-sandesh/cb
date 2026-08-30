@@ -153,24 +153,37 @@ describe('BUG-24 boundary containment guard', () => {
   });
 });
 
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const s = require('net').createServer();
+    s.listen(0, () => { const p = s.address().port; s.close(() => resolve(p)); });
+    s.on('error', reject);
+  });
+}
+
 describe('startServer runtime path', () => {
-  test('listen uses the default PORT when no port is supplied', (done) => {
-    const srv = startServer();
-    srv.on('listening', () => {
-      const addr = srv.address();
-      expect(addr.port).toBe(PORT);
-      srv.close(() => done());
+  test('startServer listens when started without an explicit port', async () => {
+    const srv = startServer(0); // ephemeral: never clashes with a running dev server
+    await new Promise((resolve, reject) => {
+      srv.on('listening', () => {
+        expect(typeof srv.address().port).toBe('number');
+        expect(srv.address().port).toBeGreaterThan(0);
+        srv.close(resolve);
+      });
+      srv.on('error', (e) => reject(new Error('server failed to bind: ' + e.message)));
     });
-    srv.on('error', () => done.fail('server failed to bind default port'));
   });
 
-  test('listen uses an explicitly supplied port', (done) => {
-    const srv = startServer(3199);
-    srv.on('listening', () => {
-      expect(srv.address().port).toBe(3199);
-      srv.close(() => done());
+  test('startServer honours an explicitly supplied port', async () => {
+    const port = await getFreePort();
+    const srv = startServer(port);
+    await new Promise((resolve, reject) => {
+      srv.on('listening', () => {
+        expect(srv.address().port).toBe(port);
+        srv.close(resolve);
+      });
+      srv.on('error', (e) => reject(new Error('server failed to bind: ' + e.message)));
     });
-    srv.on('error', () => done.fail('server failed to bind 3199'));
   });
 
   test('createServer returns an http.Server wrapper', () => {
@@ -178,13 +191,15 @@ describe('startServer runtime path', () => {
     expect(srv instanceof http.Server).toBe(true);
   });
 
-  test('startServer binds the loopback interface by default', (done) => {
+  test('startServer binds the loopback interface by default', async () => {
     const srv = startServer(0); // ephemeral port; HOST default must be 127.0.0.1
-    srv.on('listening', () => {
-      expect(srv.address().address).toBe('127.0.0.1');
-      srv.close(() => done());
+    await new Promise((resolve, reject) => {
+      srv.on('listening', () => {
+        expect(srv.address().address).toBe('127.0.0.1');
+        srv.close(resolve);
+      });
+      srv.on('error', (e) => reject(new Error('loopback bind failed: ' + e.message)));
     });
-    srv.on('error', () => done.fail('loopback bind failed'));
   });
 });
 

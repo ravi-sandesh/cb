@@ -8,13 +8,20 @@
 'use strict';
 const { test, expect } = require('@playwright/test');
 
-async function rollUntilMoves(page, attempts = 8) {
+async function rollUntilMoves(page, attempts = 20) {
   // Roll with the KEYBOARD only. A dead roll auto-passes the turn; with two
   // human seats the other player simply rolls again until moves exist.
   for (let i = 0; i < attempts; i++) {
     await page.focus('#btn-roll');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(400);
+    // Wait until the roll has actually resolved in the log (or a dead-roll
+    // notice) instead of a fixed delay, so we never read a stale log.
+    await page.waitForFunction(
+      () => /Rolled|Score|Select a pawn|No valid moves|VICTORY/i.test(
+        (document.getElementById('game-log') || {}).innerText || ''),
+      { timeout: 3000 }
+    ).catch(() => {});
+    await page.waitForTimeout(120);
     const log = await page.textContent('#game-log');
     if (/Select a pawn|select/i.test(log) && !(await noMovesLogged(page))) return true;
   }

@@ -104,8 +104,12 @@ function createServer() {
 
 function startServer(listenPort) {
   const srv = createServer();
-  srv.listen(listenPort || PORT, HOST, () => {
-    console.log(`Choka Barah static server on http://${HOST}:${listenPort || PORT}`);
+  // 0 means "ephemeral port" — don't let `|| PORT` treat it as falsy and
+  // fall through to the fixed default (that also lets tests bind freely
+  // without clashing with a server already on PORT).
+  const port = (listenPort === undefined || listenPort === null) ? PORT : listenPort;
+  srv.listen(port, HOST, () => {
+    console.log(`Choka Barah static server on http://${HOST}:${port}`);
   });
   return srv;
 }
