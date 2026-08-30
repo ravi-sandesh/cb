@@ -28,6 +28,16 @@ body {
     overflow: hidden;
 }
 
+/* Responsive breakpoints: the board is JS-sized to fit the container, so
+   widening .app-container on larger viewports lets the board grow instead of
+   sitting in a fixed 480px column. (Mobile/narrow stays at 480px.) */
+@media (min-width: 600px)  { .app-container { max-width: 540px; } }
+@media (min-width: 768px)  { .app-container { max-width: 680px; } }
+@media (min-width: 1024px) {
+    .app-container { max-width: 880px; max-height: none; }
+}
+@media (min-width: 1440px) { .app-container { max-width: 1040px; } }
+
 .screen {
     display: none;
     flex-direction: column;
@@ -291,6 +301,7 @@ body.senior-mode .online-code-display { font-size: 16px; }
 .board-wrapper {
     width: 100%;
     aspect-ratio: 1;
+    flex: 0 0 auto;          /* never let the flex column squash it non-square */
     background: #12100E;
     border-radius: 12px;
     border: 3px solid #5D4037;
@@ -302,6 +313,7 @@ body.senior-mode .online-code-display { font-size: 16px; }
     width: 100%;
     height: 100%;
     display: block;
+    touch-action: manipulation; /* snappier taps, no double-tap zoom delay */
 }
 
 /* Keyboard play: the canvas is focusable (tabindex=0); make focus visible. */

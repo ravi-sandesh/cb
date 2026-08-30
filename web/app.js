@@ -86,6 +86,12 @@ let onlineBoardReady = false; // at least one authoritative board has been appli
 const canvas = document.getElementById('board-canvas');
 const ctx    = canvas.getContext('2d');
 
+// Display size of the board in CSS pixels (drives renderBoard) and the device
+// pixel ratio used for the canvas backing store. Sized by syncBoardSize() so
+// the board stays square on every viewport and crisp on hi-DPI screens.
+let boardCssSize = 500;
+let boardDpr = 1;
+
 // ---- Navigation helpers ----
 function setGridSize(s) {
     T.info('ui', 'config.grid_size_changed', `Grid size set to ${s}x${s}`, { from: currentGridSize, to: s });
@@ -168,7 +174,7 @@ function startGame() {
     document.getElementById('game-screen').classList.add('active');
     document.getElementById('board-title').innerText = `${currentGridSize}x${currentGridSize} CHOKA BARAH`;
     initGameState();
-    renderBoard();
+    syncBoardSize();
     Sound.play('game_start');
     // Keyboard play: focus the canvas so arrows work immediately.
     canvas.focus();
@@ -235,19 +241,51 @@ function actOnCell(row, col) {
     if (move) executeMove(move);
 }
 
-canvas.addEventListener('click', e => {
+// Touch / pointer input: handle the move on `pointerup` so taps are snappy
+// (pointer events carry no legacy 300ms click delay once touch-action is set).
+// A scroll/drag is canceled by the browser (pointercancel) and therefore never
+// triggers a move. We still keep the `click` listener for assistive tech
+// (switch control, some screen readers) that activates via click without
+// emitting pointer events; the flag below stops the trailing click from
+// double-moving after a real pointer tap.
+let _boardPointerHandled = false;
+
+function cellFromEvent(e) {
     const rect   = canvas.getBoundingClientRect();
     const scaleX = canvas.width  / rect.width;
     const scaleY = canvas.height / rect.height;
     const x      = (e.clientX - rect.left) * scaleX;
     const y      = (e.clientY - rect.top)  * scaleY;
     const cs     = canvas.width / currentGridSize;
-
     const col = Math.min(Math.floor(x / cs), currentGridSize - 1);
     const row = Math.min(Math.floor(y / cs), currentGridSize - 1);
+    return { row, col };
+}
+
+canvas.addEventListener('pointerup', e => {
+    if (e.button !== undefined && e.button !== 0) return; // primary only
+    _boardPointerHandled = true;
+    const { row, col } = cellFromEvent(e);
+    actOnCell(row, col);
+});
+canvas.addEventListener('pointercancel', () => { _boardPointerHandled = false; });
+canvas.addEventListener('click', e => {
+    if (_boardPointerHandled) { _boardPointerHandled = false; return; }
+    const { row, col } = cellFromEvent(e);
     actOnCell(row, col);
 });
 canvas.addEventListener('keydown', handleBoardKeydown);
+
+// Keep the board square + crisp when the viewport changes (rotation, mobile
+// address-bar show/hide, window resize, switching devices). Debounced so it
+// doesn't thrash during a drag-resize.
+let _resizeTimer = null;
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('resize', () => {
+        if (_resizeTimer) clearTimeout(_resizeTimer);
+        _resizeTimer = setTimeout(syncBoardSize, 120);
+    });
+}
 
 // Modal keyboard support: Escape closes; Tab is trapped inside the dialog.
 // Guarded so the degraded-DOM boot paths (tests / exotic embeds) still load.
@@ -395,7 +433,7 @@ function startOnlineGame() {
     document.getElementById('board-title').innerText = `${currentGridSize}x${currentGridSize} CHOKA BARAH - ONLINE`;
     Sound.play('game_start');
     canvas.focus();
-    renderBoard();
+    syncBoardSize();
     updateUI();
 }
 
@@ -1122,8 +1160,39 @@ function setLog(msg) {
 // ============================================================
 // BOARD RENDERER (Canvas 2D)
 // ============================================================
+
+// Size the board to the largest square that fits both the wrapper width and
+// the vertical space left by the other screen sections, then make the canvas
+// backing store DPR-aware so it stays crisp on retina / hi-DPI phones.
+// The wrapper keeps an explicit square px size and is centered; this prevents
+// the flex column from squeezing it into a non-square (squished) box on mobile.
+function syncBoardSize() {
+    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return;
+    const wrap = document.querySelector('.board-wrapper');
+    if (!wrap || !canvas) return;
+    const cssW = wrap.clientWidth;
+    if (!cssW) return; // board not visible yet (e.g. home screen) — keep last size
+    const parent = wrap.parentElement;
+    let siblings = 0;
+    for (const child of parent.children) if (child !== wrap) siblings += child.offsetHeight;
+    const availH = parent.clientHeight - siblings;
+    const size = Math.max(160, Math.min(cssW, availH));
+    boardDpr = window.devicePixelRatio || 1;
+    boardCssSize = size;
+    wrap.style.width = size + 'px';
+    wrap.style.height = size + 'px';
+    wrap.style.margin = '0 auto';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.width = Math.round(size * boardDpr);
+    canvas.height = Math.round(size * boardDpr);
+    ctx.setTransform(boardDpr, 0, 0, boardDpr, 0, 0);
+    renderBoard();
+}
+
 function renderBoard() {
-    const size     = canvas.width;
+    ctx.setTransform(boardDpr, 0, 0, boardDpr, 0, 0);
+    const size     = boardCssSize;
     const cs       = size / currentGridSize; // cell size
     const centerR  = Math.floor(currentGridSize / 2);
     const centerC  = Math.floor(currentGridSize / 2);
