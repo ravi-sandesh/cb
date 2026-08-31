@@ -1,0 +1,8 @@
+{
+  "name": "choka-barah",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node web/online/online-server.js",
+    "test": "cd web && npm test"
+  }
+}

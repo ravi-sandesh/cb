@@ -1,0 +1,14 @@
+[build]
+  builder = "nixpacks"
+
+[deploy]
+  startCommand = "node web/online/online-server.js"
+  restartPolicyType = "always"
+  healthcheckPath = "/api/health"
+  healthcheckTimeout = 30
+
+[variables]
+  PORT = "${{RAILWAY_PORT}}"
+  HOST = "0.0.0.0"
+  NODE_ENV = "production"
+  ONLINE_DB = "./online.db"
