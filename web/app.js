@@ -75,6 +75,7 @@ let botTimer = null;      // handle of the scheduled bot turn
 let turnTimer = null;     // 1s auto-advance after a no-valid-moves roll (BUG-02)
 let victoryTimer = null;  // delayed victory banner after a win (BUG-03)
 let turnAdvanceLog = null; // "No valid moves" outcome preserved across the auto-advance (BUG-13)
+let prevActionLog = ''; // Previous player's action for senior accessibility
 let seniorMode = false;   // accessibility "Senior Mode" (bigger UI + relaxed pacing)
 
 // ---- Online mode state (web/online-client.js transport) ----
@@ -799,6 +800,8 @@ function handleRoll() {
     renderCowryShells(shells);
     const scoreDisplay = document.getElementById('roll-score-display');
     scoreDisplay.innerText = scoreText;
+    scoreDisplay.style.color = playerColors[currentPlayerIndex].hex;
+    scoreDisplay.style.fontWeight = 'bold';
     // US-06: highlight the roll when it grants an extra roll (Chowka/Baara).
     scoreDisplay.classList.toggle('is-extra', !!isExtraRoll);
 
@@ -810,7 +813,7 @@ function handleRoll() {
 
     if (validMoves.length === 0) {
         Sound.play('invalid');
-        setLog(`Rolled ${scoreText} — No valid moves!`);
+        setLog(`Previous: ${prevActionLog || 'None'}. Rolled ${scoreText} — No valid moves!`);
         T.info('engine', 'roll.no_valid_moves', `Player ${currentPlayerIndex} rolled ${score} with no valid moves`, { playerIndex: currentPlayerIndex, score, isExtraRoll });
         if (isExtraRoll) {
             currentRoll = null;
@@ -839,7 +842,7 @@ function handleRoll() {
             scheduleTurnTimer(1000);
         }
     } else {
-        setLog(`Rolled ${scoreText}! Select a pawn to move.`);
+        setLog(`Previous: ${prevActionLog || 'None'}. Rolled ${scoreText}! Select a pawn to move.`);
         document.getElementById('btn-roll').disabled = true;
     }
 
@@ -925,6 +928,8 @@ function executeMove(move) {
     else if (gattiFormed) Sound.play('gatti');
     else if (extraTurn) Sound.play('extra_roll');
     else Sound.play('move');
+
+    prevActionLog = `Player ${playerColors[currentPlayerIndex].name} ${capturedCount > 0 ? 'captured' : (gattiFormed ? 'formed Gatti' : (move.reachesHome ? 'reached home' : 'moved'))}`;
 
     if (capturedCount > 0) {
         T.info('engine', 'move.capture', `Player ${currentPlayerIndex} captured ${capturedCount} opponent pawns`, { byPlayer: currentPlayerIndex, targetCoords: move.targetCoords });
