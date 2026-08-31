@@ -50,7 +50,7 @@ const SECURITY_HEADERS = {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
     "font-src https://fonts.gstatic.com; " +
     "img-src 'self' data:; " +
-    "connect-src 'self' ws://localhost:* ws://127.0.0.1:*; " +
+    "connect-src 'self' ws://localhost:* ws://127.0.0.1:* wss://cb-production-68b3.up.railway.app; " +
     "object-src 'none'; frame-ancestors 'none'; base-uri 'self'",
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
