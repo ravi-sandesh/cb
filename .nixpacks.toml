@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["nodejs"]
+
+[phases.build]
+cmds = ["npm install || true"]
+
+[start]
+cmd = "node web/online/online-server.js"
