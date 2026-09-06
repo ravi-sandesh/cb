@@ -490,6 +490,7 @@ function applyServerBoard(board) {
             const sd = document.getElementById('roll-score-display');
             sd.innerText = String(currentRoll.scoreText);
             sd.classList.toggle('is-extra', !!currentRoll.isExtraRoll);
+            setRollSide(currentRoll.score, currentPlayerIndex, currentRoll.isExtraRoll);
         } else {
             renderCowryShells(null);
             clearRollDisplay();
@@ -701,6 +702,36 @@ function clearRollDisplay() {
         scoreDisplay.innerText = '';
         scoreDisplay.classList.remove('is-extra');
     }
+    clearRollSide();
+}
+
+// Big bold roll number on the mat's right side (senior readability): the
+// numeric score in the current player's color plus their name. Guarded like
+// clearRollDisplay so degraded-DOM boots (tests / exotic embeds) still load.
+function setRollSide(score, playerIndex, isExtra) {
+    const num = document.getElementById('roll-side-number');
+    const name = document.getElementById('roll-side-name');
+    if (!num || !name) return;
+    const pColor = playerColors[playerIndex] || { name: 'Unknown', hex: '#D7CCC8' };
+    num.innerText = String(score);
+    num.style.color = pColor.hex;
+    num.classList.toggle('is-extra', !!isExtra);
+    name.innerText = pColor.name;
+    name.style.color = pColor.hex;
+}
+
+function clearRollSide() {
+    const num = document.getElementById('roll-side-number');
+    const name = document.getElementById('roll-side-name');
+    if (num) {
+        num.innerText = '–';
+        num.style.color = '';
+        if (num.classList) num.classList.remove('is-extra');
+    }
+    if (name) {
+        name.innerText = '';
+        name.style.color = '';
+    }
 }
 
 // US-xx / BUG-06: in vs-bot mode player index 0 is ALWAYS the human; every
@@ -802,6 +833,7 @@ function handleRoll() {
     scoreDisplay.innerText = scoreText;
     scoreDisplay.style.color = playerColors[currentPlayerIndex].hex;
     scoreDisplay.style.fontWeight = 'bold';
+    setRollSide(score, currentPlayerIndex, isExtraRoll);
     // US-06: highlight the roll when it grants an extra roll (Chowka/Baara).
     scoreDisplay.classList.toggle('is-extra', !!isExtraRoll);
 
@@ -1175,18 +1207,47 @@ function syncBoardSize() {
     if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return;
     const wrap = document.querySelector('.board-wrapper');
     if (!wrap || !canvas) return;
-    const cssW = wrap.clientWidth;
-    if (!cssW) return; // board not visible yet (e.g. home screen) — keep last size
-    const parent = wrap.parentElement;
-    let siblings = 0;
-    for (const child of parent.children) if (child !== wrap) siblings += child.offsetHeight;
-    const availH = parent.clientHeight - siblings;
-    const size = Math.max(160, Math.min(cssW, availH));
+    // The mat now shares a flex row with the big roll readout (.board-zone).
+    // Size the mat against the space left beside the panel, not the full row.
+    const zone = (typeof wrap.closest === 'function') ? wrap.closest('.board-zone') : null;
+    let availW, availH, centerMat;
+    if (zone && typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+        const panel = (typeof zone.querySelector === 'function') ? zone.querySelector('.roll-side') : null;
+        const panelW = (panel && Number.isFinite(panel.offsetWidth)) ? panel.offsetWidth : 120;
+        const column = window.getComputedStyle(zone).flexDirection === 'column';
+        const screen = zone.parentElement;
+        let others = 0;
+        if (screen && screen.children) {
+            for (const child of screen.children) if (child !== zone) others += (child.offsetHeight || 0);
+        }
+        if (column || !panel) {
+            // Narrow screens: readout sits below the mat, so it costs vertical space.
+            availW = zone.clientWidth;
+            availH = (screen && Number.isFinite(screen.clientHeight) ? screen.clientHeight : Infinity)
+                - others - (panel ? (panel.offsetHeight || 0) : 0);
+            centerMat = true;
+        } else {
+            availW = (zone.clientWidth || 0) - panelW - 12;
+            availH = (screen && Number.isFinite(screen.clientHeight) ? screen.clientHeight : Infinity) - others;
+            centerMat = false;
+        }
+    } else {
+        availW = wrap.clientWidth;
+        const parent = wrap.parentElement;
+        let siblings = 0;
+        if (parent && parent.children) {
+            for (const child of parent.children) if (child !== wrap) siblings += (child.offsetHeight || 0);
+        }
+        availH = (parent && Number.isFinite(parent.clientHeight) ? parent.clientHeight : Infinity) - siblings;
+        centerMat = true;
+    }
+    if (!availW || availW <= 0) return; // board not visible yet (e.g. home screen) — keep last size
+    const size = Math.max(160, Math.min(availW, availH));
     boardDpr = window.devicePixelRatio || 1;
     boardCssSize = size;
     wrap.style.width = size + 'px';
     wrap.style.height = size + 'px';
-    wrap.style.margin = '0 auto';
+    wrap.style.margin = centerMat ? '0 auto' : '0';
     canvas.style.width = '100%';
     canvas.style.height = '100%';
     canvas.width = Math.round(size * boardDpr);

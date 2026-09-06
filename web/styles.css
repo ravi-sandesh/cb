@@ -297,7 +297,78 @@ body.senior-mode .online-code-display { font-size: 16px; }
     margin-bottom: 8px;
 }
 
-/* Board Wrapper */
+/* Board zone: the mat on the left, big roll readout on its right side. */
+.board-zone {
+    display: flex;
+    gap: 12px;
+    align-items: stretch;
+    width: 100%;
+    margin-bottom: 12px;
+}
+
+.board-zone > .board-wrapper {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    margin-bottom: 0;
+}
+
+.roll-side {
+    flex: 0 0 120px;
+    background: #2C241E;
+    border: 2px solid #5D4037;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 10px 6px;
+    text-align: center;
+}
+
+.roll-side-label {
+    color: #FFD54F;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.roll-side-number {
+    font-size: 64px;
+    font-weight: 800;
+    line-height: 1;
+    color: #D7CCC8;
+}
+
+.roll-side-number.is-extra {
+    text-shadow: 0 0 12px currentColor;
+}
+
+.roll-side-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: #D7CCC8;
+}
+
+/* Narrow screens: the readout drops below the mat instead of crowding it. */
+@media (max-width: 560px) {
+    .board-zone {
+        flex-direction: column;
+    }
+    .board-zone > .board-wrapper {
+        width: 100%;
+    }
+    .roll-side {
+        flex: none;
+        flex-direction: row;
+        gap: 10px;
+        padding: 8px 12px;
+    }
+    .roll-side-number {
+        font-size: 40px;
+    }
+}
 .board-wrapper {
     width: 100%;
     aspect-ratio: 1;
@@ -607,6 +678,13 @@ body.senior-mode .cowry-title      { font-size: 16px; }
 body.senior-mode .shell            { width: 58px; height: 68px; }
 body.senior-mode .btn-roll         { padding: 18px; font-size: 20px; width: 92%; }
 body.senior-mode .roll-score-display { font-size: 24px; }
+body.senior-mode .roll-side { flex-basis: 150px; }
+body.senior-mode .roll-side-label { font-size: 16px; }
+body.senior-mode .roll-side-number { font-size: 84px; }
+body.senior-mode .roll-side-name { font-size: 16px; }
+@media (max-width: 560px) {
+    body.senior-mode .roll-side-number { font-size: 52px; }
+}
 body.senior-mode .player-chip      { font-size: 16px; padding: 8px 16px; }
 
 /* Higher contrast microcopy that is otherwise dim. */

@@ -145,10 +145,17 @@
 
             <div id="game-log" class="game-log" role="status" aria-live="polite" aria-atomic="true">Game Started! Roll cowries to begin.</div>
 
-            <!-- Canvas Board Container -->
-            <div class="board-wrapper">
-                <canvas id="board-canvas" width="500" height="500" tabindex="0"
-                    aria-label="Choka Barah board. Use the arrow keys to move the cursor, then press Enter to move a pawn."></canvas>
+            <!-- Canvas Board Container + big roll readout on the mat's right side -->
+            <div class="board-zone">
+                <div class="board-wrapper">
+                    <canvas id="board-canvas" width="500" height="500" tabindex="0"
+                        aria-label="Choka Barah board. Use the arrow keys to move the cursor, then press Enter to move a pawn."></canvas>
+                </div>
+                <aside class="roll-side" aria-label="Last cowry roll" aria-live="polite" aria-atomic="true">
+                    <span class="roll-side-label">ROLLED</span>
+                    <span id="roll-side-number" class="roll-side-number">–</span>
+                    <span id="roll-side-name" class="roll-side-name"></span>
+                </aside>
             </div>
 
             <!-- Pawn Move Selector Bar -->
