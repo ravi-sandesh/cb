@@ -134,6 +134,7 @@ function doMove(state, candidate) {
     capturedCount: res.capturedCount,
     gattiFormed: res.gattiFormed,
     extraTurn: res.extraTurn,
+    reachesHome: !!matched.reachesHome,
     winner: res.winner
   };
 

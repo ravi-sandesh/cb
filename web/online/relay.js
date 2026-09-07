@@ -208,7 +208,14 @@ class Relay {
           this.db.appendMove(room.matchId, seq, moverIdx, JSON.stringify(msg.move || {}));
         } catch {}
         this.storeBoard(room);
-        this.broadcast(room, { type: 'board', board: serializeBoard(room.state) });
+        // Merge the move's event flags into the broadcast so clients can
+        // fire capture/Gatti/home sound + celebration cues (serializeBoard
+        // itself stays a pure state snapshot for persistence).
+        this.broadcast(room, { type: 'board', board: Object.assign(serializeBoard(room.state), {
+          capturedCount: mv.capturedCount,
+          gattiFormed: mv.gattiFormed,
+          reachesHome: mv.reachesHome
+        }) });
         if (room.state.winner !== null) this.finishMatch(room);
         return;
       }

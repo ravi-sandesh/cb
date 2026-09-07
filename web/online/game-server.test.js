@@ -91,6 +91,7 @@ describe('game-server move', () => {
     expect(res.winner).toBeNull();
     expect(res.capturedCount).toBe(0);
     expect(res.extraTurn).toBe(false);
+    expect(res.reachesHome).toBe(false); // broadcast flag for the home-arrival cue
     expect(g.currentPlayerIndex).toBe(1);
     expect(g.currentRoll).toBeNull();
   });

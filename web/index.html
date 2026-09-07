@@ -145,6 +145,14 @@
 
             <div id="game-log" class="game-log" role="status" aria-live="polite" aria-atomic="true">Game Started! Roll cowries to begin.</div>
 
+            <!-- Celebration overlay: big-event animations (capture, Gatti,
+                 extra roll, home arrival, victory). pointer-events:none so it
+                 never blocks board taps; aria-hidden (game-log carries text). -->
+            <div id="celebration-overlay" class="celebration-overlay hidden" aria-hidden="true">
+                <span id="celebration-emoji" class="celebration-emoji"></span>
+                <span id="celebration-text" class="celebration-text"></span>
+            </div>
+
             <!-- Canvas Board Container + big roll readout on the mat's right side -->
             <div class="board-zone">
                 <div class="board-wrapper">

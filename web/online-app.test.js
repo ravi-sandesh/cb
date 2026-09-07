@@ -313,6 +313,32 @@ describe('app.js online match (server-authoritative flow)', () => {
     expect(holder.docEls['game-log'].innerText).toContain('VICTORY');
   });
 
+  test('move event flags in the broadcast fire the matching celebrations', () => {
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    seatAs(oc, 0);
+    // Capture broadcast -> CUT celebration, auto-hidden by its timer.
+    const realST = globalThis.setTimeout;
+    const realCT = globalThis.clearTimeout;
+    const reg = new Map();
+    let seq = 0;
+    globalThis.setTimeout = (fn, ms) => { const id = ++seq; reg.set(id, { fn, cancelled: false }); return id; };
+    globalThis.clearTimeout = (id) => { const t = reg.get(id); if (t) t.cancelled = true; };
+    try {
+      oc.__hooks.onBoard(boardFrom(5, 0, { capturedCount: 1, currentRoll: null, validMoves: [] }));
+      const overlay = holder.docEls['celebration-overlay'];
+      expect(overlay.className).toContain('celebrate-capture');
+      expect(holder.docEls['celebration-emoji'].innerText).toBe('✂️');
+      // Home-arrival broadcast replaces it with the HOME celebration.
+      oc.__hooks.onBoard(boardFrom(5, 0, { reachesHome: true, currentRoll: null, validMoves: [] }));
+      expect(overlay.className).toContain('celebrate-home');
+      expect(holder.docEls['celebration-emoji'].innerText).toBe('🏠');
+    } finally {
+      globalThis.setTimeout = realST;
+      globalThis.clearTimeout = realCT;
+    }
+  });
+
   test('hostile board fields degrade instead of crashing the client', () => {
     const { w, oc } = fresh();
     w.setGameMode('online');

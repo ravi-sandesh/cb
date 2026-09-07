@@ -193,6 +193,15 @@ function fresh() {
   return { w, document, canvas };
 }
 
+// fresh() plus restoring the shared mock document: the 'noop fallbacks'
+// test leaves a stub document on globalThis (its getElementById returns
+// unlinked stubs), so any test after it must re-install the mock.
+function freshWithDocument() {
+  const ctx = fresh();
+  globalThis.document = ctx.document;
+  return ctx;
+}
+
 afterEach(() => {
   useRealTimers();
   restoreMathRandom();
@@ -1101,5 +1110,232 @@ const doc = {
         globalThis.document = doc;
       }
     });
+  });
+});
+
+describe('celebration overlay (big-event animations)', () => {
+  const tapCell = (canvas, r, c) => canvas.fireClick(c * 120 + 60, r * 120 + 60); // 600px canvas / 5x5
+
+  test('an extra-roll move shows the overlay and its timer hides it again', () => {
+    const { w, canvas } = freshWithDocument();
+    const timers = makeTimers();
+    globalThis.setTimeout = timers.setTimeout;
+    globalThis.clearTimeout = timers.clearTimeout;
+    w.setGridSize(5);
+    w.setPlayers(2);
+    w.setGameMode('pnp');
+    w.startGame();
+    // 4 open shells = Chowka (score 4, extra roll).
+    useScriptedRandom([0.6, 0.6, 0.6, 0.6]);
+    w.handleRoll();
+    tapCell(canvas, 2, 4); // HOME -> path[4]: extra turn, no capture/Gatti/home
+    const overlay = holder.docEls['celebration-overlay'];
+    expect(overlay.className).toContain('celebrate-extra');
+    expect(overlay.className).not.toContain('hidden');
+    expect(holder.docEls['celebration-emoji']._innerText).toBe('🎲');
+    timers.fireOne(); // the celebration auto-hide fires
+    expect(overlay.className).toContain('hidden');
+    expect(overlay.className).not.toContain('celebrate-extra');
+  });
+
+  test('a plain move shows no celebration', () => {
+    const { w, canvas } = freshWithDocument();
+    w.setGridSize(5);
+    w.setPlayers(2);
+    w.setGameMode('pnp');
+    w.startGame();
+    useScriptedRandom([0.6, 0.1, 0.1, 0.1]); // score 1, no extra roll
+    w.handleRoll();
+    tapCell(canvas, 4, 3); // HOME -> path[1]: plain move, turn advances
+    const overlay = holder.docEls['celebration-overlay'];
+    expect(overlay.className).toContain('hidden');
+    expect(overlay.className).not.toContain('celebrate-');
+  });
+
+  test('restart hides a visible celebration and cancels its timer', () => {
+    const { w, canvas } = freshWithDocument();
+    const timers = makeTimers();
+    globalThis.setTimeout = timers.setTimeout;
+    globalThis.clearTimeout = timers.clearTimeout;
+    w.setGridSize(5);
+    w.setPlayers(2);
+    w.setGameMode('pnp');
+    w.startGame();
+    useScriptedRandom([0.6, 0.6, 0.6, 0.6]); // Chowka
+    w.handleRoll();
+    tapCell(canvas, 2, 4);
+    const overlay = holder.docEls['celebration-overlay'];
+    expect(overlay.className).toContain('celebrate-extra');
+    w.restartGame(); // tracked celebrate timer is cancelled, overlay hidden
+    expect(timers.active()).toBe(0);
+    expect(overlay.className).toContain('hidden');
+  });
+
+  test('a pawn reaching Center Home fires the home celebration', () => {
+    const { w, canvas } = freshWithDocument();
+    w.setGridSize(5);
+    w.setPlayers(2);
+    w.setGameMode('pnp');
+    w.startGame();
+    // Scripted dice: P0 out, P1 out, P0 captures P1 (gate unlocks), P0
+    // advances, P1 passes, P0 runs to inner track and then to center.
+    useScriptedRandom([
+      0.6, 0.6, 0.1, 0.1, // P0 rolls 2 -> pawn to (4,4)
+      0.6, 0.6, 0.1, 0.1, // P1 rolls 2 -> pawn to (0,0)
+      0.1, 0.1, 0.1, 0.1, // P0 rolls 8 (Baara) -> captures on (0,0), extra turn
+      0.6, 0.6, 0.1, 0.1, // P0 extra rolls 2 -> pawn to (2,0)
+      0.6, 0.1, 0.1, 0.1, // P1 rolls 1 -> pawn to (0,1)
+      0.1, 0.1, 0.1, 0.1, // P0 rolls 8 (Baara) -> pawn to (1,3), extra turn
+      0.6, 0.6, 0.6, 0.6  // P0 extra rolls 4 (Chowka) -> pawn to center (2,2)
+    ]);
+    w.handleRoll(); tapCell(canvas, 4, 4);
+    w.handleRoll(); tapCell(canvas, 0, 0);
+    w.handleRoll(); tapCell(canvas, 0, 0); // CUT! inner path unlocked
+    expect(holder.docEls['celebration-emoji']._innerText).toBe('✂️');
+    w.handleRoll(); tapCell(canvas, 2, 0);
+    w.handleRoll(); tapCell(canvas, 0, 1);
+    w.handleRoll(); tapCell(canvas, 1, 3);
+    w.handleRoll(); tapCell(canvas, 2, 2); // reachesHome (no victory: 3 pawns out)
+    const overlay = holder.docEls['celebration-overlay'];
+    expect(overlay.className).toContain('celebrate-home');
+    expect(holder.docEls['celebration-emoji']._innerText).toBe('🏠');
+    expect(holder.docEls['game-log']._innerText).toContain('Extra roll!');
+  });
+});
+
+describe('syncBoardSize with the roll-side panel (board-zone layout)', () => {
+  // Drives the real syncBoardSize through startGame with a fake flex-row
+  // tree (the unit harness has no layout engine, so clientWidth/offsetWidth
+  // are scripted). Cleans up the installed fakes afterwards.
+  function installLayout({ direction, panelWidth, zoneWidth, screenHeight, othersHeight, panelHeight, barePanel, orphan, noQuery }) {
+    const ctx = freshWithDocument();
+    const { w, document, canvas } = ctx;
+    canvas.style = {};
+    const panel = (panelWidth === null)
+      ? null
+      : (barePanel ? {} : { offsetWidth: panelWidth, offsetHeight: panelHeight });
+    const other = { offsetHeight: othersHeight };
+    const screen = { children: [other] };
+    if (screenHeight !== null && screenHeight !== undefined) screen.clientHeight = screenHeight;
+    const zone = {
+      clientWidth: zoneWidth,
+      parentElement: orphan ? null : screen
+    };
+    if (!noQuery) zone.querySelector = (sel) => (sel === '.roll-side' ? panel : null);
+    screen.children.push(zone);
+    const wrap = {
+      clientWidth: zoneWidth,
+      parentElement: null,
+      style: {},
+      closest: (sel) => (sel === '.board-zone' ? zone : null)
+    };
+    document.querySelector = (sel) => (sel === '.board-wrapper' ? wrap : null);
+    globalThis.window.getComputedStyle = () => ({ flexDirection: direction });
+    w.setGridSize(5);
+    w.setPlayers(2);
+    w.setGameMode('pnp');
+    return { ctx, wrap,
+      start() { w.startGame(); },
+      restore() { delete document.querySelector; delete globalThis.window.getComputedStyle; } };
+  }
+
+  test('wide row: mat takes the row minus panel and gap', () => {
+    const t = installLayout({ direction: 'row', panelWidth: 120, zoneWidth: 800, screenHeight: 900, othersHeight: 200, panelHeight: 600 });
+    try {
+      t.start(); // 800 - 120 - 12 = 668 wide; 900 - 200 = 700 tall
+      expect(t.wrap.style.width).toBe('668px');
+      expect(t.wrap.style.height).toBe('668px');
+      expect(t.wrap.style.margin).toBe('0');
+    } finally { t.restore(); }
+  });
+
+  test('narrow column: readout below the mat costs vertical space', () => {
+    // Screen height unmeasurable here -> sizes by width alone.
+    const t = installLayout({ direction: 'column', panelWidth: 120, zoneWidth: 500, screenHeight: null, othersHeight: 200, panelHeight: 60 });
+    try {
+      t.start(); // 500 wide; panel still costs its 60px against Infinity
+      expect(t.wrap.style.width).toBe('500px');
+      expect(t.wrap.style.height).toBe('500px');
+      expect(t.wrap.style.margin).toBe('0 auto');
+    } finally { t.restore(); }
+  });
+
+  test('missing panel falls back to the full row width', () => {
+    // Zone without querySelector: ancient-DOM path, same fallback as no panel.
+    const t = installLayout({ direction: 'row', panelWidth: null, zoneWidth: 800, screenHeight: 900, othersHeight: 200, panelHeight: 0, noQuery: true });
+    try {
+      t.start(); // 800 wide; 900 - 200 = 700 tall
+      expect(t.wrap.style.width).toBe('700px');
+    } finally { t.restore(); }
+  });
+
+  test('no room beside the panel keeps the last board size', () => {
+    const t = installLayout({ direction: 'row', panelWidth: 120, zoneWidth: 132, screenHeight: 900, othersHeight: 200, panelHeight: 600 });
+    try {
+      t.start(); // 132 - 120 - 12 = 0 -> early return, size untouched
+      expect(t.wrap.style.width).toBeUndefined();
+    } finally { t.restore(); }
+  });
+
+  test('negative room beside the panel also keeps the last board size', () => {
+    const t = installLayout({ direction: 'row', panelWidth: 120, zoneWidth: 100, screenHeight: 900, othersHeight: 200, panelHeight: 600 });
+    try {
+      t.start(); // 100 - 120 - 12 = -32 -> early return, size untouched
+      expect(t.wrap.style.width).toBeUndefined();
+    } finally { t.restore(); }
+  });
+
+  test('orphan zone without metrics falls back to defaults', () => {
+    const t = installLayout({ direction: 'row', panelWidth: 120, zoneWidth: 700, screenHeight: 900, othersHeight: 200, panelHeight: 600, barePanel: true, orphan: true });
+    try {
+      t.start(); // bare panel -> 120 default; no screen -> height unbounded: 700 - 120 - 12
+      expect(t.wrap.style.width).toBe('568px');
+      expect(t.wrap.style.margin).toBe('0');
+    } finally { t.restore(); }
+  });
+
+  test('legacy tree without a board zone uses the old sibling math', () => {
+    const { w, document, canvas } = freshWithDocument();
+    canvas.style = {};
+    // No closest (ancient DOM), no measurable parent height, wrap listed
+    // among the siblings: exercises every remaining fallback branch.
+    const parent = { children: [{ offsetHeight: 100 }] };
+    const wrap = { clientWidth: 600, parentElement: parent, style: {} };
+    parent.children.push(wrap);
+    document.querySelector = (sel) => (sel === '.board-wrapper' ? wrap : null);
+    try {
+      w.setGridSize(5);
+      w.setPlayers(2);
+      w.setGameMode('pnp');
+      w.startGame(); // 600 wide; unbounded height -> width wins
+      expect(wrap.style.width).toBe('600px');
+      expect(wrap.style.margin).toBe('0 auto');
+    } finally { delete document.querySelector; }
+  });
+
+  test('missing board wrapper keeps the last size without throwing', () => {
+    const { w, document, canvas } = freshWithDocument();
+    canvas.style = {};
+    document.querySelector = () => null;
+    try {
+      w.setGridSize(5);
+      w.setPlayers(2);
+      w.setGameMode('pnp');
+      expect(() => w.startGame()).not.toThrow();
+    } finally { delete document.querySelector; }
+  });
+
+  test('wrap without a parent sizes by width alone', () => {
+    const { w, document, canvas } = freshWithDocument();
+    canvas.style = {};
+    const wrap = { clientWidth: 600, parentElement: null, style: {}, closest: () => null };
+    document.querySelector = (sel) => (sel === '.board-wrapper' ? wrap : null);
+    try {
+      w.setGridSize(5);
+      w.setPlayers(2);
+      w.setGameMode('pnp');
+      w.startGame(); // 600 wide; no parent -> height unbounded
+      expect(wrap.style.width).toBe('600px');
+    } finally { delete document.querySelector; }
   });
 });

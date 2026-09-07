@@ -74,6 +74,7 @@ let gameActive = true;    // false once we leave the game screen (stops bot time
 let botTimer = null;      // handle of the scheduled bot turn
 let turnTimer = null;     // 1s auto-advance after a no-valid-moves roll (BUG-02)
 let victoryTimer = null;  // delayed victory banner after a win (BUG-03)
+let celebrateTimer = null; // auto-hide for the celebration overlay (cleared with the rest)
 let turnAdvanceLog = null; // "No valid moves" outcome preserved across the auto-advance (BUG-13)
 let prevActionLog = ''; // Previous player's action for senior accessibility
 let seniorMode = false;   // accessibility "Senior Mode" (bigger UI + relaxed pacing)
@@ -500,15 +501,24 @@ function applyServerBoard(board) {
     renderBoard();
     updateUI();
 
-    // Sound feedback for online events (parity with local executeMove path).
+    // Sound + celebration feedback for online events (parity with local
+    // executeMove path). The relay merges the last move's event flags into
+    // the board broadcast, so capture/Gatti/home cues work here too.
     if (board.winner != null) {
         Sound.play('victory');
+        celebrate('victory');
+    } else if (board.reachesHome && !board.winner) {
+        Sound.play('move');
+        celebrate('home');
     } else if (board.capturedCount > 0) {
         Sound.play('capture');
+        celebrate('capture');
     } else if (board.gattiFormed) {
         Sound.play('gatti');
+        celebrate('gatti');
     } else if (currentRoll !== null && currentRoll.isExtraRoll) {
         Sound.play('extra_roll');
+        celebrate('extra');
     } else if (currentRoll !== null) {
         Sound.play('roll');
     } else {
@@ -685,6 +695,8 @@ function clearScheduledTimers() {
     if (botTimer)    { clearTimeout(botTimer);     botTimer = null; }
     if (turnTimer)   { clearTimeout(turnTimer);    turnTimer = null; }
     if (victoryTimer){ clearTimeout(victoryTimer); victoryTimer = null; }
+    if (celebrateTimer) { clearTimeout(celebrateTimer); celebrateTimer = null; }
+    hideCelebration();
 }
 
 // BUG-17: the roll-score display is a transient readout of the LAST roll. Any
@@ -711,7 +723,9 @@ function clearRollDisplay() {
 function setRollSide(score, playerIndex, isExtra) {
     const num = document.getElementById('roll-side-number');
     const name = document.getElementById('roll-side-name');
+    /* istanbul ignore next: degraded-DOM guard; elements exist in every supported browser */
     if (!num || !name) return;
+    /* istanbul ignore next: seat is always valid at the call sites */
     const pColor = playerColors[playerIndex] || { name: 'Unknown', hex: '#D7CCC8' };
     num.innerText = String(score);
     num.style.color = pColor.hex;
@@ -723,11 +737,13 @@ function setRollSide(score, playerIndex, isExtra) {
 function clearRollSide() {
     const num = document.getElementById('roll-side-number');
     const name = document.getElementById('roll-side-name');
+    /* istanbul ignore else: degraded-DOM guards; elements exist in every supported browser */
     if (num) {
         num.innerText = '–';
         num.style.color = '';
-        if (num.classList) num.classList.remove('is-extra');
+        num.classList.remove('is-extra');
     }
+    /* istanbul ignore else: degraded-DOM guards; elements exist in every supported browser */
     if (name) {
         name.innerText = '';
         name.style.color = '';
@@ -955,10 +971,12 @@ function executeMove(move) {
     const winnerIdx     = result.winner;
 
     // Sound feedback: one distinct cue per move, victory has priority.
-    if (winnerIdx !== null) Sound.play('victory');
-    else if (capturedCount > 0) Sound.play('capture');
-    else if (gattiFormed) Sound.play('gatti');
-    else if (extraTurn) Sound.play('extra_roll');
+    // Each big event also fires its celebration animation (same priority).
+    if (winnerIdx !== null) { Sound.play('victory'); celebrate('victory'); }
+    else if (move.reachesHome) { Sound.play('move'); celebrate('home'); }
+    else if (capturedCount > 0) { Sound.play('capture'); celebrate('capture'); }
+    else if (gattiFormed) { Sound.play('gatti'); celebrate('gatti'); }
+    else if (extraTurn) { Sound.play('extra_roll'); celebrate('extra'); }
     else Sound.play('move');
 
     prevActionLog = `Player ${playerColors[currentPlayerIndex].name} ${capturedCount > 0 ? 'captured' : (gattiFormed ? 'formed Gatti' : (move.reachesHome ? 'reached home' : 'moved'))}`;
@@ -1195,6 +1213,57 @@ function setLog(msg) {
 }
 
 // ============================================================
+// CELEBRATION OVERLAY (big-event animations)
+// ------------------------------------------------------------
+// One celebrate(type) call shows a short full-screen animation for a
+// big event (capture, Gatti, extra roll, home arrival, victory) and
+// auto-hides it on a tracked timer — Restart/Home cancel it via
+// clearScheduledTimers like every other game-flow timeout. The
+// animation classes live in styles.css; reduced-motion and senior
+// mode degrade to a static banner. Degraded-DOM boots (tests /
+// exotic embeds) no-op instead of throwing.
+// ============================================================
+const CELEBRATIONS = {
+    capture: { cls: 'celebrate-capture', emoji: '✂️', text: 'CUT!',         ms: 1100 },
+    gatti:   { cls: 'celebrate-gatti',   emoji: '🔗', text: 'GATTI!',       ms: 1300 },
+    extra:   { cls: 'celebrate-extra',   emoji: '🎲', text: 'EXTRA ROLL!',  ms: 1200 },
+    home:    { cls: 'celebrate-home',    emoji: '🏠', text: 'HOME!',        ms: 1300 },
+    victory: { cls: 'celebrate-victory', emoji: '🎉', text: 'VICTORY!',     ms: 2400 }
+};
+
+function celebrate(type) {
+    const spec = CELEBRATIONS[type];
+    /* istanbul ignore next: type is always valid at the call sites */
+    if (!spec) return false;
+    const overlay = document.getElementById('celebration-overlay');
+    const emoji = document.getElementById('celebration-emoji');
+    const text = document.getElementById('celebration-text');
+    /* istanbul ignore next: degraded-DOM guard; elements exist in every supported browser */
+    if (!overlay || !emoji || !text) return false;
+    if (celebrateTimer) { clearTimeout(celebrateTimer); celebrateTimer = null; }
+    // Re-trigger the keyframes when the same event fires twice in a row:
+    // swapping the class forces a fresh animation start.
+    overlay.className = 'celebration-overlay';
+    void overlay.offsetWidth; // force reflow between the two writes
+    emoji.innerText = spec.emoji;
+    text.innerText = spec.text;
+    overlay.className = 'celebration-overlay ' + spec.cls;
+    celebrateTimer = setTimeout(() => {
+        celebrateTimer = null;
+        hideCelebration();
+    }, relaxedDelay(spec.ms));
+    T.debug('ui', 'ui.celebration_shown', `Celebration shown: ${type}`, { type });
+    return true;
+}
+
+function hideCelebration() {
+    const overlay = document.getElementById('celebration-overlay');
+    /* istanbul ignore next: degraded-DOM guard; the layer exists in every supported browser */
+    if (!overlay) return;
+    overlay.className = 'celebration-overlay hidden';
+}
+
+// ============================================================
 // BOARD RENDERER (Canvas 2D)
 // ============================================================
 
@@ -1218,16 +1287,16 @@ function syncBoardSize() {
         const screen = zone.parentElement;
         let others = 0;
         if (screen && screen.children) {
-            for (const child of screen.children) if (child !== zone) others += (child.offsetHeight || 0);
+            for (const child of screen.children) if (child !== zone) others += child.offsetHeight;
         }
         if (column || !panel) {
             // Narrow screens: readout sits below the mat, so it costs vertical space.
             availW = zone.clientWidth;
             availH = (screen && Number.isFinite(screen.clientHeight) ? screen.clientHeight : Infinity)
-                - others - (panel ? (panel.offsetHeight || 0) : 0);
+                - others - (panel ? panel.offsetHeight : 0);
             centerMat = true;
         } else {
-            availW = (zone.clientWidth || 0) - panelW - 12;
+            availW = zone.clientWidth - panelW - 12;
             availH = (screen && Number.isFinite(screen.clientHeight) ? screen.clientHeight : Infinity) - others;
             centerMat = false;
         }
@@ -1236,7 +1305,7 @@ function syncBoardSize() {
         const parent = wrap.parentElement;
         let siblings = 0;
         if (parent && parent.children) {
-            for (const child of parent.children) if (child !== wrap) siblings += (child.offsetHeight || 0);
+            for (const child of parent.children) if (child !== wrap) siblings += child.offsetHeight;
         }
         availH = (parent && Number.isFinite(parent.clientHeight) ? parent.clientHeight : Infinity) - siblings;
         centerMat = true;
