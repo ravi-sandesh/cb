@@ -188,6 +188,45 @@ Legend:  H = Player Home (Safe)  |  X = Safe Square  |  C = Center Home (Safe)
 - On reaching center: pawn state → `FINISHED`, removed from board
 - **No extra turn** for reaching center (unless the roll was Chowka/Baara or a capture occurred)
 
+#### Pawn Journey Diagrams (Outer Track → Inner Track → Home)
+
+##### 5×5 — 25 cells, gate at index 16
+```mermaid
+flowchart TD
+    A["🏠 HOME_BASE<br/>(off board)"] --> B["P0 starts (4,2) [0]<br/>P1 (0,2) · P2 (2,4) · P3 (2,0)"]
+    B --> C["Outer ring [0–15]<br/>(4,2)→(4,3)→(4,4)→(3,4)→(2,4)→(1,4)→(0,4)→(0,3)<br/>(0,2)→(0,1)→(0,0)→(1,0)→(2,0)→(3,0)→(4,0)→(4,1)"]
+    C --> D{"Next step ≥ index 16?<br/>(gate)"}
+    D -- "No" --> C
+    D -- "Yes" --> E{"hasCapturedOpponent?<br/>(cut made?)"}
+    E -- "No ✂️ required" --> F["⛔ BLOCKED<br/>move dropped<br/>(GameEngine.kt:137)"]
+    F --> C
+    E -- "Yes 🔓" --> G["GATE (3,1) [16]"]
+    G --> H["Inner loop [17–23]<br/>(3,2)→(3,3)→(2,3)→(1,3)→(1,2)→(1,1)→(2,1)"]
+    H --> I{"Exact roll<br/>to [24]?"}
+    I -- "Overshoot" --> J["⛔ not permitted<br/>(GameEngine.kt:118)"]
+    J --> H
+    I -- "Exact" --> K["★ CENTER (2,2) [24]<br/>FINISHED 🎉"]
+```
+
+##### 7×7 — 49 cells, gate at index 24
+```mermaid
+flowchart TD
+    A["🏠 HOME_BASE<br/>(off board)"] --> B["P0 starts (6,3) [0]<br/>P1 (0,3) · P2 (3,6) · P3 (3,0)"]
+    B --> C["Outer ring [0–23]<br/>(6,3)→(6,4)→(6,5)→(6,6)→(5,6)→(4,6)→(3,6)→(2,6)<br/>(1,6)→(0,6)→(0,5)→(0,4)→(0,3)→(0,2)→(0,1)→(0,0)<br/>(1,0)→(2,0)→(3,0)→(4,0)→(5,0)→(6,0)→(6,1)→(6,2)"]
+    C --> D{"Next step ≥ index 24?<br/>(gate)"}
+    D -- "No" --> C
+    D -- "Yes" --> E{"hasCapturedOpponent?<br/>(cut made?)"}
+    E -- "No ✂️ required" --> F["⛔ BLOCKED<br/>move dropped"]
+    F --> C
+    E -- "Yes 🔓" --> G["GATE (5,2) [24]"]
+    G --> H["Middle ring [25–39]<br/>(5,3)→(5,4)→(5,5)→(4,5)→(3,5)→(2,5)→(1,5)→(1,4)<br/>(1,3)→(1,2)→(1,1)→(2,1)→(3,1)→(4,1)→(5,1)"]
+    H --> J["Inner ring [40–47]<br/>(4,2)→(4,3)→(4,4)→(3,4)→(2,4)→(2,3)→(2,2)→(3,2)"]
+    J --> K{"Exact roll<br/>to [48]?"}
+    K -- "Overshoot" --> L["⛔ not permitted"]
+    L --> J
+    K -- "Exact" --> M["★ CENTER (3,3) [48]<br/>FINISHED 🎉"]
+```
+
 ---
 
 ## 5. Special Mechanics
