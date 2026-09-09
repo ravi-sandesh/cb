@@ -135,12 +135,11 @@ fun calculateValidMoves(
         val isTollu = isPair && !isHome && !moverToughened
         var step = score
         if (isTollu) {
-            // Tollu rate: 1 block per 2 rolled (round down); odd rolls and
-            // 1s leave the pair stuck.
-            step = score / 2
-            if (step < 1) {
+            // Tollu rate: even rolls move half (2→1, 4→2, 6→3); odd rolls
+            // leave the pair stuck — there is no half block to move.
+            if (score % 2 != 0) {
                 Telemetry.trace("engine", "move.tollu_stuck",
-                    "Tollu pair cannot move on score $score",
+                    "Tollu pair cannot move on odd score $score",
                     mapOf(
                         "pawnIds" to grp.map { it.id },
                         "curIdx" to curIdx,
@@ -150,6 +149,7 @@ fun calculateValidMoves(
                 )
                 return@forEach
             }
+            step = score / 2
         }
         // A home pawn entering the track moves `score` steps from the start
         // cell (path[0]) — same distance an on-track pawn covers from its
@@ -368,6 +368,13 @@ fun executeMovePure(
         val cell = newToughened.getOrPut(currentPlayerIndex) { mutableSetOf() }
         cell.add(move.targetPathIndex)
         gattiFormed = true
+    }
+
+    // A hardened pair carries its flag to its destination (finishing pairs
+    // excepted — FINISHED pawns hold no cells). The cleanup below drops the
+    // vacated cell and keeps the new one.
+    if (move.isToughened && !move.reachesHome) {
+        newToughened.getOrPut(currentPlayerIndex) { mutableSetOf() }.add(move.targetPathIndex)
     }
 
     // Toughened-flag cleanup: a flag survives only while 2+ same-player

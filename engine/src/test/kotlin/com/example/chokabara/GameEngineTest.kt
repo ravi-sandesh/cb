@@ -440,9 +440,12 @@ class GameEngineTest {
     @Test
     fun testTolluPairStuckOnOddRolls() {
         tolluPair()
-        val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
-            engine.hasCapturedOpponent, 1, engine.toughenedCells)
-        assertTrue(moves.none { it.isGattiGroup }) // floor(1/2) = 0: stuck
+        // Even-only movement: odd scores offer no group move at all.
+        for (s in listOf(1, 3, 5, 7)) {
+            val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
+                engine.hasCapturedOpponent, s, engine.toughenedCells)
+            assertTrue(moves.none { it.isGattiGroup }) // odd roll: stuck
+        }
     }
 
     @Test

@@ -17,7 +17,7 @@ below contradicts them, the rule here wins and the row is superseded as noted:
 |------|-----------------|----------------------------------|
 | Inner paths | One shared inner run for all seats | Per-seat clockwise runs from each seat's own entry (block before home); 7×7 North turns in at (0,5): 48 cells, gate 23 |
 | Gatti formation (TC-GAT-001/002/003/004/008) | Any same-cell pair = Gatti | Only a tollu pair hardening on an exact 2 becomes a TOUGHENED Gatti; joining is silent tollu |
-| Gatti movement (TC-MOV-008/009/016/021, TC-GAT-005/011/012/015) | Any pair moves as one unit, anywhere | Outer pairs move as singles; inner tollu at half rate (`floor(score/2)`, stuck on 1); toughened at full rate |
+| Gatti movement (TC-MOV-008/009/016/021, TC-GAT-005/011/012/015) | Any pair moves as one unit, anywhere | Outer pairs move as singles; inner tollu on even rolls only (odd stuck), toughened at full rate |
 | Immunity (TC-GAT-006/009/010/013, TC-CAP multi-victim) | Any 2-stack immune; landings capture all | Only TOUGHENED pairs immune; landings capture exactly ONE (lowest id) |
 | Blockade (new) | Passing always allowed | Non-toughened movers can neither pass through nor stop on toughened cells; toughened movers pass (never land-capture) |
 | 7×7 path length (TC-MOV-020) | 49 positions × 12 scores | 49 (S/E/W) + 48 (N) positions × 12 scores |

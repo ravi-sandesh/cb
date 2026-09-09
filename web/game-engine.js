@@ -260,14 +260,14 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
         const isTollu = isPair && !isHome && !moverToughened;
         let step = score;
         if (isTollu) {
-            // Tollu rate: 1 block per 2 rolled (round down); odd rolls and
-            // 1s leave the pair stuck.
-            step = Math.floor(score / 2);
-            if (step < 1) {
-                T.trace('engine.move', 'move.tollu_stuck', `Tollu pair cannot move on score ${score}`,
+            // Tollu rate: even rolls move half (2→1, 4→2, 6→3); odd rolls
+            // leave the pair stuck — there is no half block to move.
+            if (score % 2 !== 0) {
+                T.trace('engine.move', 'move.tollu_stuck', `Tollu pair cannot move on odd score ${score}`,
                     { pawnIds: grpPawns.map(p => p.id), curIdx, score, reason: 'tollu-rate' });
                 return;
             }
+            step = score / 2;
         }
 
         // A home pawn entering the track moves `score` steps from the start
@@ -472,6 +472,14 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
         gattiFormed = true;
         T.info('engine.move', 'move.toughened', `Player ${currentPlayerIndex} toughened a Gatti at ${tr},${tc}`,
             { byPlayer: currentPlayerIndex, targetCoords, pawnIds: grpPawns.map(p => p.id) });
+    }
+
+    // A hardened pair carries its flag to its destination (finishing pairs
+    // excepted — FINISHED pawns hold no cells). The cleanup below drops the
+    // vacated cell and keeps the new one.
+    if (move.isToughened === true && !reachesHome) {
+        const carry = newToughened[currentPlayerIndex] || (newToughened[currentPlayerIndex] = []);
+        if (carry.indexOf(targetPathIndex) === -1) carry.push(targetPathIndex);
     }
 
     // Toughened-flag cleanup: a flag survives only while 2+ same-player

@@ -250,8 +250,8 @@ flowchart TD
 #### Tollu (Untoughened Pair) vs Toughened Gatti
 - Two of YOUR pawns on the same **inner** cell start as **tollu** (soft):
   gray dashed ring + `T` on the board
-- Tollu moves as **one unit at half rate**: 1 block per 2 rolled, rounded
-  down (2→1, 4→2; rolls 1 and 3 leave the pair stuck)
+- Tollu moves as **one unit on even rolls only**: half the roll (2→1, 4→2,
+  6→3); **odd rolls leave the pair stuck** — there is no half block to move
 - A tollu pair moving on an **exact 2 hardens into a TOUGHENED Gatti**
   at its destination (gold ring + `G`); no extra turn for hardening
 - Toughened pairs move the **full** roll value as one unit

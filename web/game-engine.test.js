@@ -367,9 +367,11 @@ describe('calculateValidMoves – Capture & Gatti', () => {
     const res = executeMove(5, pawns.map(p => ({ ...p })), {0:true}, 0, toughMove, { isExtraRoll: false }, {});
     expect(res.gattiFormed).toBe(true);
     expect(res.toughened).toEqual({ 0: [idx + 1] });
-    // Score 1 -> floor(1/2) = 0: the tollu pair is stuck, no move offered.
-    const stuck = calculateValidMoves(5, pawns, 0, {0:true}, 1, {});
-    expect(stuck.find(m => m.isGattiGroup)).toBeUndefined();
+    // Odd rolls (1, 3) leave the tollu pair stuck: no group move offered.
+    for (const odd of [1, 3]) {
+      const stuck = calculateValidMoves(5, pawns, 0, {0:true}, odd, {});
+      expect(stuck.find(m => m.isGattiGroup)).toBeUndefined();
+    }
   });
 
   test('outer pair moves as vulnerable singles, never one Gatti group', () => {

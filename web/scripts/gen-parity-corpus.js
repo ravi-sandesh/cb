@@ -121,8 +121,10 @@ const scenarios = [
     sc(5, 0, 2, { 0: true },
        [trackPawn(0, 0, 17), trackPawn(1, 0, 17)], [], {}),
 
-    // Tollu pair stuck: score 1 -> floor(1/2) = 0 -> NO move offered.
+    // Tollu pair stuck: odd scores (1, 3) offer NO move for the pair.
     sc(5, 0, 1, { 0: true },
+       [trackPawn(0, 0, 17), trackPawn(1, 0, 17)], [], {}),
+    sc(5, 0, 3, { 0: true },
        [trackPawn(0, 0, 17), trackPawn(1, 0, 17)], [], {}),
 
     // Toughened pair (flagged idx 17) moves the FULL score: 17 + 3 = 20.
@@ -295,6 +297,11 @@ const moveExecutions = [
     buildMoveExecution('toughen-on-2', 5, 0, { 0: true },
         [trackPawn(0, 0, 17), trackPawn(1, 0, 17)],
         { score: 2, isExtraRoll: false }, first),
+
+    // Toughened pair carries its flag: idx 17 -> 20 re-keys {0:[17]} to {0:[20]}.
+    buildMoveExecution('toughened-carry', 5, 0, { 0: true },
+        [trackPawn(0, 0, 17), trackPawn(1, 0, 17)],
+        { score: 3, isExtraRoll: false }, first, { 0: [17] }),
 
     // Capture-one: two stacked outer P1 singles, only the lowest id is cut.
     buildMoveExecution('capture-one-of-pair', 5, 0, {},
