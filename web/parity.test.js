@@ -58,14 +58,16 @@ describe('engine parity corpus (web)', () => {
 
     test('valid-move calculation matches the corpus', () => {
         for (const s of corpus.validMoves) {
-            const derived = E.calculateValidMoves(s.gridSize, s.pawns, s.player, s.hasCaptured, s.score)
+            const derived = E.calculateValidMoves(s.gridSize, s.pawns, s.player, s.hasCaptured, s.score, s.toughened || {})
                 .map(m => ({
                     pawnIds: m.grpPawns.map(p => p.id),
                     targetPathIndex: m.targetPathIndex,
                     targetCoords: m.targetCoords,
                     isCapture: m.isCapture,
                     reachesHome: m.reachesHome,
-                    isGattiGroup: m.isGattiGroup
+                    isGattiGroup: m.isGattiGroup,
+                    isToughened: !!m.isToughened,
+                    toughens: !!m.toughens
                 }));
             expect(derived).toEqual(s.expected);
         }
@@ -81,7 +83,9 @@ describe('engine parity corpus (web)', () => {
                 targetCoords: s.move.targetCoords,
                 isCapture: s.move.isCapture,
                 reachesHome: s.move.reachesHome,
-                isGattiGroup: s.move.isGattiGroup
+                isGattiGroup: s.move.isGattiGroup,
+                isToughened: !!s.move.isToughened,
+                toughens: !!s.move.toughens
             };
             const res = E.executeMove(
                 s.gridSize,
@@ -89,12 +93,14 @@ describe('engine parity corpus (web)', () => {
                 { ...s.hasCapturedBefore },
                 s.player,
                 move,
-                { isExtraRoll: s.rollIsExtraRoll }
+                { isExtraRoll: s.rollIsExtraRoll },
+                { ...(s.toughenedBefore || {}) }
             );
             expect(res.error).toBeUndefined();
             expect(res.pawns.map(p => ({ id: p.id, playerIndex: p.playerIndex, state: p.state, pathIndex: p.pathIndex }))
                 .sort((a, b) => a.id - b.id)).toEqual(s.expected.pawnsAfter);
             expect(res.hasCapturedOpponent).toEqual(s.expected.hasCapturedAfter);
+            expect(res.toughened).toEqual(s.expected.toughenedAfter);
             expect(res.winner === null ? -1 : res.winner).toBe(s.expected.winnerIndex);
             expect(res.extraTurn).toBe(s.expected.extraTurn);
             expect(res.gattiFormed).toBe(s.expected.gattiFormed);

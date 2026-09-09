@@ -40,6 +40,7 @@ function newGame({ gridSize, playerNum, rng }) {
     playerNum: num,
     pawns: state.pawns,
     hasCapturedOpponent: state.hasCapturedOpponent,
+    toughened: state.toughened,
     currentPlayerIndex: 0,
     currentRoll: null,
     validMoves: [],
@@ -55,6 +56,7 @@ function serializeBoard(state) {
     playerNum: state.playerNum,
     pawns: state.pawns,
     hasCapturedOpponent: state.hasCapturedOpponent,
+    toughened: state.toughened || {},
     currentPlayerIndex: state.currentPlayerIndex,
     currentRoll: state.currentRoll,
     validMoves: state.validMoves.map(m => ({
@@ -62,7 +64,9 @@ function serializeBoard(state) {
       targetCoords: m.targetCoords,
       isCapture: m.isCapture,
       reachesHome: m.reachesHome,
-      isGattiGroup: !!m.isGattiGroup
+      isGattiGroup: !!m.isGattiGroup,
+      isToughened: !!m.isToughened,
+      toughens: !!m.toughens
     })),
     winner: state.winner
   };
@@ -85,7 +89,7 @@ function doRoll(state) {
   const { score, scoreText, isExtraRoll } = EG.scoreCowryRoll(state.gridSize, shells);
   state.currentRoll = { shells, score, isExtraRoll, scoreText };
   state.validMoves = EG.calculateValidMoves(
-    state.gridSize, state.pawns, state.currentPlayerIndex, state.hasCapturedOpponent, score
+    state.gridSize, state.pawns, state.currentPlayerIndex, state.hasCapturedOpponent, score, state.toughened
   );
 
   if (state.validMoves.length === 0) {
@@ -119,12 +123,14 @@ function doMove(state, candidate) {
     state.hasCapturedOpponent,
     state.currentPlayerIndex,
     matched,
-    state.currentRoll
+    state.currentRoll,
+    state.toughened
   );
   if (res.error) return { ok: false, reason: 'engine-rejected' };
 
   state.pawns = res.pawns;
   state.hasCapturedOpponent = res.hasCapturedOpponent;
+  state.toughened = res.toughened;
   state.currentRoll = null;
   state.validMoves = [];
   state.winner = res.winner;

@@ -17,9 +17,11 @@ class TrackBuilderTest {
 
     @Test
     fun testPathLength7x7() {
+        // South/East/West: 24 outer + 24 inner + 1 center. North turns in one
+        // step early at (0,5): 23 outer + 24 inner + 1 center.
         (0..3).forEach { playerIndex ->
             val path = TrackBuilder.getPlayerPath(GridSize.SEVEN_BY_SEVEN, playerIndex)
-            assertEquals(49, path.size) // 24 outer + 24 inner + 1 center
+            assertEquals(if (playerIndex == 1) 48 else 49, path.size)
         }
     }
 
@@ -60,8 +62,14 @@ class TrackBuilderTest {
 
     @Test
     fun testInnerGateIndex() {
-        assertEquals(16, TrackBuilder.innerGateIndex(GridSize.FIVE_BY_FIVE))
-        assertEquals(24, TrackBuilder.innerGateIndex(GridSize.SEVEN_BY_SEVEN))
+        (0..3).forEach { playerIndex ->
+            assertEquals(16, TrackBuilder.innerGateIndex(GridSize.FIVE_BY_FIVE, playerIndex))
+        }
+        assertEquals(24, TrackBuilder.innerGateIndex(GridSize.SEVEN_BY_SEVEN, 0))
+        assertEquals(24, TrackBuilder.innerGateIndex(GridSize.SEVEN_BY_SEVEN, 2))
+        assertEquals(24, TrackBuilder.innerGateIndex(GridSize.SEVEN_BY_SEVEN, 3))
+        // North turns in early at (0,5): gate 23.
+        assertEquals(23, TrackBuilder.innerGateIndex(GridSize.SEVEN_BY_SEVEN, 1))
     }
 
     @Test
@@ -140,16 +148,59 @@ class TrackBuilderTest {
 
     @Test
     fun testOuterThenInnerThenCenterOrder() {
-        // 5x5: outer is indices 0..15, inner starts at gate 16, center is last
+        // 5x5: outer is indices 0..15, inner starts at gate 16, center is last.
+        // South enters at (3,1); the other seats enter at their own cells.
         val path5 = TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 0)
         assertEquals(Pair(2, 2), path5[24]) // center at last index
         // Gate entry cell (index 16) equals first inner cell
         assertEquals(Pair(3, 1), path5[16])
 
-        // 7x7: gate entry at index 24
+        // 7x7: gate entry at index 24 (23 for North, which turns in early)
         val path7 = TrackBuilder.getPlayerPath(GridSize.SEVEN_BY_SEVEN, 0)
         assertEquals(Pair(3, 3), path7[48])
         assertEquals(Pair(5, 2), path7[24])
+    }
+
+    @Test
+    fun testPerPlayerInnerEntries() {
+        // Every seat enters its own inner track through the block before
+        // home, stepped inward — 5x5 gates at index 16.
+        assertEquals(Pair(1, 3), TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 1)[16]) // North
+        assertEquals(Pair(3, 1), TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 0)[16]) // South
+        assertEquals(Pair(3, 3), TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 2)[16]) // East
+        assertEquals(Pair(1, 1), TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 3)[16]) // West
+        // 7x7: North enters at (1,5) [index 23]; S/E/W at index 24.
+        assertEquals(Pair(1, 5), TrackBuilder.getPlayerPath(GridSize.SEVEN_BY_SEVEN, 1)[23])
+        assertEquals(Pair(5, 2), TrackBuilder.getPlayerPath(GridSize.SEVEN_BY_SEVEN, 0)[24])
+        assertEquals(Pair(4, 5), TrackBuilder.getPlayerPath(GridSize.SEVEN_BY_SEVEN, 2)[24])
+        assertEquals(Pair(2, 1), TrackBuilder.getPlayerPath(GridSize.SEVEN_BY_SEVEN, 3)[24])
+        // North's outer run ends at (0,5): 23 outer cells, then the gate.
+        val north7 = TrackBuilder.getPlayerPath(GridSize.SEVEN_BY_SEVEN, 1)
+        assertEquals(Pair(0, 5), north7[22])
+        assertEquals(48, north7.size)
+        // (1,2) sits one step before center for 5x5 North (exact-1 home rule).
+        assertEquals(Pair(1, 2), TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 1)[23])
+    }
+
+    @Test
+    fun testEverySeatEntersInnerOrthogonallyAndReachesCenterOrthogonally() {
+        // The gate step (last outer -> first inner) and the final home step
+        // are orthogonal for every seat on both boards; the inner runs are
+        // orthogonally adjacent except the 7x7 middle->inner turn-inward step.
+        for (grid in listOf(GridSize.FIVE_BY_FIVE, GridSize.SEVEN_BY_SEVEN)) {
+            for (playerIndex in 0..3) {
+                val path = TrackBuilder.getPlayerPath(grid, playerIndex)
+                val gate = TrackBuilder.innerGateIndex(grid, playerIndex)
+                fun dist(a: Pair<Int, Int>, b: Pair<Int, Int>) =
+                    Math.abs(a.first - b.first) + Math.abs(a.second - b.second)
+                assertEquals(1, dist(path[gate - 1], path[gate]))
+                assertEquals(1, dist(path[path.size - 2], path[path.size - 1]))
+                for (i in gate until path.size - 1) {
+                    if (grid == GridSize.SEVEN_BY_SEVEN && i == gate + 15) continue // turn-inward diagonal
+                    assertEquals(1, dist(path[i], path[i + 1]))
+                }
+            }
+        }
     }
 
     @Test

@@ -38,7 +38,8 @@ const idxOf = (path, cell) => path.findIndex(c => c[0] === cell[0] && c[1] === c
 // ============================================================
 // BUG-01 (FIXED): "Opponent Gatti" false positive across DIFFERENT players
 // DOC / EC-26: a landing cell holding single pawns of two DIFFERENT
-// opponents MUST be capturable (ALL are sent home).
+// opponents MUST be capturable. Capture-one: exactly ONE pawn (lowest id)
+// is sent home per landing.
 // FIX: Gatti immunity requires 2+ pawns of the SAME player.
 // ============================================================
 describe('BUG-01 opponent Gatti false positive (different players) — FIXED', () => {
@@ -52,67 +53,87 @@ describe('BUG-01 opponent Gatti false positive (different players) — FIXED', (
         const moves = calculateValidMoves(5, pawns, 0, cap, 3);
         const m = moves.find(x => x.targetCoords[0] === tgt[0] && x.targetCoords[1] === tgt[1]);
         expect(m).toBeTruthy();                    // move IS offered now
-        expect(m.isCapture).toBe(true);            // and it captures both
+        expect(m.isCapture).toBe(true);            // and it captures...
         const res = executeMove(5, pawns, cap, 0, m, { isExtraRoll: false });
-        expect(res.capturedCount).toBe(2);         // both opponents sent home
+        expect(res.capturedCount).toBe(1);         // ...exactly ONE pawn (capture-one)
+        expect(res.pawns.find(p => p.id === 6).state).toBe('HOME_BASE'); // lowest id
+        expect(res.pawns.find(p => p.id === 10).state).toBe('ON_TRACK'); // other stays
     });
 
-    test('a TRUE opponent Gatti (same-player 2-stack) correctly blocks the same move', () => {
+    test('a TRUE opponent Gatti (same-player 2-stack, TOUGHENED) correctly blocks the same move', () => {
         const { pawns, cap } = mk(2);
-        set(pawns, 0, 2);
-        const tgt = getPlayerPath(5, 0)[5];
-        set(pawns, 6, idxOf(getPlayerPath(5, 1), tgt));
-        set(pawns, 7, idxOf(getPlayerPath(5, 1), tgt)); // same player -> real Gatti
-        const moves = calculateValidMoves(5, pawns, 0, cap, 3);
+        cap[0] = true; // gate open: inner targets legal
+        // (3,3) is inner for P0 (idx 22) and for P1 (idx 18): a real Gatti cell.
+        set(pawns, 0, 20);
+        set(pawns, 6, 18);
+        set(pawns, 7, 18); // same player -> real Gatti pair
+        const moves = calculateValidMoves(5, pawns, 0, cap, 2, { 1: [18] });
         expect(moves.some(m => m.isCapture)).toBe(false); // block remains
+        // Same pair UNTOUGHENED (tollu): capturable, capture-one.
+        const open = calculateValidMoves(5, pawns, 0, cap, 2, {});
+        const m = open.find(x => x.targetPathIndex === 22);
+        expect(m).toBeDefined();
+        expect(m.isCapture).toBe(true);
+        const res = executeMove(5, pawns, cap, 0, m, { isExtraRoll: false }, {});
+        expect(res.capturedCount).toBe(1);
     });
 });
 
 // ============================================================
 // BUG-02 (FIXED): Gatti "formed" no longer re-reported for a moved Gatti
-// DOC: §5.1 – Gatti formation is announced when 2+ pawns NEWLY join a
-//       cell. Moving a pre-existing Gatti is not a formation.
+// DOC: §5.1 – gattiFormed fires ONLY when a tollu pair hardens on an exact
+// 2 (toughening). Moving a pre-existing (tollu or toughened) pair is not
+// a formation event.
 // ============================================================
 describe('BUG-02 spurious Gatti re-formation on group move — FIXED', () => {
-    test('moving an existing 2-pawn Gatti does NOT report gattiFormed', () => {
+    test('moving an existing inner tollu pair (no hardening) does NOT report gattiFormed', () => {
         const { pawns, cap } = mk(2);
-        set(pawns, 0, 5); set(pawns, 1, 5);            // pre-existing Gatti
-        const moves = calculateValidMoves(5, pawns, 0, cap, 2);
-        const gattiMove = moves.find(m => m.isGattiGroup);
-        const res = executeMove(5, pawns, cap, 0, gattiMove, { isExtraRoll: false });
-        expect(res.gattiFormed).toBe(false);           // FIXED: no new formation
+        cap[0] = true; // gate open: inner targets legal
+        set(pawns, 0, 17); set(pawns, 1, 17);        // pre-existing tollu pair
+        const moves = calculateValidMoves(5, pawns, 0, cap, 4, {});
+        const tolluMove = moves.find(m => m.isGattiGroup);
+        expect(tolluMove.targetPathIndex).toBe(19);  // half rate
+        const res = executeMove(5, pawns, cap, 0, tolluMove, { isExtraRoll: false }, {});
+        expect(res.gattiFormed).toBe(false);         // FIXED: no new formation
+        expect(res.toughened).toEqual({});           // still tollu
     });
 
-    // EC-16 guard: a rebasing Gatti landing on our own SINGLE pawn still grows
-    // to 3 — this must announce. Guards the "landed > mover" criterion.
-    test('EC-16: a Gatti landing on our own single pawn reports a 3-stack (grow)', () => {
+    // EC-16 guard: a tollu pair hardening onto our own SINGLE pawn grows to
+    // a toughened 3-stack — this MUST announce (the toughen transition).
+    test('EC-16: a tollu pair hardening onto our own single pawn reports a 3-stack (grow)', () => {
         const { pawns, cap } = mk(2);
-        set(pawns, 0, 5); set(pawns, 1, 5);            // pre-existing Gatti at 5
-        set(pawns, 2, 7);                              // our single pawn at 7 (own)
-        const moves = calculateValidMoves(5, pawns, 0, cap, 2); // group 5 -> 7
-        const gattiMove = moves.find(m => m.isGattiGroup);
-        expect(gattiMove.targetPathIndex).toBe(7);
-        const res = executeMove(5, pawns, cap, 0, gattiMove, { isExtraRoll: false });
-        expect(res.gattiFormed).toBe(true);            // EC-16: 3 own pawns share cell
+        cap[0] = true; // gate open: inner targets legal
+        set(pawns, 0, 17); set(pawns, 1, 17);        // tollu pair at 17
+        set(pawns, 2, 18);                           // our single pawn at 18 (own)
+        const moves = calculateValidMoves(5, pawns, 0, cap, 2, {}); // pair 17 -> 18
+        const tolluMove = moves.find(m => m.isGattiGroup);
+        expect(tolluMove.targetPathIndex).toBe(18);
+        expect(tolluMove.toughens).toBe(true);
+        const res = executeMove(5, pawns, cap, 0, tolluMove, { isExtraRoll: false }, {});
+        expect(res.gattiFormed).toBe(true);          // EC-16: 3 own pawns share cell
+        expect(res.toughened).toEqual({ 0: [18] });
     });
 });
 
 // ============================================================
-// BUG-03 (FIXED): a CAPTURE that lands onto my OWN pawn now forms a Gatti
-// DOC: §5.1 - if two OWN pawns share any cell, a Gatti exists / is announced.
+// BUG-03 (FIXED + RULE CHANGE): a CAPTURE landing onto my OWN pawn forms a
+// tollu pair — NOT a Gatti. Only hardening on an exact 2 toughens it.
+// DOC: §5.1 - Gatti = toughened pair; tollu pairs need a 2 to harden.
 // ============================================================
-describe('BUG-03 capture-onto-own-stack forms Gatti — FIXED', () => {
-    test('capture onto a cell already holding my own pawn yields gattiFormed=true', () => {
+describe('BUG-03 capture-onto-own-stack forms tollu, not Gatti — FIXED', () => {
+    test('capture onto a cell already holding my own pawn yields gattiFormed=false (tollu)', () => {
         const { pawns, cap } = mk(2);
         set(pawns, 0, 4);                      // mover -> lands at idx 6
         const tgt = getPlayerPath(5, 0)[6];
         set(pawns, 1, 6);                      // my own pawn already on target cell
         set(pawns, 4, idxOf(getPlayerPath(5, 1), tgt)); // opponent on target too
-        const moves = calculateValidMoves(5, pawns, 0, cap, 2);
+        const moves = calculateValidMoves(5, pawns, 0, cap, 2, {});
         const m = moves.find(x => x.targetPathIndex === 6);
         expect(m.isCapture).toBe(true);         // capture path confirmed
-        const res = executeMove(5, pawns, cap, 0, m, { isExtraRoll: false });
-        expect(res.gattiFormed).toBe(true);     // FIXED: 2 own pawns share the cell
+        const res = executeMove(5, pawns, cap, 0, m, { isExtraRoll: false }, {});
+        expect(res.capturedCount).toBe(1);      // capture-one
+        expect(res.gattiFormed).toBe(false);    // FIXED: tollu, not toughened
+        expect(res.toughened).toEqual({});      // needs an exact 2 to harden
     });
 });
 

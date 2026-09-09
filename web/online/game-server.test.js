@@ -158,3 +158,38 @@ function sequenceRng(values) {
   const l = lcg(123);
   return () => (queue.length ? queue.shift() : l());
 }
+
+describe('game-server move matching + ledger guards', () => {
+  const anyMove = { grpPawns: [{ id: 3 }, { id: 1 }], targetCoords: [1, 2] };
+
+  test('matchMove rejects malformed candidates', () => {
+    expect(GS.matchMove(anyMove, null)).toBeNull();
+    expect(GS.matchMove(anyMove, {})).toBeNull();
+    expect(GS.matchMove(anyMove, { pawnIds: [1], targetCoords: [1] })).toBeNull();
+    expect(GS.matchMove(anyMove, { pawnIds: [1], targetCoords: [1, 2] })).toBeNull(); // id-count
+  });
+
+  test('matchMove matches multi-pawn groups order-insensitively', () => {
+    const m = GS.matchMove(anyMove, { pawnIds: [1, 3], targetCoords: [1, 2] });
+    expect(m).toBe(anyMove); // both sorts ran over 2 ids
+    // Second coordinate mismatch rejects even when the first matches.
+    expect(GS.matchMove(anyMove, { pawnIds: [1, 3], targetCoords: [1, 9] })).toBeNull();
+  });
+
+  test('pushEvent trims the ledger past 50 entries', () => {
+    const state = { log: [] };
+    for (let i = 0; i < 55; i++) GS.pushEvent(state, `m${i}`);
+    expect(state.log.length).toBe(50);
+    expect(state.log[0]).toBe('m5');
+  });
+
+  test('doMove surfaces engine rejections for forged-but-matching moves', () => {
+    const g = GS.newGame({ gridSize: 5, playerNum: 2, rng: () => 0.9 });
+    GS.doRoll(g);
+    // Inject a move that matches by ids+coords but fails engine validation.
+    g.validMoves = [{ grpPawns: [{ id: 0 }], targetCoords: [0, 0], targetPathIndex: -1, isCapture: false, reachesHome: false }];
+    const res = GS.doMove(g, { pawnIds: [0], targetCoords: [0, 0] });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe('engine-rejected');
+  });
+});

@@ -5,7 +5,8 @@ package com.chokabarah.game.engine
 // ------------------------------------------------------------
 // A GameSnapshot is a complete, immutable copy of everything a
 // GameEngine needs to resume a match exactly where it left off:
-// seats, pawns, capture flags, the pending roll and the winner.
+// seats, pawns, capture flags, toughened cells, the pending roll
+// and the winner.
 //
 // The engine's `validMoves` list is intentionally NOT part of the
 // snapshot: it is fully derivable from (pawns, current player,
@@ -44,18 +45,23 @@ data class GameSnapshot(
     val winnerIndex: Int,
     val pawns: List<PawnSnapshot>,
     val hasCapturedOpponent: Map<Int, Boolean>,
+    // Cells holding toughened pairs, per player seat.
+    val toughened: Map<Int, List<Int>>,
     val currentRoll: RollSnapshot?
 )
 
 object GameSnapshotCodec {
 
-    private const val HEADER = "CBENGINE1"
+    private const val HEADER = "CBENGINE2"
     private const val SEP = "|"
 
     fun encode(snapshot: GameSnapshot): String {
         val captured = snapshot.hasCapturedOpponent.entries
             .sortedBy { it.key }
             .joinToString(",") { "${it.key}=${if (it.value) 1 else 0}" }
+        val tough = snapshot.toughened.entries
+            .sortedBy { it.key }
+            .joinToString(";") { (seat, cells) -> "$seat:${cells.sorted().joinToString(",")}" }
         val pawns = snapshot.pawns
             .joinToString(";") { "${it.id}:${it.state.ordinal}:${it.pathIndex}" }
         val roll = snapshot.currentRoll?.shells?.joinToString("") { if (it) "1" else "0" } ?: "-"
@@ -65,6 +71,7 @@ object GameSnapshotCodec {
             snapshot.rollActorIndex.toString(),
             snapshot.winnerIndex.toString(),
             captured,
+            tough,
             pawns,
             roll
         ).joinToString(SEP)
@@ -73,7 +80,7 @@ object GameSnapshotCodec {
     /** @throws IllegalArgumentException on any malformed input. */
     fun decode(text: String): GameSnapshot {
         val parts = text.split(SEP)
-        require(parts.size == 7 && parts[0] == HEADER) {
+        require(parts.size == 8 && parts[0] == HEADER) {
             "Bad snapshot header"
         }
         val currentPlayerIndex = parts[1].toIntStrict()
@@ -88,7 +95,26 @@ object GameSnapshotCodec {
                 kv[0].toIntStrict() to (kv[1].toIntStrict() == 1)
             }
 
-        val pawns = parts[5].split(";").map { token ->
+        val toughened: Map<Int, List<Int>> = if (parts[5].isEmpty()) {
+            emptyMap()
+        } else {
+            parts[5].split(";").associate { entry ->
+                val kv = entry.split(":")
+                require(kv.size == 2) { "Bad toughened entry '$entry'" }
+                val seat = kv[0].toIntStrict()
+                val cells = if (kv[1].isEmpty()) {
+                    emptyList()
+                } else {
+                    kv[1].split(",").map {
+                        require(it.isNotEmpty()) { "Bad toughened cell in '$entry'" }
+                        it.toIntStrict()
+                    }
+                }
+                seat to cells
+            }
+        }
+
+        val pawns = parts[6].split(";").map { token ->
             val fields = token.split(":")
             require(fields.size == 3) { "Bad pawn token '$token'" }
             val stateOrdinal = fields[1].toIntStrict()
@@ -97,7 +123,7 @@ object GameSnapshotCodec {
         }
         require(pawns.isNotEmpty()) { "Snapshot has no pawns" }
 
-        val roll = when (val raw = parts[6]) {
+        val roll = when (val raw = parts[7]) {
             "-" -> null
             else -> {
                 require(raw.all { it == '0' || it == '1' }) { "Bad roll shells '$raw'" }
@@ -112,6 +138,7 @@ object GameSnapshotCodec {
             winnerIndex = winnerIndex,
             pawns = pawns,
             hasCapturedOpponent = captured,
+            toughened = toughened,
             currentRoll = roll
         )
     }

@@ -240,17 +240,31 @@ fun GameScreen(
                                 // and append the target cell for full clarity.
                                 val pawnNumber = move.pawnIds.first() % 4 + 1
                                 val pawnName = stringResource(R.string.pawn_nth, pawnNumber)
-                                val gattiTag = if (move.pawnIds.size > 1) stringResource(R.string.gatti_tag) else ""
+                                // Pair badges mirror the web client: a hardening move
+                                // TOUGHENs, a hardened pair is GATTI, an unhardened
+                                // inner pair is TOLLU (roll a 2 to harden it).
+                                val pairTag = when {
+                                    move.toughens -> stringResource(R.string.toughen_tag)
+                                    move.isToughened -> stringResource(R.string.gatti_tag)
+                                    move.isGattiGroup -> stringResource(R.string.tollu_tag)
+                                    else -> ""
+                                }
                                 val targetSuffix = stringResource(
                                     R.string.target_suffix,
                                     move.targetCoords.first, move.targetCoords.second
                                 )
+                                val pairContentTag = when {
+                                    move.toughens -> stringResource(R.string.cd_toughen_tag)
+                                    move.isToughened -> stringResource(R.string.cd_gatti_tag)
+                                    move.isGattiGroup -> stringResource(R.string.cd_tollu_tag)
+                                    else -> ""
+                                }
                                 val buttonDescription = stringResource(
                                     R.string.cd_move_button,
                                     pawnName,
                                     move.targetCoords.first,
                                     move.targetCoords.second,
-                                    if (move.pawnIds.size > 1) stringResource(R.string.cd_gatti_tag) else ""
+                                    pairContentTag
                                 )
                                 Button(
                                     onClick = {
@@ -273,7 +287,7 @@ fun GameScreen(
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Text(
-                                        text = pawnName + gattiTag + targetSuffix,
+                                        text = pawnName + pairTag + targetSuffix,
                                         fontSize = if (seniorMode) 17.sp else 13.sp,
                                         fontWeight = FontWeight.Bold
                                     )

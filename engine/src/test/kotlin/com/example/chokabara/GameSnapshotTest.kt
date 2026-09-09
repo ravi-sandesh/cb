@@ -41,6 +41,7 @@ class GameSnapshotTest {
         assertTrue(decoded.pawns.all { it.state == PawnState.HOME_BASE && it.pathIndex == -1 })
         assertNull(decoded.currentRoll)
         assertEquals(mapOf(0 to false, 1 to false), decoded.hasCapturedOpponent)
+        assertEquals(emptyMap<Int, List<Int>>(), decoded.toughened)
     }
 
     @Test
@@ -53,7 +54,17 @@ class GameSnapshotTest {
         assertEquals(snap.rollActorIndex, decoded.rollActorIndex)
         assertEquals(snap.pawns, decoded.pawns)
         assertEquals(snap.hasCapturedOpponent, decoded.hasCapturedOpponent)
+        assertEquals(snap.toughened, decoded.toughened)
         assertEquals(snap.currentRoll?.shells, decoded.currentRoll?.shells)
+    }
+
+    @Test
+    fun codecRoundTripsToughenedCells() {
+        val engine = newEngine()
+        engine.toughenedCells.getOrPut(0) { mutableSetOf() }.add(17)
+        engine.toughenedCells.getOrPut(1) { mutableSetOf() }.addAll(listOf(18, 21))
+        val decoded = GameSnapshotCodec.decode(GameSnapshotCodec.encode(engine.snapshot()))
+        assertEquals(mapOf(0 to listOf(17), 1 to listOf(18, 21)), decoded.toughened)
     }
 
     @Test
@@ -138,7 +149,7 @@ class GameSnapshotTest {
         // reach through a genuine win. Restore must reject it outright.
         val source = newEngine()
         source.hasCapturedOpponent[0] = true
-        val gate = TrackBuilder.innerGateIndex(GridSize.FIVE_BY_FIVE)
+        val gate = TrackBuilder.innerGateIndex(GridSize.FIVE_BY_FIVE, 0)
         val pawns = List(8) { id ->
             when {
                 id == 0 -> PawnSnapshot(id, PawnState.ON_TRACK, gate - 1)
@@ -146,7 +157,7 @@ class GameSnapshotTest {
                 else -> PawnSnapshot(id, PawnState.HOME_BASE, -1)
             }
         }
-        val inconsistent = GameSnapshot(0, 0, 0, pawns, mapOf(0 to true, 1 to false),
+        val inconsistent = GameSnapshot(0, 0, 0, pawns, mapOf(0 to true, 1 to false), emptyMap(),
             RollSnapshot(listOf(true, true, true, true)))
         val target = newEngine()
         assertFalse(target.restore(inconsistent),
@@ -169,7 +180,7 @@ class GameSnapshotTest {
                 else -> PawnSnapshot(id, PawnState.HOME_BASE, -1)
             }
         }
-        val finished = GameSnapshot(1, -1, 1, pawns, mapOf(0 to false, 1 to false), null)
+        val finished = GameSnapshot(1, -1, 1, pawns, mapOf(0 to false, 1 to false), emptyMap(), null)
         val target = newEngine()
         assertTrue(target.restore(finished))
         assertEquals(PlayerColor.GREEN, target.winner)
@@ -190,6 +201,7 @@ class GameSnapshotTest {
             currentPlayerIndex = 0, rollActorIndex = -1, winnerIndex = -1,
             pawns = List(12) { PawnSnapshot(it, PawnState.HOME_BASE, -1) },
             hasCapturedOpponent = mapOf(0 to false, 1 to false, 2 to false),
+            toughened = emptyMap(),
             currentRoll = null
         )
         assertFalse(target.restore(wrongPlayerCount))
@@ -197,6 +209,7 @@ class GameSnapshotTest {
         val badCurrentPlayer = GameSnapshot(
             currentPlayerIndex = 5, rollActorIndex = -1, winnerIndex = -1,
             pawns = before.pawns, hasCapturedOpponent = before.hasCapturedOpponent,
+            toughened = emptyMap(),
             currentRoll = null
         )
         assertFalse(target.restore(badCurrentPlayer))
@@ -228,26 +241,67 @@ class GameSnapshotTest {
         // of 4 (four mouths up). Every candidate lands at 15+4=19, crossing the
         // gate, so moves exist ONLY when the capture flag is set — no
         // HOME_BASE entry can sneak past the gate check.
-        val gate = TrackBuilder.innerGateIndex(GridSize.FIVE_BY_FIVE)
+        val gate = TrackBuilder.innerGateIndex(GridSize.FIVE_BY_FIVE, 0)
         val pawns = List(8) { id ->
             if (id < 4) PawnSnapshot(id, PawnState.ON_TRACK, gate - 1)
             else PawnSnapshot(id, PawnState.HOME_BASE, -1)
         }
 
         val locked = newEngine()
-        assertTrue(locked.restore(GameSnapshot(0, 0, -1, pawns, mapOf(0 to false, 1 to false), RollSnapshot(listOf(true, true, true, true)))))
+        assertTrue(locked.restore(GameSnapshot(0, 0, -1, pawns, mapOf(0 to false, 1 to false), emptyMap(), RollSnapshot(listOf(true, true, true, true)))))
         assertTrue(locked.validMoves.isEmpty(), "Gate must stay shut without a cut")
 
         // Same board + same pending roll, but the snapshot claims the cut was
         // made: the restored engine must now recompute and OFFER the gate
         // crossing — proving moves derive from live state + re-derived roll.
         val unlocked = newEngine()
-        assertTrue(unlocked.restore(GameSnapshot(0, 0, -1, pawns, mapOf(0 to true, 1 to false), RollSnapshot(listOf(true, true, true, true)))))
+        assertTrue(unlocked.restore(GameSnapshot(0, 0, -1, pawns, mapOf(0 to true, 1 to false), emptyMap(), RollSnapshot(listOf(true, true, true, true)))))
         assertEquals(4, unlocked.currentRoll?.score)
         assertTrue(
             unlocked.validMoves.any { it.targetPathIndex >= gate },
             "Restored engine must recompute moves against the unlocked gate"
         )
+    }
+
+    @Test
+    fun restoreReproducesToughenedCells() {
+        // A toughened pair on track round-trips through snapshot + restore,
+        // and the restored engine still blockades around it.
+        val source = newEngine()
+        source.hasCapturedOpponent[0] = true
+        val gate = TrackBuilder.innerGateIndex(GridSize.FIVE_BY_FIVE, 0)
+        val pawns = List(8) { id ->
+            when (id) {
+                0, 1 -> PawnSnapshot(id, PawnState.ON_TRACK, gate + 1)
+                else -> PawnSnapshot(id, PawnState.HOME_BASE, -1)
+            }
+        }
+        val withTough = GameSnapshot(0, 0, -1, pawns, mapOf(0 to true, 1 to false),
+            mapOf(0 to listOf(gate + 1)), null)
+        val target = newEngine()
+        assertTrue(target.restore(withTough))
+        assertEquals(mapOf(0 to setOf(gate + 1)), target.toughenedCells)
+        assertEnginesEquivalent(
+            newEngine().also { expected ->
+                expected.hasCapturedOpponent[0] = true
+                expected.pawns.first { it.id == 0 }.apply { state = PawnState.ON_TRACK; pathIndex = gate + 1 }
+                expected.pawns.first { it.id == 1 }.apply { state = PawnState.ON_TRACK; pathIndex = gate + 1 }
+                expected.toughenedCells.getOrPut(0) { mutableSetOf() }.add(gate + 1)
+            },
+            target
+        )
+    }
+
+    @Test
+    fun restoreRejectsBadToughenedFlags() {
+        val target = newEngine()
+        val pawns = List(8) { id -> PawnSnapshot(id, PawnState.HOME_BASE, -1) }
+        // Unknown seat.
+        assertFalse(target.restore(GameSnapshot(0, -1, -1, pawns, mapOf(0 to false, 1 to false),
+            mapOf(5 to listOf(3)), null)))
+        // Negative cell index.
+        assertFalse(target.restore(GameSnapshot(0, -1, -1, pawns, mapOf(0 to false, 1 to false),
+            mapOf(0 to listOf(-1)), null)))
     }
 
     // ---- Helpers ----
@@ -263,6 +317,7 @@ class GameSnapshotTest {
             actual.pawns.map { Triple(it.id, it.state, it.pathIndex) }.sortedBy { it.first }
         )
         assertEquals(expected.hasCapturedOpponent, actual.hasCapturedOpponent)
+        assertEquals(expected.toughenedCells, actual.toughenedCells)
         assertEquals(
             expected.validMoves.map { it.targetCoords to it.grpPawns.map(Pawn::id) },
             actual.validMoves.map { it.targetCoords to it.grpPawns.map(Pawn::id) }

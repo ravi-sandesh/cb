@@ -495,6 +495,72 @@ describe('app.js online match (server-authoritative flow)', () => {
     expect(holder.docEls['roll-score-display'].innerText).toBe('3');
   });
 
+  test('pawn buttons tag TOUGHEN / GATTI / TOLLU moves distinctly', () => {
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    seatAs(oc, 0);
+    oc.__hooks.onBoard(boardFrom(5, 0, {
+      currentRoll: null,
+      validMoves: [
+        { pawnIds: [0, 1], targetCoords: [2, 2], isCapture: false, reachesHome: false, isGattiGroup: true, isToughened: false, toughens: true },
+        { pawnIds: [0, 1], targetCoords: [2, 2], isCapture: false, reachesHome: false, isGattiGroup: true, isToughened: true, toughens: false },
+        { pawnIds: [0, 1], targetCoords: [2, 2], isCapture: false, reachesHome: false, isGattiGroup: true, isToughened: false, toughens: false },
+        { pawnIds: [2], targetCoords: [4, 3], isCapture: false, reachesHome: false, isGattiGroup: false, isToughened: false, toughens: false }
+      ]
+    }));
+    const texts = holder.docEls['pawn-buttons-container'].children.map(b => b.innerText);
+    expect(texts).toHaveLength(4);
+    expect(texts[0]).toContain('[TOUGHEN]');
+    expect(texts[1]).toContain('[GATTI]');
+    expect(texts[2]).toContain('[TOLLU]');
+    expect(texts[3]).not.toContain('[');
+  });
+
+  test('tollu pairs draw a gray dashed ring + T; toughened pairs gold + G', () => {
+    const { w, oc, canvas } = fresh();
+    w.setGameMode('online');
+    seatAs(oc, 0);
+    const pair = (extra) => boardFrom(5, 0, Object.assign({
+      pawns: [
+        { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 17 },
+        { id: 1, playerIndex: 0, state: 'ON_TRACK', pathIndex: 17 },
+        { id: 2, playerIndex: 0, state: 'HOME_BASE', pathIndex: -1 },
+        { id: 3, playerIndex: 0, state: 'HOME_BASE', pathIndex: -1 },
+        { id: 4, playerIndex: 1, state: 'HOME_BASE', pathIndex: -1 },
+        { id: 5, playerIndex: 1, state: 'HOME_BASE', pathIndex: -1 },
+        { id: 6, playerIndex: 1, state: 'HOME_BASE', pathIndex: -1 },
+        { id: 7, playerIndex: 1, state: 'HOME_BASE', pathIndex: -1 }
+      ],
+      currentRoll: null,
+      validMoves: []
+    }, extra));
+    const callsSince = (n) => canvas._calls.slice(n);
+    let mark = canvas._calls.length;
+    oc.__hooks.onBoard(pair({}));
+    let newCalls = callsSince(mark);
+    expect(newCalls.some(c => c[0] === 'fillText' && c[1] === 'T')).toBe(true);
+    expect(newCalls.some(c => c[0] === 'setLineDash' && JSON.stringify(c[1]) === '[5,3]')).toBe(true);
+    expect(newCalls.some(c => c[0] === 'fillText' && c[1] === 'G')).toBe(false);
+    mark = canvas._calls.length;
+    oc.__hooks.onBoard(pair({ toughened: { 0: [17] } }));
+    newCalls = callsSince(mark);
+    expect(newCalls.some(c => c[0] === 'fillText' && c[1] === 'G')).toBe(true);
+    expect(newCalls.some(c => c[0] === 'fillText' && c[1] === 'T')).toBe(false);
+  });
+
+  test('hostile toughened payloads sanitize instead of crashing', () => {
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    seatAs(oc, 0);
+    expect(() => oc.__hooks.onBoard(boardFrom(5, 0, {
+      currentRoll: null,
+      validMoves: [],
+      toughened: { 5: ['x'], 0: 7, 1: [99], 2: ['x'] } // bad seat, non-array, kept-int, emptied
+    }))).not.toThrow();
+    // Nothing ringed: no valid pair cell matches a kept flag.
+    expect(holder.docEls['game-log'].innerText).toBeTruthy();
+  });
+
   test('onPeerLeft in the lobby stays on the home screen', () => {
     const { w, oc } = fresh();
     w.setGameMode('online');

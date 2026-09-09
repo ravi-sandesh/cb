@@ -11,11 +11,12 @@ object TrackBuilder {
         }
     }
 
-    // Index of first inner path cell (the gate — must have a cut before entering)
-    // 5x5: outer has 16 cells → inner gate is at index 16
-    // 7x7: outer has 24 cells → inner gate is at index 24
-    fun innerGateIndex(gridSize: GridSize): Int {
-        return if (gridSize == GridSize.FIVE_BY_FIVE) 16 else 24
+    // Index of first inner path cell (the gate — must have a cut before entering).
+    // The gate is per-seat: 5x5 = 16 for every seat; 7x7 = 24 except North,
+    // which turns into the middle ring one step early at (0,5) -> gate 23.
+    fun innerGateIndex(gridSize: GridSize, playerIndex: Int): Int {
+        if (gridSize == GridSize.FIVE_BY_FIVE) return 16
+        return if (playerIndex == 1) 23 else 24
     }
 
     // Check if cell coordinate is a safe square ('X' / 'a' on official board)
@@ -58,11 +59,16 @@ object TrackBuilder {
         Pair(0, 2), Pair(0, 1), Pair(0, 0), Pair(1, 0), Pair(2, 0), Pair(3, 0), Pair(4, 0), Pair(4, 1)
     )
 
-    // 5x5 Inner Loop (8 cells) + Center Home (1 cell)
-    private val inner5x5Loop = listOf(
-        Pair(3, 1), Pair(3, 2), Pair(3, 3), Pair(2, 3), Pair(1, 3), Pair(1, 2), Pair(1, 1), Pair(2, 1),
-        Pair(2, 2) // Center Home
+    // 5x5 Inner ring CLOCKWISE (8 cells). Base order starts at the North
+    // entry (1,3); every other seat rotates it so THEIR entry cell (the
+    // block before home, stepped inward) comes first:
+    // S (3,1) -> rot 4, N (1,3) -> rot 0, E (3,3) -> rot 2, W (1,1) -> rot 6.
+    private val inner5x5Ring = listOf(
+        Pair(1, 3), Pair(2, 3), Pair(3, 3), Pair(3, 2),
+        Pair(3, 1), Pair(2, 1), Pair(1, 1), Pair(1, 2)
     )
+    private val inner5x5Rot = listOf(4, 0, 2, 6) // South, North, East, West
+    private val center5x5 = Pair(2, 2)
 
     private fun get5x5PlayerPath(playerIndex: Int): List<Pair<Int, Int>> {
         // Offset starting cell based on player (0: South, 1: North, 2: East, 3: West)
@@ -79,7 +85,7 @@ object TrackBuilder {
             rotatedOuter.add(outer5x5Loop[(startOffset + i) % 16])
         }
 
-        return rotatedOuter + inner5x5Loop
+        return rotatedOuter + rotated(inner5x5Ring, inner5x5Rot.getOrElse(playerIndex) { 0 }) + center5x5
     }
 
     // 7x7 Outer Loop counter-clockwise (24 cells)
@@ -89,13 +95,34 @@ object TrackBuilder {
         Pair(5, 0), Pair(6, 0), Pair(6, 1), Pair(6, 2)
     )
 
-    // 7x7 Middle Loop (16 cells) + Inner Loop (8 cells) + Center Home (1 cell)
-    private val inner7x7Loop = listOf(
-        Pair(5, 2), Pair(5, 3), Pair(5, 4), Pair(5, 5), Pair(4, 5), Pair(3, 5), Pair(2, 5), Pair(1, 5),
-        Pair(1, 4), Pair(1, 3), Pair(1, 2), Pair(1, 1), Pair(2, 1), Pair(3, 1), Pair(4, 1), Pair(5, 1),
-        Pair(4, 2), Pair(4, 3), Pair(4, 4), Pair(3, 4), Pair(2, 4), Pair(2, 3), Pair(2, 2), Pair(3, 2),
-        Pair(3, 3) // Center Home
+    // 7x7 middle ring CLOCKWISE (16 cells), base order starts at the South
+    // entry (5,2). Rotation puts each seat's entry first:
+    // S (5,2) -> 0, N (1,5) -> 9, E (4,5) -> 12, W (2,1) -> 4.
+    private val middle7x7Ring = listOf(
+        Pair(5, 2), Pair(5, 1), Pair(4, 1), Pair(3, 1),
+        Pair(2, 1), Pair(1, 1), Pair(1, 2), Pair(1, 3),
+        Pair(1, 4), Pair(1, 5), Pair(2, 5), Pair(3, 5),
+        Pair(4, 5), Pair(5, 5), Pair(5, 4), Pair(5, 3)
     )
+    private val middle7x7Rot = listOf(0, 9, 12, 4) // South, North, East, West
+
+    // 7x7 inner ring CLOCKWISE (8 cells), base order starts at the South
+    // turn-in (4,2). Rotation per seat: S -> 0, N (2,4) -> 4, E (4,4) -> 6,
+    // W (4,2) -> 0. Every rotation ends on a side-midpoint, so the final
+    // step into Center Home is always orthogonal.
+    private val inner7x7Ring = listOf(
+        Pair(4, 2), Pair(3, 2), Pair(2, 2), Pair(2, 3),
+        Pair(2, 4), Pair(3, 4), Pair(4, 4), Pair(4, 3)
+    )
+    private val inner7x7Rot = listOf(0, 4, 6, 0) // South, North, East, West
+    private val center7x7 = Pair(3, 3) // Center Home
+
+    // Rotate a ring left by k cells (entry cell lands first).
+    private fun rotated(ring: List<Pair<Int, Int>>, k: Int): List<Pair<Int, Int>> {
+        val n = ring.size
+        val r = ((k % n) + n) % n
+        return List(n) { i -> ring[(r + i) % n] }
+    }
 
     private fun get7x7PlayerPath(playerIndex: Int): List<Pair<Int, Int>> {
         val startOffset = when (playerIndex) {
@@ -106,11 +133,17 @@ object TrackBuilder {
             else -> 0
         }
 
+        // North turns into the middle ring one step early at (0,5): a
+        // 23-cell outer run, so its gate sits at index 23, not 24.
+        val outerLen = if (playerIndex == 1) 23 else 24
         val rotatedOuter = ArrayList<Pair<Int, Int>>()
-        for (i in 0 until 24) {
+        for (i in 0 until outerLen) {
             rotatedOuter.add(outer7x7Loop[(startOffset + i) % 24])
         }
 
-        return rotatedOuter + inner7x7Loop
+        return rotatedOuter +
+            rotated(middle7x7Ring, middle7x7Rot.getOrElse(playerIndex) { 0 }) +
+            rotated(inner7x7Ring, inner7x7Rot.getOrElse(playerIndex) { 0 }) +
+            center7x7
     }
 }

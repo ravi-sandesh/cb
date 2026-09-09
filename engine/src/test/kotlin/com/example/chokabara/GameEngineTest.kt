@@ -1,5 +1,6 @@
 package com.example.chokabara
 
+import com.chokabarah.game.engine.CowryResult
 import com.chokabarah.game.engine.GameEngine
 import com.chokabarah.game.engine.GridSize
 import com.chokabarah.game.engine.MoveOption
@@ -7,6 +8,8 @@ import com.chokabarah.game.engine.Pawn
 import com.chokabarah.game.engine.PawnState
 import com.chokabarah.game.engine.PlayerColor
 import com.chokabarah.game.engine.TrackBuilder
+import com.chokabarah.game.engine.calculateValidMoves
+import com.chokabarah.game.engine.executeMovePure
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -409,5 +412,126 @@ class GameEngineTest {
         // If it's an extra roll with no moves, player should NOT change
         // (we can't force this easily, just verify no crash)
         assertEquals(initialPlayer, engine.currentPlayerIndex)
+    }
+
+    // ---- Tollu / toughened Gatti mechanics ----
+
+    private fun tolluPair(): Pair<Pawn, Pawn> {
+        engine.resetGame()
+        engine.hasCapturedOpponent[0] = true
+        val a = player0Pawn(0).apply { state = PawnState.ON_TRACK; pathIndex = 17 }
+        val b = player0Pawn(1).apply { state = PawnState.ON_TRACK; pathIndex = 17 }
+        return a to b
+    }
+
+    @Test
+    fun testTolluPairMovesAtHalfRate() {
+        tolluPair()
+        val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
+            engine.hasCapturedOpponent, 4, engine.toughenedCells)
+        val tollu = moves.firstOrNull { it.isGattiGroup }
+        assertNotNull(tollu)
+        assertEquals(2, tollu!!.grpPawns.size)
+        assertEquals(19, tollu.targetPathIndex) // floor(4/2) = 2 steps
+        assertFalse(tollu.isToughened)
+        assertFalse(tollu.toughens)
+    }
+
+    @Test
+    fun testTolluPairStuckOnOddRolls() {
+        tolluPair()
+        val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
+            engine.hasCapturedOpponent, 1, engine.toughenedCells)
+        assertTrue(moves.none { it.isGattiGroup }) // floor(1/2) = 0: stuck
+    }
+
+    @Test
+    fun testTolluPairToughensOnExactTwo() {
+        tolluPair()
+        val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
+            engine.hasCapturedOpponent, 2, engine.toughenedCells)
+        val harden = moves.firstOrNull { it.isGattiGroup }
+        assertNotNull(harden)
+        assertEquals(18, harden!!.targetPathIndex)
+        assertTrue(harden.toughens)
+        val res = executeMovePure(GridSize.FIVE_BY_FIVE, engine.pawns.toList(),
+            engine.hasCapturedOpponent.toMap(), 0, harden, CowryResult(emptyList(), 2, false, "t"), engine.toughenedCells)
+        assertNull(res.error)
+        assertTrue(res.gattiFormed)
+        assertEquals(mapOf(0 to setOf(18)), res.toughened)
+    }
+
+    @Test
+    fun testToughenedPairMovesFullRateAndBlocks() {
+        tolluPair()
+        engine.toughenedCells.getOrPut(0) { mutableSetOf() }.add(17)
+        // Full rate for the hardened pair.
+        val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
+            engine.hasCapturedOpponent, 3, engine.toughenedCells)
+        val hard = moves.firstOrNull { it.isGattiGroup }
+        assertNotNull(hard)
+        assertEquals(20, hard!!.targetPathIndex)
+        assertTrue(hard.isToughened)
+        // Blockade: P1 (cut made) at idx 19 + 4 crosses idx 21 = (2,1),
+        // where P0's toughened pair sits -> the crossing is dropped.
+        engine.hasCapturedOpponent[1] = true
+        val p1 = engine.pawns.first { it.playerIndex == 1 }
+        p1.state = PawnState.ON_TRACK
+        p1.pathIndex = 19
+        val blocked = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 1,
+            engine.hasCapturedOpponent, 4, engine.toughenedCells)
+        assertTrue(blocked.none { it.targetPathIndex == 23 })
+        // Without the flag the same crossing is legal (tollu doesn't blockade).
+        engine.toughenedCells.clear()
+        val open = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 1,
+            engine.hasCapturedOpponent, 4, engine.toughenedCells)
+        assertTrue(open.any { it.targetPathIndex == 23 })
+    }
+
+    @Test
+    fun testCaptureOneOfPair() {
+        engine.resetGame()
+        // P0 pawn at idx 3, P1 stacked pair at (1,4) = P1 idx 13 (outer).
+        val mover = player0Pawn(0).apply { state = PawnState.ON_TRACK; pathIndex = 3 }
+        val v1 = player1Pawn(0).apply { state = PawnState.ON_TRACK; pathIndex = 13 }
+        val v2 = player1Pawn(1).apply { state = PawnState.ON_TRACK; pathIndex = 13 }
+        val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
+            engine.hasCapturedOpponent, 2, engine.toughenedCells)
+        val cap = moves.firstOrNull { it.isCapture }
+        assertNotNull(cap)
+        val res = executeMovePure(GridSize.FIVE_BY_FIVE, engine.pawns.toList(),
+            engine.hasCapturedOpponent.toMap(), 0, cap!!, CowryResult(emptyList(), 2, false, "t"), engine.toughenedCells)
+        assertEquals(1, res.capturedCount)
+        assertEquals(PawnState.HOME_BASE, res.pawns.first { it.id == v1.id }.state)
+        assertEquals(-1, res.pawns.first { it.id == v1.id }.pathIndex)
+        assertEquals(PawnState.ON_TRACK, res.pawns.first { it.id == v2.id }.state)
+        assertEquals(13, res.pawns.first { it.id == v2.id }.pathIndex)
+    }
+
+    @Test
+    fun testOuterPairMovesAsSingles() {
+        engine.resetGame()
+        engine.hasCapturedOpponent[0] = true
+        player0Pawn(0).apply { state = PawnState.ON_TRACK; pathIndex = 5 }
+        player0Pawn(1).apply { state = PawnState.ON_TRACK; pathIndex = 5 }
+        val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
+            engine.hasCapturedOpponent, 1, engine.toughenedCells)
+        // The stacked pair moves as 2 independent singles (plus the 2 HOME
+        // entries): no Gatti group anywhere.
+        assertEquals(4, moves.size)
+        assertTrue(moves.all { !it.isGattiGroup && it.grpPawns.size == 1 })
+        assertEquals(
+            listOf(0, 1),
+            moves.filter { it.targetPathIndex == 6 }.flatMap { m -> m.grpPawns.map { it.id } }.sorted()
+        )
+    }
+
+    @Test
+    fun testResetGameClearsToughenedCells() {
+        engine.resetGame()
+        engine.toughenedCells.getOrPut(0) { mutableSetOf() }.add(17)
+        engine.resetGame()
+        assertTrue(engine.toughenedCells.isEmpty())
+        assertTrue(engine.snapshot().toughened.isEmpty())
     }
 }

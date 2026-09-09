@@ -140,7 +140,13 @@ class EngineParityTest {
             val cap = scen.getJSONObject("hasCaptured")
             cap.keys().forEach { key -> hasCaptured[key.toInt()] = cap.getBoolean(key) }
 
-            val kotlin = calculateValidMoves(gridSize, pawns, player, hasCaptured, score)
+            val toughened = mutableMapOf<Int, Set<Int>>()
+            val tough = scen.optJSONObject("toughened")
+            tough?.keys()?.forEach { key ->
+                toughened[key.toInt()] = tough.getJSONArray(key).toIntList().toSet()
+            }
+
+            val kotlin = calculateValidMoves(gridSize, pawns, player, hasCaptured, score, toughened)
             val expectedArr = scen.getJSONArray("expected")
 
             assertEquals("scenario ${scen.optString("label", "scen${i + 1}")} move count", expectedArr.length(), kotlin.size)
@@ -154,6 +160,8 @@ class EngineParityTest {
                 assertEquals("scen$i isCapture", exp.getBoolean("isCapture"), m.isCapture)
                 assertEquals("scen$i reachesHome", exp.getBoolean("reachesHome"), m.reachesHome)
                 assertEquals("scen$i isGattiGroup", exp.getBoolean("isGattiGroup"), m.isGattiGroup)
+                assertEquals("scen$i isToughened", exp.optBoolean("isToughened", false), m.isToughened)
+                assertEquals("scen$i toughens", exp.optBoolean("toughens", false), m.toughens)
             }
         }
     }
@@ -181,6 +189,12 @@ class EngineParityTest {
             val cap = scen.getJSONObject("hasCapturedBefore")
             cap.keys().forEach { key -> hasCapturedBefore[key.toInt()] = cap.getBoolean(key) }
 
+            val toughenedBefore = mutableMapOf<Int, Set<Int>>()
+            val tough = scen.optJSONObject("toughenedBefore")
+            tough?.keys()?.forEach { key ->
+                toughenedBefore[key.toInt()] = tough.getJSONArray(key).toIntList().toSet()
+            }
+
             val mv = scen.getJSONObject("move")
             val ids = mv.getJSONArray("pawnIds").toIntList()
             val coords = mv.getJSONArray("targetCoords")
@@ -190,7 +204,9 @@ class EngineParityTest {
                 targetCoords = coords.getInt(0) to coords.getInt(1),
                 isCapture = mv.getBoolean("isCapture"),
                 reachesHome = mv.getBoolean("reachesHome"),
-                isGattiGroup = mv.getBoolean("isGattiGroup")
+                isGattiGroup = mv.getBoolean("isGattiGroup"),
+                isToughened = mv.optBoolean("isToughened", false),
+                toughens = mv.optBoolean("toughens", false)
             )
             val roll: CowryResult? = if (scen.getBoolean("rollIsExtraRoll")) {
                 CowryResult(emptyList(), 0, true, "corpus")
@@ -198,7 +214,7 @@ class EngineParityTest {
                 CowryResult(emptyList(), 0, false, "corpus")
             }
 
-            val res = executeMovePure(gridSize, pawnsBefore, hasCapturedBefore, player, liveMove, roll)
+            val res = executeMovePure(gridSize, pawnsBefore, hasCapturedBefore, player, liveMove, roll, toughenedBefore)
             assertNull("${label} error", res.error)
 
             val expected = scen.getJSONObject("expected")
@@ -217,6 +233,14 @@ class EngineParityTest {
                 "$label hasCaptured",
                 capturedAfter.keys().asSequence().map { it.toInt() to capturedAfter.getBoolean(it) }.toMap(),
                 res.hasCapturedOpponent
+            )
+            val toughenedAfter = expected.optJSONObject("toughenedAfter")
+            assertEquals(
+                "$label toughened",
+                toughenedAfter?.keys()?.asSequence()?.map {
+                    it.toInt() to toughenedAfter.getJSONArray(it).toIntList().toSet()
+                }?.toMap() ?: emptyMap<Int, Set<Int>>(),
+                res.toughened
             )
             assertEquals("$label winnerIndex", expected.getInt("winnerIndex"), res.winnerIndex)
             assertEquals("$label extraTurn", expected.getBoolean("extraTurn"), res.extraTurn)

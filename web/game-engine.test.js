@@ -58,9 +58,12 @@ describe('Track & Board Paths', () => {
     homes7.forEach((h, p) => expect(get7x7Path(p)[0]).toEqual(h));
   });
 
-  test('innerStartIndex returns 16 for 5x5 and 24 for 7x7', () => {
-    expect(innerStartIndex(5)).toBe(16);
-    expect(innerStartIndex(7)).toBe(24);
+  test('innerStartIndex returns 16 for 5x5 and 24 for 7x7 (23 for 7x7 North)', () => {
+    expect(innerStartIndex(5, 0)).toBe(16);
+    expect(innerStartIndex(5, 1)).toBe(16);
+    expect(innerStartIndex(7, 0)).toBe(24);
+    expect(innerStartIndex(7, 2)).toBe(24);
+    expect(innerStartIndex(7, 1)).toBe(23); // North turns in early at (0,5)
   });
 
   test('inner ring entry gate is correct for each board', () => {
@@ -284,18 +287,27 @@ describe('calculateValidMoves – Capture & Gatti', () => {
     expect(captureMove.targetCoords).toEqual(landing);
   });
 
-  test('opponent Gatti (2+ pawns) blocks capture even for single mover', () => {
-    const landing = getPlayerPath(5, 0)[3];
-    const oppIdx = oppIdxAt(5, 1, landing);
-    const pawns = [
-      { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 2 },
+  test('opponent TOUGHENED pair blocks capture; untoughened tollu pair is capturable', () => {
+    // (3,3) is inner for both P0 (idx 22) and P1 (idx 18).
+    const base = [
+      { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 20 }, // +2 → 22
       { id: 1, playerIndex: 0, state: 'HOME_BASE', pathIndex: -1 },
-      { id: 5, playerIndex: 1, state: 'ON_TRACK', pathIndex: oppIdx },
-      { id: 6, playerIndex: 1, state: 'ON_TRACK', pathIndex: oppIdx }
+      { id: 5, playerIndex: 1, state: 'ON_TRACK', pathIndex: 18 },
+      { id: 6, playerIndex: 1, state: 'ON_TRACK', pathIndex: 18 }
     ];
-    const moves = calculateValidMoves(5, pawns, 0, {0:true}, 1);
-    // No capture offered because the target is an opponent Gatti
-    expect(moves.some(m => m.isCapture)).toBe(false);
+    // Flagged (toughened): landing is blocked, no capture offered.
+    const blocked = calculateValidMoves(5, base, 0, {0:true}, 2, { 1: [18] });
+    expect(blocked.some(m => m.isCapture)).toBe(false);
+    expect(blocked.find(m => m.targetPathIndex === 22)).toBeUndefined();
+    // Unflagged (tollu): landing captures exactly one (capture-one).
+    const open = calculateValidMoves(5, base, 0, {0:true}, 2, {});
+    const captureMove = open.find(m => m.targetPathIndex === 22);
+    expect(captureMove).toBeDefined();
+    expect(captureMove.isCapture).toBe(true);
+    const res = executeMove(5, base.map(p => ({ ...p })), {0:true}, 0, captureMove, { isExtraRoll: false }, {});
+    expect(res.capturedCount).toBe(1);
+    expect(res.pawns.find(p => p.id === 5).state).toBe('HOME_BASE');
+    expect(res.pawns.find(p => p.id === 6).state).toBe('ON_TRACK');
   });
 
   test('safe cell prevents capture of opponent', () => {
@@ -331,17 +343,45 @@ describe('calculateValidMoves – Capture & Gatti', () => {
     expect(safeMove.isCapture).toBe(false);
   });
 
-  test('myGroupIsGatti flag set when moving a Gatti group', () => {
-    const idx = 5;
+  test('inner pair groups as one tollu unit; an exact 2 toughens it', () => {
+    const idx = 17; // inner (>= gate 16)
     const pawns = [
       { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: idx },
       { id: 1, playerIndex: 0, state: 'ON_TRACK', pathIndex: idx },
       { id: 2, playerIndex: 0, state: 'HOME_BASE', pathIndex: -1 }
     ];
-    const moves = calculateValidMoves(5, pawns, 0, {0:true}, 2);
-    const gattiMove = moves.find(m => m.isGattiGroup);
-    expect(gattiMove).toBeDefined();
-    expect(gattiMove.grpPawns).toHaveLength(2);
+    // Score 4 -> tollu half rate: one group move +2, not toughened.
+    const half = calculateValidMoves(5, pawns, 0, {0:true}, 4, {});
+    const tolluMove = half.find(m => m.isGattiGroup);
+    expect(tolluMove).toBeDefined();
+    expect(tolluMove.grpPawns).toHaveLength(2);
+    expect(tolluMove.targetPathIndex).toBe(idx + 2);
+    expect(tolluMove.isToughened).toBe(false);
+    expect(tolluMove.toughens).toBe(false);
+    // Score 2 -> same move toughens the pair at its destination.
+    const harden = calculateValidMoves(5, pawns, 0, {0:true}, 2, {});
+    const toughMove = harden.find(m => m.isGattiGroup);
+    expect(toughMove).toBeDefined();
+    expect(toughMove.targetPathIndex).toBe(idx + 1);
+    expect(toughMove.toughens).toBe(true);
+    const res = executeMove(5, pawns.map(p => ({ ...p })), {0:true}, 0, toughMove, { isExtraRoll: false }, {});
+    expect(res.gattiFormed).toBe(true);
+    expect(res.toughened).toEqual({ 0: [idx + 1] });
+    // Score 1 -> floor(1/2) = 0: the tollu pair is stuck, no move offered.
+    const stuck = calculateValidMoves(5, pawns, 0, {0:true}, 1, {});
+    expect(stuck.find(m => m.isGattiGroup)).toBeUndefined();
+  });
+
+  test('outer pair moves as vulnerable singles, never one Gatti group', () => {
+    const idx = 5; // outer (< gate 16)
+    const pawns = [
+      { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: idx },
+      { id: 1, playerIndex: 0, state: 'ON_TRACK', pathIndex: idx }
+    ];
+    const moves = calculateValidMoves(5, pawns, 0, {0:true}, 1, {});
+    expect(moves).toHaveLength(2);
+    expect(moves.every(m => m.isGattiGroup === false)).toBe(true);
+    expect(moves.every(m => m.grpPawns.length === 1)).toBe(true);
   });
 });
 
@@ -439,15 +479,26 @@ describe('executeMove – Core Execution', () => {
     expect(res.winner).toBe(0);
   });
 
-  test('gattiFormed true when two pawns end on same cell via non-capture move', () => {
-    const pawns = [
+  test('outer join does NOT form a Gatti; inner tollu join does not toughen', () => {
+    // Outer join (idx 4 -> 5): two singles end together, still vulnerable.
+    const outer = [
       { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 4 },
       { id: 1, playerIndex: 0, state: 'ON_TRACK', pathIndex: 5 },
       { id: 2, playerIndex: 0, state: 'HOME_BASE', pathIndex: -1 }
     ];
-    const move = { grpPawns:[pawns[0]], targetPathIndex: 5, targetCoords:getPlayerPath(5,0)[5], isCapture:false, reachesHome:false };
-    const res = executeMove(5, pawns, {0:true,1:true}, 0, move, {isExtraRoll:false});
-    expect(res.gattiFormed).toBe(true);
+    const outerMove = { grpPawns:[outer[0]], targetPathIndex: 5, targetCoords:getPlayerPath(5,0)[5], isCapture:false, reachesHome:false };
+    const outerRes = executeMove(5, outer, {0:true,1:true}, 0, outerMove, {isExtraRoll:false});
+    expect(outerRes.gattiFormed).toBe(false);
+    // Inner tollu join (idx 16 -> 17 onto a mate): tollu pair, not toughened.
+    const inner = [
+      { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 16 },
+      { id: 1, playerIndex: 0, state: 'ON_TRACK', pathIndex: 17 },
+      { id: 2, playerIndex: 0, state: 'HOME_BASE', pathIndex: -1 }
+    ];
+    const innerMove = { grpPawns:[inner[0]], targetPathIndex: 17, targetCoords:getPlayerPath(5,0)[17], isCapture:false, reachesHome:false };
+    const innerRes = executeMove(5, inner, {0:true,1:true}, 0, innerMove, {isExtraRoll:false});
+    expect(innerRes.gattiFormed).toBe(false);
+    expect(innerRes.toughened).toEqual({});
   });
 
   test('extra turn NOT granted for a plain move with no capture/extra roll', () => {
@@ -503,7 +554,9 @@ describe('Input validation guards', () => {
   test.each([
     ['isCapture', { isCapture: 'yes' }],
     ['reachesHome', { reachesHome: 'yes' }],
-    ['isGattiGroup', { isGattiGroup: 'yes' }]
+    ['isGattiGroup', { isGattiGroup: 'yes' }],
+    ['isToughened', { isToughened: 'yes' }],
+    ['toughens', { toughens: 'yes' }]
   ])('executeMove with non-boolean %s returns error', (field, overrides) => {
     const pawns = [{ id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 5 }];
     const move = { grpPawns:[pawns[0]], targetPathIndex: 6, targetCoords:[1,2], isCapture:false, reachesHome:false, isGattiGroup:false, ...overrides };
@@ -557,10 +610,10 @@ describe('advanceTurn', () => {
 });
 
 describe('selectBotMove – Bot AI', () => {
-  function mkMove(pathIndex, {capture=false, home=false, safe=false, gatti=false}={}) {
+  function mkMove(pathIndex, {capture=false, home=false, safe=false, gatti=false, toughens=false}={}) {
     const coord = getPlayerPath(5, 0)[pathIndex] || [pathIndex, pathIndex];
     const coords = { safe: isSafeCell(5, coord[0], coord[1]), ...coord };
-    return { grpPawns:[{pathIndex}], targetCoords:coord, isCapture:capture, reachesHome:home, isGattiGroup:gatti };
+    return { grpPawns:[{pathIndex}], targetCoords:coord, isCapture:capture, reachesHome:home, isGattiGroup:gatti, toughens };
   }
 
   test('no moves returns null', () => {
@@ -588,6 +641,13 @@ describe('selectBotMove – Bot AI', () => {
   test('prefers Gatti group', () => {
     const moves = [mkMove(1), mkMove(2,{gatti:true}), mkMove(3)];
     expect(selectBotMove(moves,5).isGattiGroup).toBe(true);
+  });
+
+  test('prefers toughening over safe squares (but not over capture/home)', () => {
+    const moves = [mkMove(1), mkMove(0), mkMove(2,{toughens:true})];
+    expect(selectBotMove(moves, 5).toughens).toBe(true);
+    const withCapture = [mkMove(2,{toughens:true}), mkMove(3,{capture:true})];
+    expect(selectBotMove(withCapture, 5).isCapture).toBe(true);
   });
 
   test('falls back to furthest pawn otherwise', () => {
@@ -652,16 +712,18 @@ describe('SCALE TESTS', () => {
     }
   });
 
-  test('many pawns at same pathIndex resolve to Gatti in one group', () => {
-    const idx = 6;
+  test('inner pair resolves to one tollu group (outer stacks stay singles)', () => {
+    const idx = 17; // inner (>= gate 16)
     const pawns = [];
     for (let id=0; id<4; id++) {
       pawns.push({ id, playerIndex:0, state:'ON_TRACK', pathIndex: idx });
     }
-    const moves = calculateValidMoves(5, pawns, 0, {0:true}, 2);
-    const gattiMove = moves.find(m => m.isGattiGroup);
-    expect(gattiMove).toBeDefined();
-    expect(gattiMove.grpPawns).toHaveLength(4);
+    const moves = calculateValidMoves(5, pawns, 0, {0:true}, 4, {});
+    const tolluMove = moves.find(m => m.isGattiGroup);
+    expect(tolluMove).toBeDefined();
+    expect(tolluMove.grpPawns).toHaveLength(4);
+    expect(tolluMove.targetPathIndex).toBe(idx + 2); // half rate
+    expect(tolluMove.isToughened).toBe(false);
   });
 
   // ============================================================
@@ -731,18 +793,58 @@ describe('EC-38 - inner loop continues from the gate to center', () => {
   test.each([[5], [7]])('%dx%d inner path has no revisits and terminates at center', (sz) => {
     const center = sz === 5 ? [2, 2] : [3, 3];
     for (let p = 0; p < 4; p++) {
-      const inner = getPlayerPath(sz, p).slice(innerStartIndex(sz)); // inner + center
+      const inner = getPlayerPath(sz, p).slice(innerStartIndex(sz, p)); // inner + center
       expect(new Set(inner.map(c => c.join(','))).size).toBe(inner.length);
       expect(inner[inner.length - 1]).toEqual(center);
     }
   });
 
   test('5x5 inner loop steps are orthogonally adjacent (no jumps/reversal)', () => {
-    const inner = getPlayerPath(5, 0).slice(innerStartIndex(5));
+    const inner = getPlayerPath(5, 0).slice(innerStartIndex(5, 0));
     for (let i = 0; i < inner.length - 1; i++) {
       const [a, b] = [inner[i], inner[i + 1]];
       expect(Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1])).toBe(1);
     }
+  });
+
+  test('every seat enters its own inner track orthogonally and reaches center orthogonally', () => {
+    // Entry = the block before home, stepped inward; last inner cell steps
+    // orthogonally into center. Holds for all 4 seats on both board sizes.
+    for (const sz of [5, 7]) {
+      for (let p = 0; p < 4; p++) {
+        const path = getPlayerPath(sz, p);
+        const gate = innerStartIndex(sz, p);
+        const stepIn = [path[gate - 1], path[gate]];
+        expect(Math.abs(stepIn[0][0] - stepIn[1][0]) + Math.abs(stepIn[0][1] - stepIn[1][1])).toBe(1);
+        const stepHome = [path[path.length - 2], path[path.length - 1]];
+        expect(Math.abs(stepHome[0][0] - stepHome[1][0]) + Math.abs(stepHome[0][1] - stepHome[1][1])).toBe(1);
+        // Full inner run (gate..center) is orthogonally adjacent throughout,
+        // except the 7x7 middle->inner turn-inward step (a deliberate diagonal,
+        // as on traditional boards): middle's last cell -> inner's first cell.
+        for (let i = gate; i < path.length - 1; i++) {
+          if (sz === 7 && i === gate + 15) continue;
+          const [a, b] = [path[i], path[i + 1]];
+          expect(Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1])).toBe(1);
+        }
+      }
+    }
+  });
+
+  test('per-player inner entries match the traditional board', () => {
+    // 5x5 entries: N (1,3), S (3,1), E (3,3), W (1,1); all gates at 16.
+    expect(getPlayerPath(5, 1)[16]).toEqual([1, 3]);
+    expect(getPlayerPath(5, 0)[16]).toEqual([3, 1]);
+    expect(getPlayerPath(5, 2)[16]).toEqual([3, 3]);
+    expect(getPlayerPath(5, 3)[16]).toEqual([1, 1]);
+    // 7x7 entries: N (1,5) at gate 23; S (5,2), E (4,5), W (2,1) at gate 24.
+    expect(getPlayerPath(7, 1)[23]).toEqual([1, 5]);
+    expect(getPlayerPath(7, 1)).toHaveLength(48);
+    expect(getPlayerPath(7, 0)[24]).toEqual([5, 2]);
+    expect(getPlayerPath(7, 2)[24]).toEqual([4, 5]);
+    expect(getPlayerPath(7, 3)[24]).toEqual([2, 1]);
+    // (1,2) sits one step before center for North on 5x5 (exact-1 home rule).
+    expect(getPlayerPath(5, 1)[23]).toEqual([1, 2]);
+    expect(getPlayerPath(5, 1)[24]).toEqual([2, 2]);
   });
 });
 
@@ -796,20 +898,23 @@ describe('EC-21 - pawn finishing while inside a Gatti leaves a smaller Gatti', (
     expect(res.winner).toBeNull();
   });
 
-  test('the remaining co-located pawn is still a movable Gatti unit afterwards', () => {
+  test('the remaining co-located pawn is still a movable tollu unit afterwards', () => {
     const path = getPlayerPath(5, 0);
     const last = path.length - 1;
     const pawns = [
       { id: 0, playerIndex: 0, state: 'FINISHED', pathIndex: last },
       { id: 1, playerIndex: 0, state: 'ON_TRACK', pathIndex: last - 1 },
-      { id: 2, playerIndex: 0, state: 'ON_TRACK', pathIndex: last - 1 }, // leftover Gatti
+      { id: 2, playerIndex: 0, state: 'ON_TRACK', pathIndex: last - 1 }, // leftover pair
       { id: 3, playerIndex: 0, state: 'ON_TRACK', pathIndex: 5 },
       { id: 4, playerIndex: 1, state: 'HOME_BASE', pathIndex: -1 }
     ];
-    const moves = calculateValidMoves(5, pawns, 0, {0:true,1:false}, 1);
-    const gatti = moves.find(m => m.isGattiGroup);
-    expect(gatti).toBeDefined();
-    expect(gatti.grpPawns.map(p => p.id).sort()).toEqual([1, 2]); // smaller Gatti of 2
+    const moves = calculateValidMoves(5, pawns, 0, {0:true,1:false}, 2);
+    const tollu = moves.find(m => m.isGattiGroup);
+    expect(tollu).toBeDefined();
+    expect(tollu.grpPawns.map(p => p.id).sort()).toEqual([1, 2]); // smaller tollu of 2
+    expect(tollu.targetPathIndex).toBe(last); // ...right into Center Home...
+    expect(tollu.reachesHome).toBe(true);
+    expect(tollu.toughens).toBe(false); // ...so it finishes instead of toughening
   });
 });
 

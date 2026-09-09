@@ -9,7 +9,9 @@ data class MoveOption(
     val targetCoords: Pair<Int, Int>,
     val isCapture: Boolean,
     val reachesHome: Boolean,
-    val isGattiGroup: Boolean
+    val isGattiGroup: Boolean,        // Moving group is a same-cell pair (tollu or toughened)
+    val isToughened: Boolean = false, // ...and that pair is hardened
+    val toughens: Boolean = false     // ...this move hardens a tollu pair (exact 2)
 )
 
 data class CowryResult(
@@ -74,16 +76,30 @@ fun calculateValidMoves(
     pawns: List<Pawn>,
     currentPlayerIndex: Int,
     hasCapturedOpponent: Map<Int, Boolean>,
-    score: Int
+    score: Int,
+    toughened: Map<Int, Set<Int>> = emptyMap()
 ): List<MoveOption> {
     val maxScore = if (gridSize == GridSize.FIVE_BY_FIVE) 8 else 12
     if (score !in 1..maxScore) return emptyList()
 
     val path      = TrackBuilder.getPlayerPath(gridSize, currentPlayerIndex)
-    val innerGate = TrackBuilder.innerGateIndex(gridSize)
+    val innerGate = TrackBuilder.innerGateIndex(gridSize, currentPlayerIndex)
     val hasInner  = hasCapturedOpponent[currentPlayerIndex] == true
+    val toughCells = toughened[currentPlayerIndex] ?: emptySet()
 
-    // Group current player's non-finished pawns by cell (Gatti groups)
+    // Opponent TOUGHENED cells, keyed by board coordinate, for the blockade:
+    // a non-toughened mover can neither pass through nor stop on one.
+    val oppToughCoords = mutableSetOf<Pair<Int, Int>>()
+    for (p in pawns) {
+        if (p.playerIndex == currentPlayerIndex || p.state != PawnState.ON_TRACK) continue
+        if ((toughened[p.playerIndex] ?: emptySet()).contains(p.pathIndex)) {
+            TrackBuilder.getPlayerPath(gridSize, p.playerIndex).getOrNull(p.pathIndex)?.let { oppToughCoords.add(it) }
+        }
+    }
+
+    // Group current player's non-finished pawns by cell — EXCEPT outer-track
+    // pawns (pathIndex < gate), which move as vulnerable singles even when
+    // stacked: Gatti is inner-only now, so an outer stack is never one unit.
     val myPawns = pawns.filter {
         it.playerIndex == currentPlayerIndex && it.state != PawnState.FINISHED
     }
@@ -93,13 +109,14 @@ fun calculateValidMoves(
         // NOTE: Each HOME_BASE pawn is its OWN movable group. A roll brings exactly ONE
         // pawn into play — never all pawns still in the base together (that would wrongly
         // form an impossible all-home Gatti unit). The id suffix keeps them distinct.
-        val key = if (pawn.state == PawnState.HOME_BASE) "HOME_${pawn.id}" else "${pawn.pathIndex}"
+        // Same for outer-track pawns (see above): singles, never a group.
+        val key = if (pawn.state == PawnState.HOME_BASE || pawn.pathIndex < innerGate) "SINGLE_${pawn.id}" else "${pawn.pathIndex}"
         groups.getOrPut(key) { mutableListOf() }.add(pawn)
     }
 
     // Iterate keys in the same order the JS engine does (Object.values over the
     // group map): numeric (pathIndex) keys ascend numerically first, non-numeric
-    // (HOME_*) keys follow in insertion order. Keeps JS/Kotlin move ordering identical.
+    // (SINGLE_*) keys follow in insertion order. Keeps JS/Kotlin move ordering identical.
     val orderedKeys =
         groups.keys.filter { it.toIntOrNull() != null }.sortedBy { it.toInt() } +
         groups.keys.filter { it.toIntOrNull() == null }
@@ -108,12 +125,36 @@ fun calculateValidMoves(
 
     orderedKeys.forEach { key ->
         val grp = groups.getValue(key)
-        val isHome = key.startsWith("HOME")
-        val curIdx = if (isHome) -1 else key.toInt()
+        // HOME_BASE pawns carry pathIndex -1, so the first pawn's index is
+        // the group's position (never parse the key: SINGLE_* is not numeric).
+        val isHome = grp.all { it.state == PawnState.HOME_BASE }
+        val curIdx = grp[0].pathIndex
+        val isPair = grp.size >= 2
+        // Inner pairs are tollu until toughened (a roll of 2 hardens them).
+        val moverToughened = !isHome && toughCells.contains(curIdx)
+        val isTollu = isPair && !isHome && !moverToughened
+        var step = score
+        if (isTollu) {
+            // Tollu rate: 1 block per 2 rolled (round down); odd rolls and
+            // 1s leave the pair stuck.
+            step = score / 2
+            if (step < 1) {
+                Telemetry.trace("engine", "move.tollu_stuck",
+                    "Tollu pair cannot move on score $score",
+                    mapOf(
+                        "pawnIds" to grp.map { it.id },
+                        "curIdx" to curIdx,
+                        "score" to score,
+                        "reason" to "tollu-rate"
+                    )
+                )
+                return@forEach
+            }
+        }
         // A home pawn entering the track moves `score` steps from the start
         // cell (path[0]) — same distance an on-track pawn covers from its
         // current position. With score=2, both land at path[2].
-        val nextIdx = if (isHome) score else curIdx + score
+        val nextIdx = if (isHome) score else curIdx + step
 
         if (nextIdx < 0 || nextIdx >= path.size) {
             Telemetry.trace("engine", "move.overshoot_skipped",
@@ -129,11 +170,11 @@ fun calculateValidMoves(
             return@forEach
         }
         // Cannot enter the inner (gate) region until the player has made a cut:
-        // the gate index (16 for 5x5, 24 for 7x7) is the entry to the inner loop
-        // of the track. Only a successful capture flips hasCapturedOpponent (see
-        // executeMove) — with `hasInner == false` every candidate that would land
-        // on or past the gate is dropped here, so players can never shortcut the
-        // center before earning the cut with an opponent's pawn.
+        // the gate index (16 for 5x5, 24 for 7x7 except North's 23) is the
+        // entry to the inner loop of the track. Only a successful capture
+        // flips hasCapturedOpponent (see executeMove) — with `hasInner == false`
+        // every candidate that would land on or past the gate is dropped here,
+        // so players can never shortcut the center before earning the cut.
         if (!hasInner && nextIdx >= innerGate) {
             Telemetry.trace("engine", "move.gate_blocked",
                 "Group cannot enter inner path (no cut yet)",
@@ -147,6 +188,32 @@ fun calculateValidMoves(
             return@forEach
         }
 
+        // Blockade: a non-toughened mover can neither pass through nor stop
+        // on an opponent's toughened cell. (A toughened mover passes freely;
+        // landing capture immunity is enforced by the capture rules below.)
+        if (!moverToughened) {
+            val from = if (isHome) 1 else curIdx + 1
+            var blockedPass = false
+            for (ii in from until nextIdx) {
+                val cell = path.getOrNull(ii)
+                if (cell != null && oppToughCoords.contains(cell)) {
+                    Telemetry.trace("engine", "move.blockade_blocked",
+                        "Move crosses a toughened cell at path idx $ii",
+                        mapOf(
+                            "pawnIds" to grp.map { it.id },
+                            "curIdx" to curIdx,
+                            "nextIdx" to nextIdx,
+                            "blockedIdx" to ii,
+                            "reason" to "blockade"
+                        )
+                    )
+                    blockedPass = true
+                    break
+                }
+            }
+            if (blockedPass) return@forEach
+        }
+
         val target = path[nextIdx]
         val isSafe = TrackBuilder.isSafeCell(gridSize, target.first, target.second)
         val reachesHome = (nextIdx == path.size - 1)
@@ -158,8 +225,20 @@ fun calculateValidMoves(
         }
         val opponents = atTarget.filter { it.playerIndex != currentPlayerIndex }
 
-        val opponentGatti = opponents.groupBy { it.playerIndex }.any { (_, list) -> list.size >= 2 }
+        // Opponent pairs at the target, grouped per player so the toughened
+        // flag (stored per player + pathIndex) resolves correctly.
+        val perPlayerLists = opponents.groupBy { it.playerIndex }
+        // Only a TOUGHENED pair is immune: tollu pairs and stacked outer
+        // singles are capturable (capture-one), matching the inner-only
+        // Gatti rule. Safe squares still shelter everyone.
+        val opponentToughened = perPlayerLists.any { (pi, list) ->
+            list.size >= 2 && (toughened[pi] ?: emptySet()).contains(list[0].pathIndex)
+        }
         val myGroupIsGatti = grp.size >= 2
+        // A tollu pair moving on an exact 2 hardens into a TOUGHENED Gatti
+        // at its destination (unless the destination is Center Home, where
+        // the pair finishes instead of toughening).
+        val toughens = isTollu && score == 2 && !reachesHome
 
         var isCapture = false
         var blocked   = false
@@ -171,12 +250,11 @@ fun calculateValidMoves(
                     isCapture = false
                     blocked = false
                 }
-                opponentGatti -> {
-                    // Opponent has a Gatti (2+ pawns) — CANNOT BE CAPTURED BY ANYONE
-                    // Not even by another Gatti. This is the traditional rule.
+                opponentToughened -> {
+                    // Opponent has a toughened Gatti — CANNOT BE CAPTURED BY ANYONE.
                     blocked = true
                     Telemetry.trace("engine", "move.gatti_blocked",
-                        "Target is an opponent Gatti; cannot capture",
+                        "Target is an opponent toughened Gatti; cannot capture",
                         mapOf(
                             "pawnIds" to grp.map { it.id },
                             "targetCoords" to listOf(target.first, target.second),
@@ -186,7 +264,7 @@ fun calculateValidMoves(
                     )
                 }
                 else -> {
-                    // Normal capture (single opponent pawn)
+                    // Normal capture (single opponent pawn, tollu pair or outer stack)
                     isCapture = true
                 }
             }
@@ -201,7 +279,9 @@ fun calculateValidMoves(
                 targetCoords   = target,
                 isCapture      = isCapture,
                 reachesHome    = reachesHome,
-                isGattiGroup   = myGroupIsGatti
+                isGattiGroup   = myGroupIsGatti,
+                isToughened    = moverToughened && myGroupIsGatti,
+                toughens       = toughens
             )
         )
     }
@@ -225,7 +305,9 @@ data class MoveExecutionResult(
     // Index into playerColors of the winner; -1 while the game runs.
     val winnerIndex: Int,
     val reachesHome: Boolean,
-    val error: String? = null
+    val error: String? = null,
+    // Copy-on-write toughened map (same contract as hasCapturedOpponent).
+    val toughened: Map<Int, Set<Int>> = emptyMap()
 )
 
 fun executeMovePure(
@@ -234,7 +316,8 @@ fun executeMovePure(
     hasCapturedOpponent: Map<Int, Boolean>,
     currentPlayerIndex: Int,
     move: MoveOption,
-    currentRoll: CowryResult?
+    currentRoll: CowryResult?,
+    toughened: Map<Int, Set<Int>> = emptyMap()
 ): MoveExecutionResult {
     if (move.grpPawns.isEmpty()) return MoveExecutionResult(pawns, hasCapturedOpponent, false, false, 0, emptyList(), -1, false, "grpPawns empty")
     if (move.targetPathIndex < 0 || move.targetCoords.first < 0 || move.targetCoords.second < 0) {
@@ -244,6 +327,7 @@ fun executeMovePure(
     // Copy-on-write inputs (JS BUG-17 observational-purity parity).
     val newPawns = pawns.map { it.copy() }
     val newHasCaptured = hasCapturedOpponent.toMutableMap()
+    val newToughened = toughened.mapValues { (_, v) -> v.toMutableSet() }.toMutableMap()
     val grpIds = move.grpPawns.map { it.id }.toSet()
 
     newPawns.forEach { pawn ->
@@ -258,29 +342,45 @@ fun executeMovePure(
     var capturedCount = 0
     val capturedIds = mutableListOf<Int>()
 
+    // Capture-one: a landing captures exactly ONE pawn — the lowest id on
+    // the cell — whether the victim is lone, one of stacked outer singles,
+    // or one of an inner tollu pair. Toughened pairs never reach this branch
+    // (landing on them is blocked in calculateValidMoves).
     if (move.isCapture && !TrackBuilder.isSafeCell(gridSize, move.targetCoords.first, move.targetCoords.second)) {
-        newPawns.forEach { p ->
-            if (p.playerIndex != currentPlayerIndex && p.state == PawnState.ON_TRACK &&
+        val victims = newPawns.filter { p ->
+            p.playerIndex != currentPlayerIndex && p.state == PawnState.ON_TRACK &&
                 TrackBuilder.getPlayerPath(gridSize, p.playerIndex).getOrNull(p.pathIndex) == move.targetCoords
-            ) {
-                p.state = PawnState.HOME_BASE
-                p.pathIndex = -1
-                capturedCount++
-                capturedIds.add(p.id)
-            }
+        }.sortedBy { it.id }.take(1)
+        victims.forEach { p ->
+            p.state = PawnState.HOME_BASE
+            p.pathIndex = -1
+            capturedCount++
+            capturedIds.add(p.id)
         }
         newHasCaptured[currentPlayerIndex] = true
         extraTurn = true
     }
 
-    val nowAtDest = newPawns.filter {
-        it.playerIndex == currentPlayerIndex &&
-            it.state == PawnState.ON_TRACK &&
-            it.pathIndex == move.targetPathIndex
-    }
-    if (nowAtDest.size >= 2 && nowAtDest.size > move.grpPawns.size) {
+    // Toughening: a tollu pair arriving on a 2 hardens into a Gatti here.
+    // (Home arrivals finish instead — the flag is never set for them, so a
+    // pair finishing together does not announce a Gatti.)
+    if (move.toughens && !move.reachesHome) {
+        val cell = newToughened.getOrPut(currentPlayerIndex) { mutableSetOf() }
+        cell.add(move.targetPathIndex)
         gattiFormed = true
     }
+
+    // Toughened-flag cleanup: a flag survives only while 2+ same-player
+    // ON_TRACK pawns actually share the cell (moves, captures and finishes
+    // could otherwise strand it and blockade the board forever).
+    val stalePlayers = mutableListOf<Int>()
+    for ((pi, cells) in newToughened) {
+        cells.retainAll { idx ->
+            newPawns.count { p -> p.playerIndex == pi && p.state == PawnState.ON_TRACK && p.pathIndex == idx } >= 2
+        }
+        if (cells.isEmpty()) stalePlayers.add(pi)
+    }
+    stalePlayers.forEach { newToughened.remove(it) }
 
     val allDone = newPawns
         .filter { it.playerIndex == currentPlayerIndex }
@@ -295,7 +395,8 @@ fun executeMovePure(
         capturedCount = capturedCount,
         capturedIds = capturedIds,
         winnerIndex = winnerIndex,
-        reachesHome = move.reachesHome
+        reachesHome = move.reachesHome,
+        toughened = newToughened
     )
 }
 
@@ -310,6 +411,11 @@ class GameEngine(
 
     val pawns: MutableList<Pawn> = mutableListOf()
     val hasCapturedOpponent: MutableMap<Int, Boolean> = mutableMapOf()
+    // Cells holding TOUGHENED (inner, roll-2-hardened) pairs, per player.
+    // A flag lives only while 2+ same-player ON_TRACK pawns share the cell
+    // (executeMovePure cleans up the rest); the blockade + immunity rules
+    // read this map, never the raw pair layout.
+    val toughenedCells: MutableMap<Int, MutableSet<Int>> = mutableMapOf()
 
     var currentRoll: CowryResult? = null
         private set
@@ -339,6 +445,7 @@ class GameEngine(
     fun resetGame() {
         pawns.clear()
         hasCapturedOpponent.clear()
+        toughenedCells.clear()
         for (pIndex in playerColors.indices) {
             hasCapturedOpponent[pIndex] = false
             for (pawnId in 0 until 4) {
@@ -366,6 +473,7 @@ class GameEngine(
         winnerIndex = winner?.let { playerColors.indexOf(it) } ?: -1,
         pawns = pawns.map { PawnSnapshot(it.id, it.state, it.pathIndex) },
         hasCapturedOpponent = hasCapturedOpponent.toMap(),
+        toughened = toughenedCells.mapValues { (_, v) -> v.toList() },
         currentRoll = currentRoll?.let { RollSnapshot(it.shells.toList()) }
     )
 
@@ -408,13 +516,20 @@ class GameEngine(
                 require(it.shells.size == numCowries) { "Bad shell count ${it.shells.size}" }
                 scoreShells(it.shells).let { res -> CowryResult(res.shells, res.score, res.isExtraRoll, res.label) }
             }
-            pawns to roll
+            // Toughened flags must reference live seats and non-negative
+            // indices; anything else is an injected impossible state.
+            val tough = snapshot.toughened.mapValues { (idx, cells) ->
+                require(idx in playerColors.indices) { "Bad toughened seat $idx" }
+                cells.toSet()
+            }
+            require(tough.values.all { cells -> cells.all { it >= 0 } }) { "Bad toughened index" }
+            Triple(pawns, roll, tough)
         }.onFailure {
             Telemetry.warn("engine", "state.restore_failed", "Snapshot rejected; engine state left unchanged",
                 mapOf("gridSize" to gridSize.columns, "playerCount" to playerColors.size))
         }.getOrNull() ?: return false
 
-        val (restoredPawns, restoredRoll) = rebuilt
+        val (restoredPawns, restoredRoll, restoredTough) = rebuilt
         // ---- Apply ----
         pawns.clear()
         pawns.addAll(restoredPawns)
@@ -423,13 +538,15 @@ class GameEngine(
             if (idx in playerColors.indices) hasCapturedOpponent[idx] = flag
         }
         playerColors.indices.forEach { idx -> hasCapturedOpponent.putIfAbsent(idx, false) }
+        toughenedCells.clear()
+        restoredTough.forEach { (idx, cells) -> toughenedCells[idx] = cells.toMutableSet() }
 
         currentPlayerIndex = snapshot.currentPlayerIndex
         winner = if (snapshot.winnerIndex == -1) null else playerColors[snapshot.winnerIndex]
         currentRoll = if (winner != null) null else restoredRoll
         rollActor = if (currentRoll == null) -1 else snapshot.rollActorIndex
         validMoves = if (currentRoll == null) emptyList() else calculateValidMoves(
-            gridSize, pawns, currentPlayerIndex, hasCapturedOpponent, currentRoll!!.score
+            gridSize, pawns, currentPlayerIndex, hasCapturedOpponent, currentRoll!!.score, toughenedCells
         )
         gameLogMessage = if (winner != null) {
             "\uD83C\uDF89 VICTORY! ${winner?.displayName} wins!"
@@ -554,7 +671,8 @@ class GameEngine(
             pawns,
             currentPlayerIndex,
             hasCapturedOpponent,
-            score = rollValue
+            score = rollValue,
+            toughened = toughenedCells
         )
     }
 
@@ -596,12 +714,14 @@ class GameEngine(
         // All rule application lives in the PURE executeMovePure (parity with
         // web/game-engine.js); this wrapper only projects the result onto
         // engine state: telemetry spans, log messages, turn bookkeeping.
-        val res = executeMovePure(gridSize, pawns.toList(), hasCapturedOpponent.toMap(), currentPlayerIndex, move, currentRoll)
+        val res = executeMovePure(gridSize, pawns.toList(), hasCapturedOpponent.toMap(), currentPlayerIndex, move, currentRoll, toughenedCells)
 
         pawns.clear()
         pawns.addAll(res.pawns)
         hasCapturedOpponent.clear()
         hasCapturedOpponent.putAll(res.hasCapturedOpponent)
+        toughenedCells.clear()
+        res.toughened.forEach { (idx, cells) -> toughenedCells[idx] = cells.toMutableSet() }
 
         if (res.capturedCount > 0) {
             gameLogMessage = "✂️ CUT! Opponent pawn captured. Inner path unlocked! Extra turn!"
@@ -614,20 +734,18 @@ class GameEngine(
             )
         }
 
-        // Check for Gatti formation at the destination after move.
-        // Announce only when this move SURPASSES the moving group: the landed pawns
-        // must exceed the mover count (pre-existing own pawns sharing the cell).
-        //  - BUG-02: a pre-existing Gatti repositioning alone does NOT re-announce.
-        //  - BUG-03: a capture onto a cell holding our own pawn still forms a Gatti.
-        //  - EC-16 : a moving Gatti landing on our own single pawn grows to size 3.
+        // Gatti announcement: ONLY the toughen transition (a tollu pair
+        // hardening on an exact 2) is announced. Moving a pre-existing pair —
+        // tollu or toughened — never re-announces (BUG-02), and merely joining
+        // into a tollu pair stays silent until it hardens.
         if (res.gattiFormed) {
             val nowAtDest = res.pawns.filter {
                 it.playerIndex == currentPlayerIndex &&
                 it.state == PawnState.ON_TRACK &&
                 it.pathIndex == move.targetPathIndex
             }
-            gameLogMessage = "🔗 GATTI! Your pawns are toughened at this square!"
-            Telemetry.info("engine", "move.gatti_formed", "Player $currentPlayerIndex formed a Gatti",
+            gameLogMessage = "🔗 GATTI TOUGHENED! Your pawns are hardened at this square!"
+            Telemetry.info("engine", "move.gatti_formed", "Player $currentPlayerIndex toughened a Gatti",
                 mapOf(
                     "byPlayer" to currentPlayerIndex,
                     "targetCoords" to listOf(move.targetCoords.first, move.targetCoords.second),
@@ -690,11 +808,12 @@ class GameEngine(
             mapOf("from" to from, "to" to currentPlayerIndex, "playerCount" to playerColors.size))
     }
 
-    // AI Bot Strategy — capture > reach home > safe > Gatti advance > furthest
+    // AI Bot Strategy — capture > reach home > toughen > safe > Gatti > furthest
     fun getBestBotMove(): MoveOption? {
         if (validMoves.isEmpty()) return null
         val best = validMoves.firstOrNull { it.isCapture }
             ?: validMoves.firstOrNull { it.reachesHome }
+            ?: validMoves.firstOrNull { it.toughens }
             ?: validMoves.firstOrNull { TrackBuilder.isSafeCell(gridSize, it.targetCoords.first, it.targetCoords.second) }
             ?: validMoves.firstOrNull { it.isGattiGroup }
             ?: validMoves.maxByOrNull { it.grpPawns[0].pathIndex }

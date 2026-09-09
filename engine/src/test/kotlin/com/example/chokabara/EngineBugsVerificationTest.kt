@@ -90,60 +90,79 @@ class EngineBugsVerificationTest {
     @Test
     fun bug01b_samePlayerGattiStillBlocks() {
         val engine = GameEngine(gridSize = GridSize.FIVE_BY_FIVE)
-        engine.putOnTrack(0, 2)
-        val target = TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 0)[5]
-        // TRUE Gatti: two pawns of player 1 on the same cell.
+        engine.hasCapturedOpponent[0] = true
+        engine.putOnTrack(0, 18)
+        val target = TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 0)[20] // (1,3)
+        // TRUE Gatti: two pawns of player 1 on the same inner cell, TOUGHENED.
         val p1 = engine.pawns.filter { it.playerIndex == 1 }
-        p1[0].state = PawnState.ON_TRACK; p1[0].pathIndex = playerIndexAt(1, target)
-        p1[1].state = PawnState.ON_TRACK; p1[1].pathIndex = playerIndexAt(1, target)
+        p1[0].state = PawnState.ON_TRACK; p1[0].pathIndex = 16
+        p1[1].state = PawnState.ON_TRACK; p1[1].pathIndex = 16
+        engine.toughenedCells.getOrPut(1) { mutableSetOf() }.add(16)
 
-        engine.forceMoves(3)
+        engine.forceMoves(2)
 
         val hasCapture = engine.validMoves.any { it.isCapture }
-        assertEquals("real Gatti correctly blocks", false, hasCapture)
+        assertEquals("real toughened Gatti correctly blocks", false, hasCapture)
+
+        // Same pair UNTOUGHENED (tollu): capturable.
+        engine.toughenedCells.clear()
+        engine.forceMoves(2)
+        assertEquals(
+            "untoughened tollu pair is capturable",
+            true,
+            engine.validMoves.any { it.isCapture && it.targetCoords == target }
+        )
     }
 
     // ============================================================
-    // BUG-02 (FIXED): moving an EXISTING Gatti is NOT a new formation.
-    // DOC §5.1: formation is announced when pawns newly join a cell.
+    // BUG-02 (FIXED): moving an EXISTING pair is NOT a new formation.
+    // DOC §5.1: gattiFormed fires ONLY on the toughen transition (a tollu
+    // pair hardening on an exact 2). Moving a pre-existing pair — tollu or
+    // toughened — never re-announces.
     // ============================================================
     @Test
     fun bug02_movingExistingGattiDoesNotReportFormation() {
         val engine = GameEngine(gridSize = GridSize.FIVE_BY_FIVE)
-        engine.putOnTrack(0, 5)
-        engine.putOnTrack(1, 5)                     // pre-existing Gatti
+        engine.hasCapturedOpponent[0] = true
+        engine.putOnTrack(0, 17)
+        engine.putOnTrack(1, 17)                     // pre-existing tollu pair
 
-        engine.forceMoves(2)
-        val gattiMove = engine.validMoves.firstOrNull { it.isGattiGroup }!!
-        engine.setRoll(2, isExtra = true)        // extra roll: no advanceTurn, message survives
-        engine.executeMove(gattiMove)
+        engine.forceMoves(4) // half rate: pair 17 -> 19, no hardening
+        val tolluMove = engine.validMoves.firstOrNull { it.isGattiGroup }!!
+        engine.setRoll(4, isExtra = true)        // extra roll: no advanceTurn, message survives
+        engine.executeMove(tolluMove)
         assertFalse(
-            "FIXED: moving a pre-existing Gatti must NOT announce a new formation",
+            "FIXED: moving a pre-existing pair must NOT announce a new formation",
             engine.gameLogMessage.contains("GATTI")
         )
     }
 
-    // EC-16 guard: a Gatti landing on our OWN single pawn grows to size 3.
+    // EC-16 guard: a tollu pair hardening onto our OWN single pawn grows to
+    // a toughened 3-stack — the toughen transition MUST announce.
     @Test
     fun ec16_gattiGroupLandsOnOwnPawnGrowsToThree() {
         val engine = GameEngine(gridSize = GridSize.FIVE_BY_FIVE)
-        engine.putOnTrack(0, 5)
-        engine.putOnTrack(1, 5)                     // pre-existing Gatti at 5
-        engine.putOnTrack(2, 7)                     // own single pawn at 7
+        engine.hasCapturedOpponent[0] = true
+        engine.putOnTrack(0, 17)
+        engine.putOnTrack(1, 17)                     // tollu pair at 17
+        engine.putOnTrack(2, 18)                     // own single pawn at 18
 
         engine.forceMoves(2)
-        val gattiMove = engine.validMoves.firstOrNull { it.isGattiGroup }!!
-        assertEquals("group should land next to our single pawn", 7, gattiMove.targetPathIndex)
+        val tolluMove = engine.validMoves.firstOrNull { it.isGattiGroup }!!
+        assertEquals("pair should harden onto our single pawn", 18, tolluMove.targetPathIndex)
+        assertTrue(tolluMove.toughens)
         engine.setRoll(2, isExtra = true)
-        engine.executeMove(gattiMove)
+        engine.executeMove(tolluMove)
         assertTrue(
-            "EC-16: landing a Gatti onto one of our own pawns forms size-3 Gatti",
+            "EC-16: hardening a pair onto one of our own pawns forms a toughened 3-stack",
             engine.gameLogMessage.contains("GATTI")
         )
+        assertEquals(setOf(18), engine.toughenedCells[0])
     }
 
     // ============================================================
-    // BUG-03 (FIXED): a CAPTURE onto my OWN pawn DOES announce the Gatti.
+    // BUG-03 (FIXED + RULE CHANGE): a CAPTURE onto my OWN pawn forms a
+    // tollu pair — NOT a Gatti. Only hardening on an exact 2 toughens it.
     // ============================================================
     @Test
     fun bug03_captureOntoOwnStackAnnouncesGatti() {
@@ -160,9 +179,9 @@ class EngineBugsVerificationTest {
         engine.setRoll(2, isExtra = false)
         engine.executeMove(captureMove)
 
-        // FIXED: 2 own pawns now share the cell -> GATTI message announced.
-        assertTrue(
-            "FIXED: capture onto own stack must announce the new Gatti",
+        // FIXED: 2 own pawns now share the cell as tollu — silent until hardened.
+        assertFalse(
+            "FIXED: capture onto own stack forms tollu, must NOT announce Gatti",
             engine.gameLogMessage.contains("GATTI")
         )
     }

@@ -35,7 +35,13 @@ data class MoveUi(
     val pawnIds: List<Int>,
     val targetCoords: Pair<Int, Int>,
     /** Captures render with a red highlight on the board. */
-    val isCapture: Boolean
+    val isCapture: Boolean,
+    /** The moving group is a same-cell pair (tollu or toughened). */
+    val isGattiGroup: Boolean = false,
+    /** ...and that pair is hardened (gold ring on the board). */
+    val isToughened: Boolean = false,
+    /** ...this move hardens a tollu pair on arrival (exact 2). */
+    val toughens: Boolean = false
 )
 
 /** The pending cowry roll, or null before the first roll of a turn. */
@@ -54,6 +60,8 @@ data class BoardUi(
     val currentPlayerIndex: Int,
     /** Inner-gate unlock flag for the player ON TURN. */
     val isCutUnlocked: Boolean,
+    /** Cells holding toughened pairs, per player seat (gold rings). */
+    val toughened: Map<Int, Set<Int>> = emptyMap(),
     val currentRoll: RollUi?,
     val winner: PlayerColor?,
     /**

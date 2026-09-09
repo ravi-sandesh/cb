@@ -178,9 +178,13 @@ Legend:  H = Player Home (Safe)  |  X = Safe Square  |  C = Center Home (Safe)
 
 #### Inner Track Gate (Critical Rule)
 - **Inner track is locked** until the player has **captured at least one opponent pawn** ("made a cut")
-- Gate index: 5×5 = 16, 7×7 = 24 (first cell of inner loop)
+- Gate index: 5×5 = 16 every seat; 7×7 = 24 except North = 23 (turns in early)
 - If `hasCapturedOpponent == false` and `targetIndex >= gateIndex`: **Move is ILLEGAL**
 - Capturing on the outer track unlocks the gate **immediately** for subsequent moves in the same turn (if extra roll)
+- **Entry is per-seat**: after completing the outer circuit, each pawn steps
+  inward from the block before its own home, then spirals **clockwise**:
+  - 5×5 — N enters at (1,3), S at (3,1), E at (3,3), W at (1,1)
+  - 7×7 — N enters at (1,5) [outer run ends at (0,5)], S at (5,2), E at (4,5), W at (2,1)
 
 #### Reaching Center Home
 - Center home is the **last cell** of the player's path (index = path.length - 1)
@@ -190,41 +194,47 @@ Legend:  H = Player Home (Safe)  |  X = Safe Square  |  C = Center Home (Safe)
 
 #### Pawn Journey Diagrams (Outer Track → Inner Track → Home)
 
-##### 5×5 — 25 cells, gate at index 16
+##### 5×5 — 25 cells, gate at index 16 (every seat)
 ```mermaid
 flowchart TD
-    A["🏠 HOME_BASE<br/>(off board)"] --> B["P0 starts (4,2) [0]<br/>P1 (0,2) · P2 (2,4) · P3 (2,0)"]
-    B --> C["Outer ring [0–15]<br/>(4,2)→(4,3)→(4,4)→(3,4)→(2,4)→(1,4)→(0,4)→(0,3)<br/>(0,2)→(0,1)→(0,0)→(1,0)→(2,0)→(3,0)→(4,0)→(4,1)"]
+    A["🏠 HOME_BASE<br/>(off board)"] --> B["Starts: P0 (4,2) · P1 (0,2) · P2 (2,4) · P3 (2,0)"]
+    B --> C["Outer ring [0–15], anti-clockwise<br/>(4,2)→(4,3)→(4,4)→(3,4)→(2,4)→(1,4)→(0,4)→(0,3)<br/>(0,2)→(0,1)→(0,0)→(1,0)→(2,0)→(3,0)→(4,0)→(4,1)"]
     C --> D{"Next step ≥ index 16?<br/>(gate)"}
     D -- "No" --> C
     D -- "Yes" --> E{"hasCapturedOpponent?<br/>(cut made?)"}
-    E -- "No ✂️ required" --> F["⛔ BLOCKED<br/>move dropped<br/>(GameEngine.kt:137)"]
+    E -- "No ✂️ required" --> F["⛔ BLOCKED<br/>move dropped<br/>(GameEngine.kt)"]
     F --> C
-    E -- "Yes 🔓" --> G["GATE (3,1) [16]"]
-    G --> H["Inner loop [17–23]<br/>(3,2)→(3,3)→(2,3)→(1,3)→(1,2)→(1,1)→(2,1)"]
+    E -- "Yes 🔓" --> G["Per-seat GATE [16]<br/>N (1,3) · S (3,1) · E (3,3) · W (1,1)"]
+    G --> H["Inner ring [17–23], clockwise<br/>e.g. North: (2,3)→(3,3)→(3,2)→(3,1)→(2,1)→(1,1)→(1,2)"]
     H --> I{"Exact roll<br/>to [24]?"}
-    I -- "Overshoot" --> J["⛔ not permitted<br/>(GameEngine.kt:118)"]
+    I -- "Overshoot" --> J["⛔ not permitted"]
     J --> H
     I -- "Exact" --> K["★ CENTER (2,2) [24]<br/>FINISHED 🎉"]
 ```
 
-##### 7×7 — 49 cells, gate at index 24
+Per-seat 5×5 inner runs (gate → center), all clockwise ending orthogonally:
+- N: `(1,3)→(2,3)→(3,3)→(3,2)→(3,1)→(2,1)→(1,1)→(1,2)→(2,2)`
+- S: `(3,1)→(2,1)→(1,1)→(1,2)→(1,3)→(2,3)→(3,3)→(3,2)→(2,2)`
+- E: `(3,3)→(3,2)→(3,1)→(2,1)→(1,1)→(1,2)→(1,3)→(2,3)→(2,2)`
+- W: `(1,1)→(1,2)→(1,3)→(2,3)→(3,3)→(3,2)→(3,1)→(2,1)→(2,2)`
+
+##### 7×7 — 49 cells, gate at index 24 (North: 48 cells, gate 23)
 ```mermaid
 flowchart TD
-    A["🏠 HOME_BASE<br/>(off board)"] --> B["P0 starts (6,3) [0]<br/>P1 (0,3) · P2 (3,6) · P3 (3,0)"]
-    B --> C["Outer ring [0–23]<br/>(6,3)→(6,4)→(6,5)→(6,6)→(5,6)→(4,6)→(3,6)→(2,6)<br/>(1,6)→(0,6)→(0,5)→(0,4)→(0,3)→(0,2)→(0,1)→(0,0)<br/>(1,0)→(2,0)→(3,0)→(4,0)→(5,0)→(6,0)→(6,1)→(6,2)"]
-    C --> D{"Next step ≥ index 24?<br/>(gate)"}
+    A["🏠 HOME_BASE<br/>(off board)"] --> B["Starts: P0 (6,3) · P1 (0,3) · P2 (3,6) · P3 (3,0)"]
+    B --> C["Outer ring, anti-clockwise<br/>P1 North (23 cells): …→(0,6)→(0,5), then turns in<br/>Others (24 cells): full loop back to start side"]
+    C --> D{"Next step ≥ gate?<br/>(23 North · 24 others)"}
     D -- "No" --> C
     D -- "Yes" --> E{"hasCapturedOpponent?<br/>(cut made?)"}
     E -- "No ✂️ required" --> F["⛔ BLOCKED<br/>move dropped"]
     F --> C
-    E -- "Yes 🔓" --> G["GATE (5,2) [24]"]
-    G --> H["Middle ring [25–39]<br/>(5,3)→(5,4)→(5,5)→(4,5)→(3,5)→(2,5)→(1,5)→(1,4)<br/>(1,3)→(1,2)→(1,1)→(2,1)→(3,1)→(4,1)→(5,1)"]
-    H --> J["Inner ring [40–47]<br/>(4,2)→(4,3)→(4,4)→(3,4)→(2,4)→(2,3)→(2,2)→(3,2)"]
-    J --> K{"Exact roll<br/>to [48]?"}
+    E -- "Yes 🔓" --> G["Per-seat GATE<br/>N (1,5)[23] · S (5,2)[24] · E (4,5)[24] · W (2,1)[24]"]
+    G --> H["Middle ring, clockwise (16 cells)<br/>e.g. North: (1,5)→(2,5)→(3,5)→(4,5)→(5,5)→(5,4)→(5,3)→(5,2)→(5,1)→(4,1)→(3,1)→(2,1)→(1,1)→(1,2)→(1,3)→(1,4)"]
+    H --> J["Inner ring, clockwise (8 cells)<br/>e.g. North: (2,4)→(3,4)→(4,4)→(4,3)→(4,2)→(3,2)→(2,2)→(2,3)"]
+    J --> K{"Exact roll<br/>to center?"}
     K -- "Overshoot" --> L["⛔ not permitted"]
     L --> J
-    K -- "Exact" --> M["★ CENTER (3,3) [48]<br/>FINISHED 🎉"]
+    K -- "Exact" --> M["★ CENTER (3,3) [48]<br/>([47] North — 48-cell path)<br/>FINISHED 🎉"]
 ```
 
 ---
@@ -233,25 +243,49 @@ flowchart TD
 
 ### 5.1 Gatti (Pawn Grouping) — "Gatti" = "Knot/Bundle"
 
+> **Gatti is inner-only.** Two same-color pawns sharing an OUTER cell are
+> vulnerable singles: they move independently and each can be captured
+> singly. Only inner pairs can harden into a Gatti.
+
+#### Tollu (Untoughened Pair) vs Toughened Gatti
+- Two of YOUR pawns on the same **inner** cell start as **tollu** (soft):
+  gray dashed ring + `T` on the board
+- Tollu moves as **one unit at half rate**: 1 block per 2 rolled, rounded
+  down (2→1, 4→2; rolls 1 and 3 leave the pair stuck)
+- A tollu pair moving on an **exact 2 hardens into a TOUGHENED Gatti**
+  at its destination (gold ring + `G`); no extra turn for hardening
+- Toughened pairs move the **full** roll value as one unit
+
 #### Formation
-- When **2 or more of YOUR pawns** occupy the **same cell** (after a move), they form a **Gatti**
-- Gatti can form on **any cell** (safe or unsafe)
+- Toughened Gatti forms **only** by a tollu pair moving on an exact 2
+- Merely landing together (joining) forms tollu, announced silently
+- Moving a pre-existing pair — tollu or toughened — never re-announces
 - Gatti formation does **not** grant extra turn
 
 #### Movement
-- Gatti moves as a **single unit** — all pawns in group advance together
-- Requires **exact roll** to move the entire group (cannot split)
-- If roll would overshoot for any pawn in group, **entire group cannot move**
+- Tollu and toughened pairs move as a **single unit** (cannot split)
+- If roll would overshoot for the pair, **the pair cannot move**
+- A tollu pair that would finish together on an exact roll finishes
+  instead of toughening (no Gatti announced)
+
+#### Blockade (Toughened Pawns Cannot Be Surpassed)
+- A non-toughened mover (single or tollu) can **neither pass through nor
+  stop on** an opponent's toughened cell — the move is illegal
+- A **toughened** mover may pass through toughened cells but may never
+  land-capture on one (immunity below still holds)
 
 #### Capture Immunity (Traditional Rule)
-> **A Gatti (2+ pawns) CANNOT BE CAPTURED BY ANYONE — not even by another Gatti.**
+> **A TOUGHENED Gatti CANNOT BE CAPTURED BY ANYONE — not even by another
+> toughened Gatti. Tollu pairs and stacked outer singles ARE capturable.**
 
 | Attacker | Defender | Result |
 |----------|----------|--------|
-| Single | Single | Capture ✅ |
-| Single | Gatti (2+) | **Blocked ❌** |
-| Gatti | Single | Capture ✅ |
-| Gatti | Gatti | **Blocked ❌** |
+| Single | Single | Capture ✅ (capture-one) |
+| Single | Tollu pair / outer stack | Capture ONE ✅ (lowest id) |
+| Single | Toughened Gatti | **Blocked ❌** |
+| Toughened Gatti | Single | Capture ✅ |
+| Toughened Gatti | Tollu / outer stack | Capture ONE ✅ |
+| Toughened Gatti | Toughened Gatti | **Blocked ❌** |
 
 > **Note:** This is the traditional rule per rollthedice.in and most regional variants. Some house rules allow Gatti-vs-Gatti capture; we follow the strict traditional rule.
 
@@ -261,8 +295,11 @@ flowchart TD
 - Opponents can land on same safe square — no capture occurs
 
 #### Breaking a Gatti
-- Gatti **cannot be voluntarily split**
-- Only way to break: capture (impossible per rules) or reaching center home (pawns finish individually)
+- Pairs **cannot be voluntarily split** (inner pairs always move as one unit)
+- A toughened flag clears the moment its cell no longer holds 2+ same-player
+  pawns (move-away, finishing); stranded flags can never blockade the board
+- Reaching center home finishes pawns individually (a finishing pair does
+  not toughen)
 
 ---
 
@@ -271,14 +308,16 @@ flowchart TD
 #### Conditions for Capture
 1. Moving pawn/group lands on cell occupied by **opponent pawn(s)**
 2. Target cell is **NOT a safe square**
-3. Opponent has **NO Gatti** on that cell (single pawn only)
-4. Moving player's pawn(s) can be single or Gatti — both can capture
+3. Opponent has **NO TOUGHENED pair** on that cell (tollu pairs and outer
+   stacks are capturable; safe squares shelter everyone)
+4. Moving player's pawn(s) can be single, tollu, or toughened — all capture
+5. The mover's path must not cross a toughened cell (blockade, §5.1)
 
 #### Capture Effects
-- Captured opponent pawn(s) → `HOME_BASE` (pathIndex = -1)
+- **Capture-one:** exactly ONE opponent pawn (lowest id on the cell) →
+  `HOME_BASE` (pathIndex = -1); any pair-mate stays on track
 - Capturing player: `hasCapturedOpponent = true` (unlocks inner gate)
 - **Extra turn granted** (roll again)
-- Multiple opponent pawns on same unsafe cell (from different players) → **ALL captured**
 
 #### Home Base Safety
 - Pawns in `HOME_BASE` **cannot be captured**

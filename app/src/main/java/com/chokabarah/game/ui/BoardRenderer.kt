@@ -10,6 +10,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -113,7 +114,8 @@ fun BoardCanvas(
             val col = coords.second
             val cellCenterX = col * cellSize + cellSize / 2f
             val cellCenterY = row * cellSize + cellSize / 2f
-            drawPawnsGroup(pawnsOnCell, cellCenterX, cellCenterY, cellSize, selectedPawnId, board.playerColors, seniorMode)
+            drawPawnsGroup(pawnsOnCell, cellCenterX, cellCenterY, cellSize, selectedPawnId, board.playerColors, seniorMode,
+                cellRing(board.gridSize, board.toughened, pawnsOnCell))
         }
         drawHomeBasePawns(board, cellSize, selectedPawnId, seniorMode)
     }
@@ -168,6 +170,29 @@ private fun DrawScope.drawCenterHomeMarking(row: Int, col: Int, cellSize: Float)
     drawPath(path, Color(0xFFC2185B))
 }
 
+// Pair-ring classification for one board cell (web parity: gold = toughened
+// Gatti, gray dashed = tollu; stacked outer singles and home-base markers
+// get no ring). Same-cell same-player ON_TRACK pawns share a pathIndex
+// (tracks never revisit a cell), so the first pawn locates the whole stack.
+private enum class CellRing { NONE, TOLLU, TOUGHENED }
+
+private fun cellRing(
+    gridSize: com.chokabarah.game.engine.GridSize,
+    toughened: Map<Int, Set<Int>>,
+    pawnsOnCell: List<PawnUi>
+): CellRing {
+    if (pawnsOnCell.size < 2) return CellRing.NONE
+    val first = pawnsOnCell[0]
+    if (pawnsOnCell.any { it.playerIndex != first.playerIndex || it.state != PawnState.ON_TRACK }) {
+        return CellRing.NONE
+    }
+    if ((toughened[first.playerIndex] ?: emptySet()).contains(first.pathIndex)) {
+        return CellRing.TOUGHENED
+    }
+    val gate = TrackBuilder.innerGateIndex(gridSize, first.playerIndex)
+    return if (first.pathIndex >= gate) CellRing.TOLLU else CellRing.NONE
+}
+
 private fun DrawScope.drawPawnsGroup(
     pawnsOnCell: List<PawnUi>,
     centerX: Float,
@@ -175,7 +200,8 @@ private fun DrawScope.drawPawnsGroup(
     cellSize: Float,
     selectedPawnId: Int?,
     playerColors: List<com.chokabarah.game.engine.PlayerColor>,
-    seniorMode: Boolean = false
+    seniorMode: Boolean = false,
+    ring: CellRing = CellRing.NONE
 ) {
     val pawnRadius = cellSize * (if (seniorMode) 0.22f else 0.18f)
     val pawnStroke = if (seniorMode) 6f else 4f
@@ -187,6 +213,17 @@ private fun DrawScope.drawPawnsGroup(
         val offset = pawnStackOffset(count, i, pawnRadius)
         val pawnCenterX = centerX + offset.first
         val pawnCenterY = centerY + offset.second
+        if (ring != CellRing.NONE) {
+            val (ringColor, dash) = if (ring == CellRing.TOUGHENED) {
+                Color(0xFFFFD54F) to null
+            } else {
+                Color(0xFFB0BEC5) to floatArrayOf(10f, 6f)
+            }
+            drawCircle(
+                ringColor, pawnRadius + 4f, Offset(pawnCenterX, pawnCenterY),
+                style = Stroke(5f, pathEffect = dash?.let { PathEffect.dashPathEffect(it) })
+            )
+        }
         drawCircle(Color(pColor.hexColor), pawnRadius, Offset(pawnCenterX, pawnCenterY))
         drawCircle(Color.White, pawnRadius, Offset(pawnCenterX, pawnCenterY), style = Stroke(pawnStroke))
         if (isSelected) {

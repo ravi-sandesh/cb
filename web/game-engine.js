@@ -20,7 +20,17 @@ const OUTER_5 = [
     [4,2],[4,3],[4,4],[3,4],[2,4],[1,4],[0,4],[0,3],
     [0,2],[0,1],[0,0],[1,0],[2,0],[3,0],[4,0],[4,1]
 ];
-// Inner ring + center (9 cells). Entry gate: (3,1)
+// 5x5 inner ring CLOCKWISE (8 cells) + center. Base order starts at the
+// North entry (1,3); every other player rotates it so THEIR entry cell
+// (the block before home, stepped inward) comes first:
+//   S entry (3,1) -> rot 4, N entry (1,3) -> rot 0,
+//   E entry (3,3) -> rot 2, W entry (1,1) -> rot 6.
+const INNER_5_RING = [
+    [1,3],[2,3],[3,3],[3,2],[3,1],[2,1],[1,1],[1,2]
+];
+const INNER_5_ROT = [4, 0, 2, 6]; // South, North, East, West
+const CENTER_5 = [2, 2];
+// Legacy alias: South's full inner run (unchanged cell order for P0).
 const INNER_5 = [
     [3,1],[3,2],[3,3],[2,3],[1,3],[1,2],[1,1],[2,1],[2,2]
 ];
@@ -31,7 +41,24 @@ const OUTER_7 = [
     [0,5],[0,4],[0,3],[0,2],[0,1],[0,0],[1,0],[2,0],[3,0],[4,0],
     [5,0],[6,0],[6,1],[6,2]
 ];
-// Inner two rings + center (25 cells). Entry gate: (5,2)
+// 7x7 middle ring CLOCKWISE (16 cells), base order starts at the South
+// entry (5,2). Rotation puts each player's entry first:
+//   S (5,2) -> 0, N (1,5) -> 9, E (4,5) -> 12, W (2,1) -> 4.
+const MIDDLE_7_RING = [
+    [5,2],[5,1],[4,1],[3,1],[2,1],[1,1],[1,2],[1,3],
+    [1,4],[1,5],[2,5],[3,5],[4,5],[5,5],[5,4],[5,3]
+];
+const MIDDLE_7_ROT = [0, 9, 12, 4]; // South, North, East, West
+// 7x7 inner ring CLOCKWISE (8 cells), base order starts at the South
+// turn-in (4,2). Rotation per player: S -> 0, N (2,4) -> 4,
+// E (4,4) -> 6, W (4,2) -> 0. Center (3,3) is appended unrotated;
+// every rotation ends on a side-midpoint for an orthogonal home step.
+const INNER_7_RING = [
+    [4,2],[3,2],[2,2],[2,3],[2,4],[3,4],[4,4],[4,3]
+];
+const INNER_7_ROT = [0, 4, 6, 0]; // South, North, East, West
+const CENTER_7 = [3, 3];
+// Legacy alias: South's full inner run (unchanged cell order for P0).
 const INNER_7 = [
     [5,2],[5,3],[5,4],[5,5],[4,5],[3,5],[2,5],[1,5],
     [1,4],[1,3],[1,2],[1,1],[2,1],[3,1],[4,1],[5,1],
@@ -39,20 +66,41 @@ const INNER_7 = [
     [3,3]
 ];
 
+// Rotate a ring left by k cells (entry cell lands first).
+function rotRing(ring, k) {
+    const n = ring.length;
+    const r = ((k % n) + n) % n;
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(ring[(r + i) % n]);
+    return out;
+}
+
+function rotFor(table, pIndex) {
+    return (pIndex >= 0 && pIndex < table.length) ? table[pIndex] : 0;
+}
+
 function get5x5Path(pIndex) {
     const offsets = [0, 8, 4, 12]; // South, North, East, West
     const off = offsets[pIndex] || 0;
     const outer = [];
     for (let i = 0; i < 16; i++) outer.push(OUTER_5[(off + i) % 16]);
-    return outer.concat(INNER_5);
+    const inner = rotRing(INNER_5_RING, rotFor(INNER_5_ROT, pIndex));
+    inner.push(CENTER_5);
+    return outer.concat(inner);
 }
 
 function get7x7Path(pIndex) {
     const offsets = [0, 12, 6, 18]; // South, North, East, West
     const off = offsets[pIndex] || 0;
+    // North turns into the middle ring one step early at (0,5): its outer
+    // run is 23 cells, so its gate sits at index 23, not 24.
+    const outerLen = (pIndex === 1) ? 23 : 24;
     const outer = [];
-    for (let i = 0; i < 24; i++) outer.push(OUTER_7[(off + i) % 24]);
-    return outer.concat(INNER_7);
+    for (let i = 0; i < outerLen; i++) outer.push(OUTER_7[(off + i) % 24]);
+    const middle = rotRing(MIDDLE_7_RING, rotFor(MIDDLE_7_ROT, pIndex));
+    const inner = rotRing(INNER_7_RING, rotFor(INNER_7_ROT, pIndex));
+    inner.push(CENTER_7);
+    return outer.concat(middle, inner);
 }
 
 // Memoized player paths. Paths are pure read-only data (never mutated by the
@@ -76,8 +124,10 @@ function resetPathCache() {
     for (const k in _pathCache) delete _pathCache[k];
 }
 
-function innerStartIndex(gridSize) {
-    return gridSize === 5 ? 16 : 24;
+function innerStartIndex(gridSize, playerIndex) {
+    if (gridSize === 5) return 16;
+    // North turns into the middle ring one step early at (0,5).
+    return playerIndex === 1 ? 23 : 24;
 }
 
 // ---- Safe Squares ----
@@ -160,7 +210,7 @@ function validateScore(gridSize, score) {
     return { ok: true };
 }
 
-function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpponent, score) {
+function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpponent, score, toughened) {
     const scoreValidation = validateScore(gridSize, score);
     if (!scoreValidation.ok) {
         T.warn('engine.move', 'move.invalid_score', `calculateValidMoves rejected: ${scoreValidation.reason}`, { score, gridSize });
@@ -168,16 +218,31 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
     }
     const spanId = T.startSpan ? T.startSpan('calculateMoves', { player: currentPlayerIndex, score }) : null;
     const path = getPlayerPath(gridSize, currentPlayerIndex);
-    const innerGate = innerStartIndex(gridSize);
+    const innerGate = innerStartIndex(gridSize, currentPlayerIndex);
     const hasInner = hasCapturedOpponent[currentPlayerIndex];
+    const toughCells = ((toughened && toughened[currentPlayerIndex]) || []);
+
+    // Opponent TOUGHENED cells, keyed by board coordinate, for the blockade:
+    // a non-toughened mover can neither pass through nor stop on one.
+    const oppToughCoords = {};
+    pawns.forEach(p => {
+        if (p.playerIndex === currentPlayerIndex || p.state !== 'ON_TRACK') return;
+        const cells = ((toughened && toughened[p.playerIndex]) || []);
+        if (cells.indexOf(p.pathIndex) === -1) return;
+        const coord = getPlayerPath(gridSize, p.playerIndex)[p.pathIndex];
+        if (coord) oppToughCoords[coord[0] + ',' + coord[1]] = true;
+    });
 
     const validMoves = [];
     const myPawns = pawns.filter(p => p.playerIndex === currentPlayerIndex && p.state !== 'FINISHED');
 
-    // Group by cell position
+    // Group by cell position — EXCEPT outer-track pawns (pathIndex < gate),
+    // which move as vulnerable singles even when stacked: Gatti is
+    // inner-only now, so an outer stack is never one movable unit.
     const groups = {};
     myPawns.forEach(pawn => {
-        const key = pawn.state === 'HOME_BASE' ? `HOME_${pawn.id}` : `${pawn.pathIndex}`;
+        const key = (pawn.state === 'HOME_BASE' || pawn.pathIndex < innerGate)
+            ? `SINGLE_${pawn.id}` : `${pawn.pathIndex}`;
         if (!groups[key]) groups[key] = { pawns: [], pathIndex: pawn.state === 'HOME_BASE' ? -1 : pawn.pathIndex };
         groups[key].pawns.push(pawn);
     });
@@ -189,11 +254,26 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
     Object.values(groups).forEach(group => {
         const { pawns: grpPawns, pathIndex: curIdx } = group;
         const isHome = curIdx === -1;
+        const isPair = grpPawns.length >= 2;
+        // Inner pairs are tollu until toughened (a roll of 2 hardens them).
+        const moverToughened = !isHome && toughCells.indexOf(curIdx) !== -1;
+        const isTollu = isPair && !isHome && !moverToughened;
+        let step = score;
+        if (isTollu) {
+            // Tollu rate: 1 block per 2 rolled (round down); odd rolls and
+            // 1s leave the pair stuck.
+            step = Math.floor(score / 2);
+            if (step < 1) {
+                T.trace('engine.move', 'move.tollu_stuck', `Tollu pair cannot move on score ${score}`,
+                    { pawnIds: grpPawns.map(p => p.id), curIdx, score, reason: 'tollu-rate' });
+                return;
+            }
+        }
 
         // A home pawn entering the track moves `score` steps from the start
         // cell (path[0]) — same distance an on-track pawn covers from its
         // current position. With score=2, both land at path[2].
-        let nextIdx = isHome ? score : (curIdx + score);
+        let nextIdx = isHome ? score : (curIdx + step);
 
         if (nextIdx >= path.length) {
             T.trace('engine.move', 'move.overshoot_skipped', `Group at idx ${curIdx} + ${score} overshoots path (len ${path.length})`,
@@ -206,6 +286,21 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
             return;
         }
 
+        // Blockade: a non-toughened mover can neither pass through nor stop
+        // on an opponent's toughened cell. (A toughened mover passes freely;
+        // landing capture immunity is enforced by the capture rules below.)
+        if (!moverToughened) {
+            const from = isHome ? 1 : curIdx + 1;
+            for (let ii = from; ii < nextIdx; ii++) {
+                const cell = path[ii];
+                if (cell && oppToughCoords[cell[0] + ',' + cell[1]]) {
+                    T.trace('engine.move', 'move.blockade_blocked', `Move crosses a toughened cell at path idx ${ii}`,
+                        { pawnIds: grpPawns.map(p => p.id), curIdx, nextIdx, blockedIdx: ii, reason: 'blockade' });
+                    return;
+                }
+            }
+        }
+
         const targetCoords = path[nextIdx];
         const [tr, tc] = targetCoords;
         const safe = isSafeCell(gridSize, tr, tc);
@@ -213,12 +308,22 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
 
         const pawnsAtTarget = getPawnsAtCoords(gridSize, pawns, tr, tc, null);
         const opponentsAtTarget = pawnsAtTarget.filter(p => p.playerIndex !== currentPlayerIndex);
-        // A Gatti is 2+ pawns of the SAME player. Opponents from two DIFFERENT
-        // players each holding a single pawn are all individually capturable.
-        const perPlayerCounts = {};
-        opponentsAtTarget.forEach(p => { perPlayerCounts[p.playerIndex] = (perPlayerCounts[p.playerIndex] || 0) + 1; });
-        const opponentGatti = Object.values(perPlayerCounts).some(c => c >= 2);
+        // Opponent pairs occupying the target, grouped per player so the
+        // toughened flag (stored per player + pathIndex) resolves correctly.
+        const perPlayerLists = {};
+        opponentsAtTarget.forEach(p => { (perPlayerLists[p.playerIndex] = perPlayerLists[p.playerIndex] || []).push(p); });
+        // Only a TOUGHENED pair is immune: tollu pairs and stacked outer
+        // singles are capturable (capture-one), matching the inner-only
+        // Gatti rule. Safe squares still shelter everyone.
+        const opponentToughened = Object.keys(perPlayerLists).some(pi => {
+            const list = perPlayerLists[pi];
+            return list.length >= 2 && ((toughened && toughened[pi]) || []).indexOf(list[0].pathIndex) !== -1;
+        });
         const myGroupIsGatti = grpPawns.length >= 2;
+        // A tollu pair moving on an exact 2 hardens into a TOUGHENED Gatti
+        // at its destination (unless the destination is Center Home, where
+        // the pair finishes instead of toughening).
+        const toughens = isTollu && score === 2 && !reachesHome;
 
         let isCapture = false;
         let blocked = false;
@@ -227,9 +332,9 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
             if (safe) {
                 isCapture = false;
                 blocked = false;
-            } else if (opponentGatti) {
-                blocked = true; // Opponent Gatti cannot be captured by ANYONE
-                T.trace('engine.move', 'move.gatti_blocked', `Target is an opponent Gatti; cannot capture`,
+            } else if (opponentToughened) {
+                blocked = true; // A toughened Gatti cannot be captured by ANYONE
+                T.trace('engine.move', 'move.gatti_blocked', `Target is an opponent toughened Gatti; cannot capture`,
                     { pawnIds: grpPawns.map(p => p.id), targetCoords, opponentCount: opponentsAtTarget.length, reason: 'opponent_gatti' });
             } else {
                 isCapture = true;
@@ -244,7 +349,9 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
             targetCoords,
             isCapture,
             reachesHome,
-            isGattiGroup: myGroupIsGatti
+            isGattiGroup: myGroupIsGatti,
+            isToughened: moverToughened && myGroupIsGatti,
+            toughens
         });
     });
 
@@ -265,16 +372,20 @@ function validateMove(move) {
     if (typeof move.reachesHome !== 'boolean') return { ok: false, reason: 'reachesHome not boolean' };
     // isGattiGroup is optional; treat undefined as false
     if (move.isGattiGroup !== undefined && typeof move.isGattiGroup !== 'boolean') return { ok: false, reason: 'isGattiGroup not boolean' };
+    // isToughened / toughens are optional; treat undefined as false
+    if (move.isToughened !== undefined && typeof move.isToughened !== 'boolean') return { ok: false, reason: 'isToughened not boolean' };
+    if (move.toughens !== undefined && typeof move.toughens !== 'boolean') return { ok: false, reason: 'toughens not boolean' };
     return { ok: true };
 }
 
-function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, move, currentRoll) {
+function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, move, currentRoll, toughened) {
     const validation = validateMove(move);
     if (!validation.ok) {
         T.warn('engine.move', 'move.invalid_input', `executeMove rejected: ${validation.reason}`, { move });
         return {
             pawns,
             hasCapturedOpponent,
+            toughened: (toughened || {}),
             extraTurn: false,
             gattiFormed: false,
             capturedCount: 0,
@@ -302,6 +413,9 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
     // AND then re-spread the already-mutated original into the result.
     const newHasCaptured = { ...hasCapturedOpponent };
     const grpPawnIds = new Set(grpPawns.map(p => p.id));
+    // Copy-on-write for the toughened map (same contract as hasCapturedOpponent).
+    const newToughened = {};
+    Object.keys(toughened || {}).forEach(k => { newToughened[k] = ((toughened || {})[k] || []).slice(); });
 
     grpPawns.forEach(pawn => {
         const idx = newPawns.findIndex(p => p.id === pawn.id);
@@ -325,17 +439,23 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
     let gattiFormed = false;
     let capturedCount = 0;
 
-    // Handle capture
+    // Handle capture (capture-one): a landing captures exactly ONE pawn —
+    // the lowest id on the cell — whether the victim is a lone pawn, one of
+    // stacked outer singles, or one of an inner tollu pair. Toughened pairs
+    // never reach this branch (landing on them is blocked in validMoves).
     if (isCapture && !safe) {
+        const victims = [];
         newPawns.forEach(p => {
             if (p.playerIndex !== currentPlayerIndex && p.state === 'ON_TRACK') {
                 const coord = getPawnCoords(gridSize, p);
-                if (coord && coord[0] === tr && coord[1] === tc) {
-                    p.state = 'HOME_BASE';
-                    p.pathIndex = -1;
-                    capturedCount++;
-                }
+                if (coord && coord[0] === tr && coord[1] === tc) victims.push(p);
             }
+        });
+        victims.sort((a, b) => a.id - b.id);
+        victims.slice(0, 1).forEach(p => {
+            p.state = 'HOME_BASE';
+            p.pathIndex = -1;
+            capturedCount++;
         });
         newHasCaptured[currentPlayerIndex] = true;
         extraTurn = true;
@@ -343,23 +463,26 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
             { byPlayer: currentPlayerIndex, capturedCount, targetCoords });
     }
 
-    // Check for Gatti formation at destination after move.
-    // Announce only when this move SURPASSES the moving group: the destination
-    // must already house 2+ of our pawns AND the landed pawns must exceed the
-    // mover count. That correctly handles:
-    //   - BUG-02: a pre-existing Gatti repositioning alone does NOT re-announce.
-    //   - BUG-03: a capture onto a cell holding our own pawn still forms a Gatti.
-    //   - EC-16 : a moving Gatti landing on our own single pawn grows to a Gatti of 3.
-    const nowAtDest = newPawns.filter(p =>
-        p.playerIndex === currentPlayerIndex &&
-        p.state === 'ON_TRACK' &&
-        p.pathIndex === targetPathIndex
-    );
-    if (nowAtDest.length >= 2 && nowAtDest.length > grpPawns.length) {
+    // Toughening: a tollu pair arriving on a 2 hardens into a Gatti here.
+    // (Home arrivals finish instead — the flag is never set for them, so a
+    // pair finishing together does not announce a Gatti.)
+    if (move.toughens === true && !reachesHome) {
+        const cell = newToughened[currentPlayerIndex] || (newToughened[currentPlayerIndex] = []);
+        if (cell.indexOf(targetPathIndex) === -1) cell.push(targetPathIndex);
         gattiFormed = true;
-        T.info('engine.move', 'move.gatti_formed', `Player ${currentPlayerIndex} formed a Gatti at ${tr},${tc}`,
-            { byPlayer: currentPlayerIndex, targetCoords, count: nowAtDest.length, pawnIds: nowAtDest.map(p => p.id) });
+        T.info('engine.move', 'move.toughened', `Player ${currentPlayerIndex} toughened a Gatti at ${tr},${tc}`,
+            { byPlayer: currentPlayerIndex, targetCoords, pawnIds: grpPawns.map(p => p.id) });
     }
+
+    // Toughened-flag cleanup: a flag survives only while 2+ same-player
+    // ON_TRACK pawns actually share the cell (moves, captures and finishes
+    // could otherwise strand it and blockade the board forever).
+    Object.keys(newToughened).forEach(k => {
+        const pi = Number(k);
+        newToughened[k] = newToughened[k].filter(idx =>
+            newPawns.filter(p => p.playerIndex === pi && p.state === 'ON_TRACK' && p.pathIndex === idx).length >= 2);
+        if (newToughened[k].length === 0) delete newToughened[k];
+    });
 
     // Victory check
     const allDone = newPawns
@@ -377,7 +500,9 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
         pawns: newPawns,
         // See the newHasCaptured note at the top of executeMove: this is the
         // COPY that was captured into, never the caller's original object.
+        // Same contract for the toughened map (see newToughened above).
         hasCapturedOpponent: newHasCaptured,
+        toughened: newToughened,
         extraTurn,
         gattiFormed,
         capturedCount,
@@ -408,6 +533,7 @@ function selectBotMove(validMoves, gridSize) {
     const best =
         validMoves.find(m => m.isCapture) ||
         validMoves.find(m => m.reachesHome) ||
+        validMoves.find(m => m.toughens) ||
         validMoves.find(m => isSafeCell(gridSize, m.targetCoords[0], m.targetCoords[1])) ||
         validMoves.find(m => m.isGattiGroup) ||
         [...validMoves].sort((a, b) => b.grpPawns[0].pathIndex - a.grpPawns[0].pathIndex)[0];
@@ -422,6 +548,7 @@ function selectBotMove(validMoves, gridSize) {
 function createInitialState(gridSize, playerNum) {
     const pawns = [];
     const hasCapturedOpponent = {};
+    const toughened = {};
     for (let p = 0; p < playerNum; p++) {
         hasCapturedOpponent[p] = false;
         for (let id = 0; id < 4; id++) {
@@ -431,6 +558,7 @@ function createInitialState(gridSize, playerNum) {
     const state = {
         pawns,
         hasCapturedOpponent,
+        toughened,
         currentPlayerIndex: 0,
         currentRoll: null,
         validMoves: [],
@@ -456,6 +584,14 @@ const ENGINE_EXPORTS = {
         INNER_5,
         OUTER_7,
         INNER_7,
+        INNER_5_RING,
+        INNER_5_ROT,
+        MIDDLE_7_RING,
+        MIDDLE_7_ROT,
+        INNER_7_RING,
+        INNER_7_ROT,
+        CENTER_5,
+        CENTER_7,
         // Safe cells
         isSafeCell,
         // Cowry

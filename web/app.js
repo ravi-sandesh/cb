@@ -48,6 +48,7 @@ function boardSnapshot() {
         winner: winner ? (winner.name || winner) : null,
         gameActive: gameActive,
         hasCaptured: Object.assign({}, hasCapturedOpponent),
+        toughened: JSON.parse(JSON.stringify(hasToughened)),
         pawns: pawns.map(pawnSnapshot)
     };
 }
@@ -67,6 +68,7 @@ let playerColors = [
 
 let pawns = [];
 let hasCapturedOpponent = {};
+let hasToughened = {};   // { playerIndex: [pathIndex, ...] } — hardened inner pairs
 let currentRoll = null;   // { shells:[], score, isExtraRoll }
 let validMoves = [];
 let winner = null;
@@ -452,6 +454,20 @@ function applyServerBoard(board) {
     playerNum = (board.playerNum === 2 || board.playerNum === 3 || board.playerNum === 4) ? board.playerNum : 2;
     pawns = (board.pawns || []).map(p => Object.assign({}, p));
     hasCapturedOpponent = Object.assign({}, board.hasCapturedOpponent || {});
+    // Toughened map: hostile/buggy relays could smuggle non-array cells, so
+    // sanitize to {seat: [int, ...]} before it drives rings + blockade UI.
+    hasToughened = {};
+    const rawTough = board.toughened;
+    if (rawTough && typeof rawTough === 'object') {
+        Object.keys(rawTough).forEach(k => {
+            const seat = Number(k);
+            const cells = rawTough[k];
+            if (Number.isInteger(seat) && seat >= 0 && seat < playerColors.length && Array.isArray(cells)) {
+                const clean = cells.filter(c => Number.isInteger(c) && c >= 0);
+                if (clean.length) hasToughened[seat] = clean;
+            }
+        });
+    }
     currentPlayerIndex = (board.currentPlayerIndex === undefined) ? 0 : board.currentPlayerIndex;
     if (!Number.isInteger(currentPlayerIndex) || currentPlayerIndex < 0 || currentPlayerIndex >= playerColors.length) {
         currentPlayerIndex = 0;
@@ -468,7 +484,9 @@ function applyServerBoard(board) {
         targetCoords: m.targetCoords,
         isCapture: m.isCapture,
         reachesHome: m.reachesHome,
-        isGattiGroup: !!m.isGattiGroup
+        isGattiGroup: !!m.isGattiGroup,
+        isToughened: !!m.isToughened,
+        toughens: !!m.toughens
     })).filter(m => m.grpPawns.length > 0); // drop moves referencing nonexistent pawns
     // Guard the seat index: a hostile/buggy relay could broadcast an
     // out-of-range winner, which must degrade to a placeholder — never throw.
@@ -764,6 +782,7 @@ function isBotTurn() {
 function initGameState() {
     pawns = [];
     hasCapturedOpponent = {};
+    hasToughened = {};
     for (let p = 0; p < playerNum; p++) {
         hasCapturedOpponent[p] = false;
         for (let id = 0; id < 4; id++) {
@@ -805,7 +824,7 @@ function initGameState() {
 // ============================================================
 
 const getPlayerPath = (gridSize, pIndex) => EG.getPlayerPath(gridSize, pIndex);
-const innerStartIndex = (gridSize) => EG.innerStartIndex(gridSize);
+const innerStartIndex = (gridSize, pIndex) => EG.innerStartIndex(gridSize, pIndex);
 
 function isSafeCell(gridSize, r, c) { return EG.isSafeCell(gridSize, r, c); }
 
@@ -925,7 +944,8 @@ function calculateValidMoves(score) {
         pawns,
         currentPlayerIndex,
         hasCapturedOpponent,
-        score
+        score,
+        hasToughened
     );
 }
 
@@ -957,7 +977,8 @@ function executeMove(move) {
         move,
         // BUG-01 (caller-side): engine executes multi-roll-tolerant; hand it an
         // explicit non-extra roll instead of letting `undefined` crash it.
-        currentRoll || { isExtraRoll: false }
+        currentRoll || { isExtraRoll: false },
+        hasToughened
     );
 
     pawns               = result.pawns;
@@ -965,6 +986,8 @@ function executeMove(move) {
     // (a capture flips the flag on the copy). We MUST take the returned object:
     // the pre-fix engine mutated our map in place, making this line a no-op.
     hasCapturedOpponent = result.hasCapturedOpponent;
+    // Same copy-on-write contract for the toughened map.
+    hasToughened        = result.toughened || {};
     const extraTurn     = result.extraTurn;
     const gattiFormed   = result.gattiFormed;
     const capturedCount = result.capturedCount;
@@ -979,7 +1002,7 @@ function executeMove(move) {
     else if (extraTurn) { Sound.play('extra_roll'); celebrate('extra'); }
     else Sound.play('move');
 
-    prevActionLog = `Player ${playerColors[currentPlayerIndex].name} ${capturedCount > 0 ? 'captured' : (gattiFormed ? 'formed Gatti' : (move.reachesHome ? 'reached home' : 'moved'))}`;
+    prevActionLog = `Player ${playerColors[currentPlayerIndex].name} ${capturedCount > 0 ? 'captured' : (move.toughens ? 'toughened a Gatti' : (move.reachesHome ? 'reached home' : 'moved'))}`;
 
     if (capturedCount > 0) {
         T.info('engine', 'move.capture', `Player ${currentPlayerIndex} captured ${capturedCount} opponent pawns`, { byPlayer: currentPlayerIndex, targetCoords: move.targetCoords });
@@ -987,9 +1010,9 @@ function executeMove(move) {
     }
 
     if (gattiFormed) {
-        T.info('engine', 'move.gatti_formed', `Player ${currentPlayerIndex} formed a Gatti at ${tr},${tc}`, { byPlayer: currentPlayerIndex, targetCoords: move.targetCoords, pawnIds: move.grpPawns.map(p=>p.id) });
+        T.info('engine', 'move.gatti_formed', `Player ${currentPlayerIndex} toughened a Gatti at ${tr},${tc}`, { byPlayer: currentPlayerIndex, targetCoords: move.targetCoords, pawnIds: move.grpPawns.map(p=>p.id) });
         const prev = document.getElementById('game-log').innerText;
-        setLog(prev + ` 🔗 GATTI! Your pawns are now toughened at this square!`);
+        setLog(prev + ` 🔗 GATTI TOUGHENED! Your pawns are hardened at this square!`);
     }
 
     if (winnerIdx !== null) {
@@ -1194,8 +1217,10 @@ function updateUI() {
             btn.className = 'pawn-btn';
             const pawn  = move.grpPawns[0];
             const label = pawn.state === 'HOME_BASE' ? 'Base' : `Pos #${pawn.pathIndex + 1}`;
-            const gattiTag = move.isGattiGroup ? ' [GATTI]' : '';
-            btn.innerText = `Pawn ${move.grpPawns.map(p=>`#${(p.id%4)+1}`).join('+')} (${label})${gattiTag}`;
+            // Pair badges: TOUGHEN moves harden on arrival; hardened pairs are
+            // GATTI; unhardened inner pairs are TOLLU (roll a 2 to harden).
+            const pairTag = move.toughens ? ' [TOUGHEN]' : (move.isToughened ? ' [GATTI]' : (move.isGattiGroup ? ' [TOLLU]' : ''));
+            btn.innerText = `Pawn ${move.grpPawns.map(p=>`#${(p.id%4)+1}`).join('+')} (${label})${pairTag}`;
             btn.onclick = () => {
                 T.debug('input', 'pawn.selected', `User selected ${move.grpPawns.map(p=>`#${(p.id%4)+1}`).join('+')} via quick-list`,
                     { pawnIds: move.grpPawns.map(p=>p.id), targetCoords: move.targetCoords, isCapture: move.isCapture });
@@ -1421,7 +1446,18 @@ function renderBoard() {
         const pw  = seniorMode ? 4 : 3;              // and bolder pawn outlines
 
         const samePlayer = list.every(p => p.playerIndex === list[0].playerIndex);
-        const isGattiCell = samePlayer && list.length >= 2;
+        // Pair visuals: TOUGHENED pairs (flagged inner cells) keep the gold
+        // ring + 'G'; untoughened inner pairs (tollu) get a gray dashed ring
+        // + 'T'; stacked outer singles get no ring (vulnerable). HOME_BASE
+        // pawns drawn at the start square never ring either.
+        const allOnTrack = list.every(p => p.state === 'ON_TRACK');
+        const cellPathIndex = allOnTrack ? list[0].pathIndex : -1;
+        const gate = innerStartIndex(currentGridSize, list[0].playerIndex);
+        const isToughenedCell = samePlayer && allOnTrack && list.length >= 2 &&
+            ((hasToughened[list[0].playerIndex] || []).indexOf(cellPathIndex) !== -1);
+        const isTolluCell = samePlayer && allOnTrack && list.length >= 2 &&
+            !isToughenedCell && cellPathIndex >= gate;
+        const ringColor = isToughenedCell ? '#FFD54F' : (isTolluCell ? '#B0BEC5' : null);
 
         list.forEach((pawn, idx) => {
             let ox = 0, oy = 0;
@@ -1444,12 +1480,14 @@ function renderBoard() {
             const px = cx0 + ox;
             const py = cy0 + oy;
 
-            if (isGattiCell) {
-                ctx.strokeStyle = '#FFD54F';
+            if (ringColor) {
+                ctx.strokeStyle = ringColor;
                 ctx.lineWidth   = 5;
+                if (isTolluCell) ctx.setLineDash([5, 3]);
                 ctx.beginPath();
                 ctx.arc(px, py, pr + 4, 0, Math.PI * 2);
                 ctx.stroke();
+                ctx.setLineDash([]);
             }
 
             ctx.fillStyle = playerColors[pawn.playerIndex].hex;
@@ -1468,12 +1506,18 @@ function renderBoard() {
             ctx.fillText(`${(pawn.id % 4) + 1}`, px, py);
         });
 
-        if (isGattiCell) {
+        if (isToughenedCell) {
             ctx.fillStyle   = '#FFD54F';
             ctx.font        = `bold ${Math.round(pr * 0.7)}px sans-serif`;
             ctx.textAlign   = 'center';
             ctx.textBaseline= 'middle';
             ctx.fillText('G', cx0, cy0 + pr * 1.9);
+        } else if (isTolluCell) {
+            ctx.fillStyle   = '#B0BEC5';
+            ctx.font        = `bold ${Math.round(pr * 0.7)}px sans-serif`;
+            ctx.textAlign   = 'center';
+            ctx.textBaseline= 'middle';
+            ctx.fillText('T', cx0, cy0 + pr * 1.9);
         }
     });
 

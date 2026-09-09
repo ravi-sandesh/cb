@@ -41,14 +41,15 @@ function idxOf(gridSize, player, r, c) {
 //  myPawns: current player's pawns as { id, state, pathIndex }
 //  oppAt:   list of { player, id, r, c } -> opponent pawn placed on their own
 //           track at the exact board cell (r,c); throws if not on their path.
-function sc(grid, player, score, hasCaptured, myPawns, oppAt = []) {
+//  tough:   toughened cells { playerIndex: [pathIndex, ...] } (default {}).
+function sc(grid, player, score, hasCaptured, myPawns, oppAt = [], tough = {}) {
     const pawns = [...myPawns];
-    for (const opp of oppAt) {
+    for (const opp of (Array.isArray(oppAt) ? oppAt : [])) {
         const pi = idxOf(grid, opp.player, opp.r, opp.c);
         if (pi < 0) throw new Error(`cell (${opp.r},${opp.c}) not on P${opp.player} path (${grid}x${grid})`);
         pawns.push(trackPawn(opp.id, opp.player, pi));
     }
-    return { grid, player, score, hasCaptured, pawns };
+    return { grid, player, score, hasCaptured, toughened: tough, pawns };
 }
 
 // --- cowry scoring: enumerate every shell pattern ---------------------
@@ -106,9 +107,39 @@ const scenarios = [
     sc(5, 0, 1, { 0: true },
        [trackPawn(0, 0, 23)]),
 
-    // Own-Gatti group (2 pawns, same player, same cell) moves together.
+    // Outer pair (idx 5 < gate 16): Gatti is inner-only, so the two stacked
+    // pawns move as vulnerable SINGLES, not one group.
     sc(5, 0, 1, { 0: true },
        [trackPawn(0, 0, 5), trackPawn(1, 0, 5), homePawn(2, 0), homePawn(3, 0)]),
+
+    // Inner tollu pair (idx 17, no toughened flag) moves at half rate:
+    // score 4 -> 2 steps -> idx 19. Not a toughened group.
+    sc(5, 0, 4, { 0: true },
+       [trackPawn(0, 0, 17), trackPawn(1, 0, 17)], [], {}),
+
+    // Tollu pair on an exact 2 hardens: idx 17 -> 18 with toughens = true.
+    sc(5, 0, 2, { 0: true },
+       [trackPawn(0, 0, 17), trackPawn(1, 0, 17)], [], {}),
+
+    // Tollu pair stuck: score 1 -> floor(1/2) = 0 -> NO move offered.
+    sc(5, 0, 1, { 0: true },
+       [trackPawn(0, 0, 17), trackPawn(1, 0, 17)], [], {}),
+
+    // Toughened pair (flagged idx 17) moves the FULL score: 17 + 3 = 20.
+    sc(5, 0, 3, { 0: true },
+       [trackPawn(0, 0, 17), trackPawn(1, 0, 17)], {}, { 0: [17] }),
+
+    // Blockade: P0 idx 10 + 4 crosses idx 11 = (1,0), where a TOUGHENED P1
+    // pair sits -> the crossing move is dropped; only the HOME pawn moves.
+    sc(5, 0, 4, {},
+       [trackPawn(0, 0, 10), homePawn(1, 0)],
+       [{ player: 1, id: 4, r: 1, c: 0 }, { player: 1, id: 5, r: 1, c: 0 }],
+       { 1: [3] }),
+
+    // Same crossing WITHOUT the toughened flag: tollu pairs don't blockade.
+    sc(5, 0, 4, {},
+       [trackPawn(0, 0, 10), homePawn(1, 0)],
+       [{ player: 1, id: 4, r: 1, c: 0 }, { player: 1, id: 5, r: 1, c: 0 }]),
 
     // Capture: P0 (idx 3, unsafe target) cuts a single P1 pawn.
     sc(5, 0, 2, {},
@@ -121,10 +152,17 @@ const scenarios = [
        [homePawn(0, 0), homePawn(1, 0), homePawn(2, 0), homePawn(3, 0)],
        [{ player: 1, id: 4, r: 4, c: 2 }]),
 
-    // Opponent Gatti (2 identical P1 pawns) blocks capture entirely.
-    sc(5, 0, 2, {},
-       [trackPawn(0, 0, 3), homePawn(1, 0), homePawn(2, 0), homePawn(3, 0)],
-       [{ player: 1, id: 4, r: 1, c: 4 }, { player: 1, id: 5, r: 1, c: 4 }]),
+    // Opponent TOUGHENED pair blocks landing: P0 idx 15 + 2 = 17 = (2,1),
+    // where a flagged P1 pair sits -> dropped; the idx-1 pawn still moves.
+    sc(5, 0, 2, { 0: true },
+       [trackPawn(0, 0, 15), trackPawn(1, 0, 1)],
+       [{ player: 1, id: 4, r: 2, c: 1 }, { player: 1, id: 5, r: 2, c: 1 }],
+       { 1: [21] }),
+
+    // Same landing on an UNTOUGHENED (tollu) pair: capturable (capture-one).
+    sc(5, 0, 2, { 0: true },
+       [trackPawn(0, 0, 15), trackPawn(1, 0, 1)],
+       [{ player: 1, id: 4, r: 2, c: 1 }, { player: 1, id: 5, r: 2, c: 1 }]),
 
     // Multiple players: two DIFFERENT opponents (1 pawn each) are not a Gatti,
     // so both are capturable on an unsafe cell.
@@ -150,6 +188,15 @@ const scenarios = [
     sc(7, 0, 2, {},
        [trackPawn(0, 0, 23), homePawn(1, 0), homePawn(2, 0), homePawn(3, 0)]),
 
+    // 7x7 North turns in one step early: idx 22 + 2 = 24 >= gate 23.
+    // Without a cut the crossing is blocked...
+    sc(7, 1, 2, {},
+       [trackPawn(4, 1, 22), homePawn(5, 1), homePawn(6, 1), homePawn(7, 1)]),
+
+    // ...with a cut North enters its own middle ring at (1,5).
+    sc(7, 1, 2, { 1: true },
+       [trackPawn(4, 1, 22), trackPawn(5, 1, 5)]),
+
     // Invalid scores on both boards return no moves.
     sc(5, 0, 9, { 0: true },
        [homePawn(0, 0)]),
@@ -160,14 +207,16 @@ const scenarios = [
 // Compute expected moves per 'capability' scenario with the reference engine.
 scenarios.forEach((s, i) => {
     s.label = `scen${i + 1}`;
-    s.expected = E.calculateValidMoves(s.grid, s.pawns, s.player, s.hasCaptured, s.score)
+    s.expected = E.calculateValidMoves(s.grid, s.pawns, s.player, s.hasCaptured, s.score, s.toughened)
         .map(m => ({
             pawnIds: m.grpPawns.map(p => p.id),
             targetPathIndex: m.targetPathIndex,
             targetCoords: m.targetCoords,
             isCapture: m.isCapture,
             reachesHome: m.reachesHome,
-            isGattiGroup: m.isGattiGroup
+            isGattiGroup: m.isGattiGroup,
+            isToughened: !!m.isToughened,
+            toughens: !!m.toughens
         }));
 });
 
@@ -175,11 +224,11 @@ scenarios.forEach((s, i) => {
 // Each entry replays a chosen legal move through the reference executeMove
 // and freezes the full result (pawn states, capture flags, winner, extra
 // turn). Both engines must reproduce these outcomes identically.
-function buildMoveExecution(label, grid, player, hasCaptured, pawnsBefore, roll, pick) {
-    const valid = E.calculateValidMoves(grid, pawnsBefore, player, hasCaptured, roll.score);
+function buildMoveExecution(label, grid, player, hasCaptured, pawnsBefore, roll, pick, toughenedBefore) {
+    const valid = E.calculateValidMoves(grid, pawnsBefore, player, hasCaptured, roll.score, toughenedBefore || {});
     if (!valid.length) throw new Error(`${label}: no valid moves to execute`);
     const move = pick(valid);
-    const res = E.executeMove(grid, pawnsBefore, hasCaptured, player, move, roll);
+    const res = E.executeMove(grid, pawnsBefore, hasCaptured, player, move, roll, toughenedBefore || {});
     if (res.error) throw new Error(`${label}: reference execution failed: ${res.error}`);
     return {
         label,
@@ -188,6 +237,7 @@ function buildMoveExecution(label, grid, player, hasCaptured, pawnsBefore, roll,
         // Only the extra-roll flag of the pending roll influences execution.
         rollIsExtraRoll: !!roll.isExtraRoll,
         hasCapturedBefore: hasCaptured,
+        toughenedBefore: toughenedBefore || {},
         pawnsBefore: pawnsBefore.map(p => ({ ...p })),
         move: {
             pawnIds: move.grpPawns.map(p => p.id),
@@ -195,12 +245,15 @@ function buildMoveExecution(label, grid, player, hasCaptured, pawnsBefore, roll,
             targetCoords: move.targetCoords,
             isCapture: move.isCapture,
             reachesHome: move.reachesHome,
-            isGattiGroup: !!move.isGattiGroup
+            isGattiGroup: !!move.isGattiGroup,
+            isToughened: !!move.isToughened,
+            toughens: !!move.toughens
         },
         expected: {
             pawnsAfter: res.pawns.map(p => ({ id: p.id, playerIndex: p.playerIndex, state: p.state, pathIndex: p.pathIndex }))
                 .sort((a, b) => a.id - b.id),
             hasCapturedAfter: res.hasCapturedOpponent,
+            toughenedAfter: res.toughened,
             winnerIndex: res.winner === null ? -1 : res.winner,
             extraTurn: res.extraTurn,
             gattiFormed: res.gattiFormed,
@@ -233,10 +286,22 @@ const moveExecutions = [
         { score: 2, isExtraRoll: false },
         findCapture),
 
-    // Moving Gatti group advances together as one unit.
-    buildMoveExecution('gatti-group-move', 5, 0, { 0: true },
+    // Moving outer singles advance independently (no Gatti outside).
+    buildMoveExecution('outer-singles-move', 5, 0, { 0: true },
         [trackPawn(0, 0, 5), trackPawn(1, 0, 5), homePawn(2, 0), homePawn(3, 0)],
         { score: 3, isExtraRoll: false }, first),
+
+    // Tollu pair toughens on an exact 2: idx 17 -> 18, flagged, gattiFormed.
+    buildMoveExecution('toughen-on-2', 5, 0, { 0: true },
+        [trackPawn(0, 0, 17), trackPawn(1, 0, 17)],
+        { score: 2, isExtraRoll: false }, first),
+
+    // Capture-one: two stacked outer P1 singles, only the lowest id is cut.
+    buildMoveExecution('capture-one-of-pair', 5, 0, {},
+        [trackPawn(0, 0, 3), homePawn(1, 0), homePawn(2, 0), homePawn(3, 0),
+         oppPawn(1, 4, 5, 1, 4), oppPawn(1, 5, 5, 1, 4)],
+        { score: 2, isExtraRoll: false },
+        findCapture),
 
     // Reaching the center finishes ALL of P0's pawns -> victory.
     buildMoveExecution('reach-home-victory', 5, 0, { 0: true },
@@ -262,13 +327,13 @@ moveExecutions.forEach(m => {
 });
 
 const corpus = {
-    formatVersion: 2,
+    formatVersion: 3,
     paths,
     safeCells,
     cowryRolls,
     validMoves: scenarios.map(s => ({
         label: s.label, gridSize: s.grid, player: s.player, score: s.score,
-        hasCaptured: s.hasCaptured, pawns: s.pawns, expected: s.expected
+        hasCaptured: s.hasCaptured, toughened: s.toughened, pawns: s.pawns, expected: s.expected
     })),
     moveExecutions
 };

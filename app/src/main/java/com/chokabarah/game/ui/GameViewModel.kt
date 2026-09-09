@@ -313,10 +313,12 @@ class GameViewModel(
                 pawns = eng.pawns.map { PawnUi(it.id, it.playerIndex, it.state, it.pathIndex) },
                 playerColors = eng.playerColors.toList(),
                 validMoves = eng.validMoves.map { m ->
-                    MoveUi(m.grpPawns.map { p -> p.id }.sorted(), m.targetCoords, m.isCapture)
+                    MoveUi(m.grpPawns.map { p -> p.id }.sorted(), m.targetCoords, m.isCapture,
+                        m.isGattiGroup, m.isToughened, m.toughens)
                 },
                 currentPlayerIndex = eng.currentPlayerIndex,
                 isCutUnlocked = eng.hasCapturedOpponent[eng.currentPlayerIndex] == true,
+                toughened = eng.toughenedCells.mapValues { (_, v) -> v.toSet() },
                 currentRoll = eng.currentRoll?.let { RollUi(it.shells.toList(), it.label, it.isExtraRoll) },
                 winner = eng.winner,
                 logMessage = eng.gameLogMessage

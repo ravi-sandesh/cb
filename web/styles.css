@@ -362,6 +362,9 @@ body.senior-mode .online-code-display { font-size: 16px; }
         flex-direction: column;
     }
     .board-zone > .board-wrapper {
+        /* Column mode: opt out of the row's flex sizing (flex-basis: 0
+           collapses the JS-set height to zero); plain block sizing wins. */
+        flex: none;
         width: 100%;
     }
     .roll-side {

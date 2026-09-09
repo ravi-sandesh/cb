@@ -58,6 +58,8 @@
     <string name="pawn_start">Start</string>
     <string name="pawn_nth">PAWN #%1$d</string>
     <string name="gatti_tag"> [GATTI]</string>
+    <string name="tollu_tag"> [TOLLU]</string>
+    <string name="toughen_tag"> [TOUGHEN]</string>
     <string name="target_suffix"> → R%1$d C%2$d</string>
     <string name="roll_section_title">COWRY SHELLS ROLL</string>
     <string name="roll_button">\uD83C\uDFB2 ROLL COWRIES</string>
@@ -81,5 +83,7 @@
     <string name="cd_board">Choka Barah board. Turn: %1$s. Roll: %2$s. Available moves: %3$d. Use the move buttons below to play.</string>
     <string name="cd_move_button">Move %1$s to cell row %2$d, column %3$d%4$s</string>
     <string name="cd_gatti_tag">, grouped Gatti</string>
+    <string name="cd_tollu_tag">, untoughened tollu pair</string>
+    <string name="cd_toughen_tag">, hardens the pair</string>
     <string name="no_roll">not rolled yet</string>
 </resources>
