@@ -11,4 +11,7 @@ builder = "DOCKERFILE"
   PORT = "${{RAILWAY_PORT}}"
   HOST = "0.0.0.0"
   NODE_ENV = "production"
+  # PROD DATA WARNING: ./online.db lives on the container's EPHEMERAL disk.
+  # Attach a Railway volume and set ONLINE_DB to a path on it (e.g.
+  # /data/online.db), or every redeploy/restart wipes all users + matches.
   ONLINE_DB = "./online.db"

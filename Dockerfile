@@ -1,8 +1,10 @@
 FROM node:24-alpine
 
+# The server has zero production dependencies (node:sqlite + node:http are
+# built in; web/package.json holds dev-only tooling), so there is deliberately
+# no npm install layer. .dockerignore keeps secrets, databases, build output
+# and test artifacts out of the image.
 WORKDIR /app
-COPY web/package.json ./
-RUN npm install --production || echo "no external deps"
 COPY . .
 
 ENV PORT=${PORT}

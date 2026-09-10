@@ -108,13 +108,10 @@ describe('server routing', () => {
     expect(res._headers['Content-Type']).toContain('application/json');
   });
 
-  test('an extension outside the MIME map falls back to application/octet-stream', async () => {
-    // coverage/lcov.info is a real sibling file whose '.info' extension is
-    // absent from MIME, so it exercises the octet-stream fallback branch.
+  test('coverage output is forbidden (source-annotated test artifacts must not leak)', async () => {
+    // coverage/lcov.info exists on disk; it must NOT be downloadable.
     const res = await request('/coverage/lcov.info');
-    expect(res._status).toBe(200);
-    expect(res._headers['Content-Type']).toBe('application/octet-stream');
-    expect(res._body.length).toBeGreaterThan(0);
+    expect(res._status).toBe(403);
   });
 });
 

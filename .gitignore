@@ -33,6 +33,16 @@ web/.env
 web/online-dev.db
 npm-debug.log*
 
+# Databases anywhere (dev + prod, any engine). online.db is the Railway
+# prod default (ONLINE_DB); online-dev.db above is the local dev default.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+online.db
+
 # OS
 .DS_Store
 Thumbs.db

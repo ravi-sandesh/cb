@@ -1,0 +1,29 @@
+# Secrets — never bake into image layers.
+app/*.keystore
+app/keystore.properties
+*.keystore
+*.jks
+
+# Databases (dev + prod).
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Build outputs, test artifacts, dependencies.
+node_modules/
+web/node_modules/
+web/coverage/
+coverage/
+app/build/
+engine/build/
+build/
+*.log
+
+# VCS + CI + local tooling.
+.git/
+.github/
+.gitignore
+*.tar.gz

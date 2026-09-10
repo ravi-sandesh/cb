@@ -27,15 +27,21 @@ const MIME = {
   '.ico': 'image/x-icon'
 };
 
-// Never served: local databases and dotfiles (.env et al.) have no business
-// being downloadable from a dev server that binds loopback but is still
-// reachable by anything running on this machine.
+// Never served: local databases, dotfiles (.env et al.), and build/test
+// artifacts have no business being downloadable from a dev server that binds
+// loopback but is still reachable by anything running on this machine —
+// and the online server reuses this handler in production.
 const FORBIDDEN_EXTENSIONS = new Set(['.db', '.db-journal', '.db-wal', '.db-shm', '.sqlite', '.sqlite3']);
+// Top-level directories that must never be servable (source-annotated test
+// output, dependency trees, version control metadata).
+const FORBIDDEN_TOP_DIRS = new Set(['coverage', 'node_modules', '.git']);
 
 function isForbidden(urlPath) {
   const segments = urlPath.split('/').filter(Boolean);
   // Any dotfile/dot-directory segment (.env, .git/config, ...) is off-limits.
   if (segments.some((s) => s.startsWith('.'))) return true;
+  // Blocked top-level trees regardless of nesting depth below them.
+  if (segments.length && FORBIDDEN_TOP_DIRS.has(segments[0])) return true;
   const base = segments.pop() || '';
   return FORBIDDEN_EXTENSIONS.has((base.match(/\.[^.]+$/) || [''])[0].toLowerCase());
 }
