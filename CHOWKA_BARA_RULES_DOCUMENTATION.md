@@ -250,11 +250,12 @@ flowchart TD
 #### Tollu (Untoughened Pair) vs Toughened Gatti
 - Two of YOUR pawns on the same **inner** cell start as **tollu** (soft):
   gray dashed ring + `T` on the board
-- Tollu moves as **one unit on even rolls only**: half the roll (2→1, 4→2,
-  6→3); **odd rolls leave the pair stuck** — there is no half block to move
+- **Pairs move on even rolls only, together**: tollu at half rate (2→1,
+  4→2, 6→3); toughened at the full roll value; **odd rolls offer no pair
+  move at all** — a lone pawn never leaves its pair behind
 - A tollu pair moving on an **exact 2 hardens into a TOUGHENED Gatti**
   at its destination (gold ring + `G`); no extra turn for hardening
-- Toughened pairs move the **full** roll value as one unit
+- A moving toughened pair **stays toughened** at its destination
 
 #### Formation
 - Toughened Gatti forms **only** by a tollu pair moving on an exact 2
@@ -275,17 +276,18 @@ flowchart TD
   land-capture on one (immunity below still holds)
 
 #### Capture Immunity (Traditional Rule)
-> **A TOUGHENED Gatti CANNOT BE CAPTURED BY ANYONE — not even by another
-> toughened Gatti. Tollu pairs and stacked outer singles ARE capturable.**
+> **Only a TOUGHENED Gatti is immune — and only against non-Gatti.
+> A toughened pair landing on an enemy toughened pair captures the
+> WHOLE pair. Tollu pairs and stacked outer singles ARE capturable.**
 
 | Attacker | Defender | Result |
 |----------|----------|--------|
-| Single | Single | Capture ✅ (capture-one) |
+| Single | Single | Capture ONE ✅ (lowest id) |
 | Single | Tollu pair / outer stack | Capture ONE ✅ (lowest id) |
 | Single | Toughened Gatti | **Blocked ❌** |
-| Toughened Gatti | Single | Capture ✅ |
+| Toughened Gatti | Single | Capture ONE ✅ |
 | Toughened Gatti | Tollu / outer stack | Capture ONE ✅ |
-| Toughened Gatti | Toughened Gatti | **Blocked ❌** |
+| Toughened Gatti | Toughened Gatti | **Whole pair captured ✅** |
 
 > **Note:** This is the traditional rule per rollthedice.in and most regional variants. Some house rules allow Gatti-vs-Gatti capture; we follow the strict traditional rule.
 
@@ -315,7 +317,8 @@ flowchart TD
 
 #### Capture Effects
 - **Capture-one:** exactly ONE opponent pawn (lowest id on the cell) →
-  `HOME_BASE` (pathIndex = -1); any pair-mate stays on track
+  `HOME_BASE` (pathIndex = -1); any pair-mate stays on track.
+  Exception: a **Gatti-vs-Gatti** landing takes the whole defender pair.
 - Capturing player: `hasCapturedOpponent = true` (unlocks inner gate)
 - **Extra turn granted** (roll again)
 

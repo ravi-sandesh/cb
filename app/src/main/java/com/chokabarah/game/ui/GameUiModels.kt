@@ -41,7 +41,9 @@ data class MoveUi(
     /** ...and that pair is hardened (gold ring on the board). */
     val isToughened: Boolean = false,
     /** ...this move hardens a tollu pair on arrival (exact 2). */
-    val toughens: Boolean = false
+    val toughens: Boolean = false,
+    /** ...this move takes a whole enemy Gatti home. */
+    val capturesGatti: Boolean = false
 )
 
 /** The pending cowry roll, or null before the first roll of a turn. */

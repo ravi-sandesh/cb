@@ -11,7 +11,8 @@ data class MoveOption(
     val reachesHome: Boolean,
     val isGattiGroup: Boolean,        // Moving group is a same-cell pair (tollu or toughened)
     val isToughened: Boolean = false, // ...and that pair is hardened
-    val toughens: Boolean = false     // ...this move hardens a tollu pair (exact 2)
+    val toughens: Boolean = false,    // ...this move hardens a tollu pair (exact 2)
+    val capturesGatti: Boolean = false // ...this move takes a whole defender Gatti home
 )
 
 data class CowryResult(
@@ -133,24 +134,22 @@ fun calculateValidMoves(
         // Inner pairs are tollu until toughened (a roll of 2 hardens them).
         val moverToughened = !isHome && toughCells.contains(curIdx)
         val isTollu = isPair && !isHome && !moverToughened
-        var step = score
-        if (isTollu) {
-            // Tollu rate: even rolls move half (2→1, 4→2, 6→3); odd rolls
-            // leave the pair stuck — there is no half block to move.
-            if (score % 2 != 0) {
-                Telemetry.trace("engine", "move.tollu_stuck",
-                    "Tollu pair cannot move on odd score $score",
-                    mapOf(
-                        "pawnIds" to grp.map { it.id },
-                        "curIdx" to curIdx,
-                        "score" to score,
-                        "reason" to "tollu-rate"
-                    )
+        // Pairs move on even rolls only, together: tollu at half rate,
+        // toughened at full rate. Odd rolls offer no pair move at all.
+        if (isPair && !isHome && score % 2 != 0) {
+            Telemetry.trace("engine", "move.pair_stuck",
+                "Pair cannot move on odd score $score",
+                mapOf(
+                    "pawnIds" to grp.map { it.id },
+                    "curIdx" to curIdx,
+                    "score" to score,
+                    "reason" to "pair-even-only"
                 )
-                return@forEach
-            }
-            step = score / 2
+            )
+            return@forEach
         }
+        var step = score
+        if (isTollu) step = score / 2
         // A home pawn entering the track moves `score` steps from the start
         // cell (path[0]) — same distance an on-track pawn covers from its
         // current position. With score=2, both land at path[2].
@@ -242,6 +241,7 @@ fun calculateValidMoves(
 
         var isCapture = false
         var blocked   = false
+        var capturesGatti = false
 
         if (opponents.isNotEmpty()) {
             when {
@@ -251,17 +251,24 @@ fun calculateValidMoves(
                     blocked = false
                 }
                 opponentToughened -> {
-                    // Opponent has a toughened Gatti — CANNOT BE CAPTURED BY ANYONE.
-                    blocked = true
-                    Telemetry.trace("engine", "move.gatti_blocked",
-                        "Target is an opponent toughened Gatti; cannot capture",
-                        mapOf(
-                            "pawnIds" to grp.map { it.id },
-                            "targetCoords" to listOf(target.first, target.second),
-                            "opponentCount" to opponents.size,
-                            "reason" to "opponent_gatti"
+                    if (moverToughened && myGroupIsGatti) {
+                        // Gatti captures Gatti: a toughened pair landing on an
+                        // opponent's toughened pair takes the WHOLE pair home.
+                        isCapture = true
+                        capturesGatti = true
+                    } else {
+                        // Tollu/singles cannot touch a toughened Gatti.
+                        blocked = true
+                        Telemetry.trace("engine", "move.gatti_blocked",
+                            "Target is an opponent toughened Gatti; cannot capture",
+                            mapOf(
+                                "pawnIds" to grp.map { it.id },
+                                "targetCoords" to listOf(target.first, target.second),
+                                "opponentCount" to opponents.size,
+                                "reason" to "opponent_gatti"
+                            )
                         )
-                    )
+                    }
                 }
                 else -> {
                     // Normal capture (single opponent pawn, tollu pair or outer stack)
@@ -281,7 +288,8 @@ fun calculateValidMoves(
                 reachesHome    = reachesHome,
                 isGattiGroup   = myGroupIsGatti,
                 isToughened    = moverToughened && myGroupIsGatti,
-                toughens       = toughens
+                toughens       = toughens,
+                capturesGatti  = capturesGatti
             )
         )
     }
@@ -342,16 +350,17 @@ fun executeMovePure(
     var capturedCount = 0
     val capturedIds = mutableListOf<Int>()
 
-    // Capture-one: a landing captures exactly ONE pawn — the lowest id on
-    // the cell — whether the victim is lone, one of stacked outer singles,
-    // or one of an inner tollu pair. Toughened pairs never reach this branch
-    // (landing on them is blocked in calculateValidMoves).
+    // Capture: normally capture-one (lowest id); a Gatti-vs-Gatti landing
+    // takes the WHOLE defender pair home. Toughened pairs never reach this
+    // branch as victims except via capturesGatti (landing on them is
+    // otherwise blocked in calculateValidMoves).
     if (move.isCapture && !TrackBuilder.isSafeCell(gridSize, move.targetCoords.first, move.targetCoords.second)) {
         val victims = newPawns.filter { p ->
             p.playerIndex != currentPlayerIndex && p.state == PawnState.ON_TRACK &&
                 TrackBuilder.getPlayerPath(gridSize, p.playerIndex).getOrNull(p.pathIndex) == move.targetCoords
-        }.sortedBy { it.id }.take(1)
-        victims.forEach { p ->
+        }.sortedBy { it.id }
+        val caught = if (move.capturesGatti) victims else victims.take(1)
+        caught.forEach { p ->
             p.state = PawnState.HOME_BASE
             p.pathIndex = -1
             capturedCount++
@@ -815,10 +824,11 @@ class GameEngine(
             mapOf("from" to from, "to" to currentPlayerIndex, "playerCount" to playerColors.size))
     }
 
-    // AI Bot Strategy — capture > reach home > toughen > safe > Gatti > furthest
+    // AI Bot Strategy — Gatti-capture > capture > reach home > toughen > safe > Gatti > furthest
     fun getBestBotMove(): MoveOption? {
         if (validMoves.isEmpty()) return null
-        val best = validMoves.firstOrNull { it.isCapture }
+        val best = validMoves.firstOrNull { it.isCapture && it.capturesGatti }
+            ?: validMoves.firstOrNull { it.isCapture }
             ?: validMoves.firstOrNull { it.reachesHome }
             ?: validMoves.firstOrNull { it.toughens }
             ?: validMoves.firstOrNull { TrackBuilder.isSafeCell(gridSize, it.targetCoords.first, it.targetCoords.second) }

@@ -162,6 +162,7 @@ class EngineParityTest {
                 assertEquals("scen$i isGattiGroup", exp.getBoolean("isGattiGroup"), m.isGattiGroup)
                 assertEquals("scen$i isToughened", exp.optBoolean("isToughened", false), m.isToughened)
                 assertEquals("scen$i toughens", exp.optBoolean("toughens", false), m.toughens)
+                assertEquals("scen$i capturesGatti", exp.optBoolean("capturesGatti", false), m.capturesGatti)
             }
         }
     }
@@ -206,7 +207,8 @@ class EngineParityTest {
                 reachesHome = mv.getBoolean("reachesHome"),
                 isGattiGroup = mv.getBoolean("isGattiGroup"),
                 isToughened = mv.optBoolean("isToughened", false),
-                toughens = mv.optBoolean("toughens", false)
+                toughens = mv.optBoolean("toughens", false),
+                capturesGatti = mv.optBoolean("capturesGatti", false)
             )
             val roll: CowryResult? = if (scen.getBoolean("rollIsExtraRoll")) {
                 CowryResult(emptyList(), 0, true, "corpus")

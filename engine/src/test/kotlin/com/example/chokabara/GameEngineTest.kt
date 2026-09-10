@@ -449,6 +449,51 @@ class GameEngineTest {
     }
 
     @Test
+    fun testToughenedPairStuckOnOddRollsMovesFullOnEven() {
+        tolluPair()
+        engine.toughenedCells.getOrPut(0) { mutableSetOf() }.add(17)
+        for (s in listOf(1, 3)) {
+            val stuck = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
+                engine.hasCapturedOpponent, s, engine.toughenedCells)
+            assertTrue(stuck.none { it.isGattiGroup })
+        }
+        val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
+            engine.hasCapturedOpponent, 4, engine.toughenedCells)
+        val hard = moves.firstOrNull { it.isGattiGroup }
+        assertNotNull(hard)
+        assertEquals(21, hard!!.targetPathIndex)
+        assertTrue(hard.isToughened)
+        assertFalse(hard.toughens)
+    }
+
+    @Test
+    fun testGattiCapturesGattiTakesWholePair() {
+        engine.resetGame()
+        engine.hasCapturedOpponent[0] = true
+        // P0 toughened pair idx 18 + 4 -> 22 = (3,3); P1 toughened pair at (3,3) = idx 18.
+        player0Pawn(0).apply { state = PawnState.ON_TRACK; pathIndex = 18 }
+        player0Pawn(1).apply { state = PawnState.ON_TRACK; pathIndex = 18 }
+        player1Pawn(0).apply { state = PawnState.ON_TRACK; pathIndex = 18 }
+        player1Pawn(1).apply { state = PawnState.ON_TRACK; pathIndex = 18 }
+        engine.toughenedCells.getOrPut(0) { mutableSetOf() }.add(18)
+        engine.toughenedCells.getOrPut(1) { mutableSetOf() }.add(18)
+        val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
+            engine.hasCapturedOpponent, 4, engine.toughenedCells)
+        val g = moves.firstOrNull { it.targetPathIndex == 22 }
+        assertNotNull(g)
+        assertTrue(g!!.isCapture)
+        assertTrue(g.capturesGatti)
+        val res = executeMovePure(GridSize.FIVE_BY_FIVE, engine.pawns.toList(),
+            engine.hasCapturedOpponent.toMap(), 0, g, CowryResult(emptyList(), 4, false, "t"), engine.toughenedCells)
+        assertNull(res.error)
+        assertEquals(2, res.capturedCount)
+        assertTrue(res.pawns.filter { it.playerIndex == 1 }.all { it.state == PawnState.HOME_BASE })
+        assertEquals(mapOf(0 to setOf(22)), res.toughened) // attacker flag carried over
+        assertTrue(res.extraTurn)
+        assertFalse(res.gattiFormed) // capture, not hardening
+    }
+
+    @Test
     fun testTolluPairToughensOnExactTwo() {
         tolluPair()
         val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
@@ -468,12 +513,12 @@ class GameEngineTest {
     fun testToughenedPairMovesFullRateAndBlocks() {
         tolluPair()
         engine.toughenedCells.getOrPut(0) { mutableSetOf() }.add(17)
-        // Full rate for the hardened pair.
+        // Full rate for the hardened pair (even roll).
         val moves = calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
-            engine.hasCapturedOpponent, 3, engine.toughenedCells)
+            engine.hasCapturedOpponent, 4, engine.toughenedCells)
         val hard = moves.firstOrNull { it.isGattiGroup }
         assertNotNull(hard)
-        assertEquals(20, hard!!.targetPathIndex)
+        assertEquals(21, hard!!.targetPathIndex)
         assertTrue(hard.isToughened)
         // Blockade: P1 (cut made) at idx 19 + 4 crosses idx 21 = (2,1),
         // where P0's toughened pair sits -> the crossing is dropped.

@@ -504,16 +504,19 @@ describe('app.js online match (server-authoritative flow)', () => {
       validMoves: [
         { pawnIds: [0, 1], targetCoords: [2, 2], isCapture: false, reachesHome: false, isGattiGroup: true, isToughened: false, toughens: true },
         { pawnIds: [0, 1], targetCoords: [2, 2], isCapture: false, reachesHome: false, isGattiGroup: true, isToughened: true, toughens: false },
+        { pawnIds: [0, 1], targetCoords: [2, 2], isCapture: true, reachesHome: false, isGattiGroup: true, isToughened: true, toughens: false, capturesGatti: true },
         { pawnIds: [0, 1], targetCoords: [2, 2], isCapture: false, reachesHome: false, isGattiGroup: true, isToughened: false, toughens: false },
         { pawnIds: [2], targetCoords: [4, 3], isCapture: false, reachesHome: false, isGattiGroup: false, isToughened: false, toughens: false }
       ]
     }));
     const texts = holder.docEls['pawn-buttons-container'].children.map(b => b.innerText);
-    expect(texts).toHaveLength(4);
+    expect(texts).toHaveLength(5);
     expect(texts[0]).toContain('[TOUGHEN]');
     expect(texts[1]).toContain('[GATTI]');
-    expect(texts[2]).toContain('[TOLLU]');
-    expect(texts[3]).not.toContain('[');
+    expect(texts[1]).not.toContain('[GATTI-CAPTURE]');
+    expect(texts[2]).toContain('[GATTI-CAPTURE]');
+    expect(texts[3]).toContain('[TOLLU]');
+    expect(texts[4]).not.toContain('[');
   });
 
   test('tollu pairs draw a gray dashed ring + T; toughened pairs gold + G', () => {

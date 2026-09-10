@@ -258,17 +258,15 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
         // Inner pairs are tollu until toughened (a roll of 2 hardens them).
         const moverToughened = !isHome && toughCells.indexOf(curIdx) !== -1;
         const isTollu = isPair && !isHome && !moverToughened;
-        let step = score;
-        if (isTollu) {
-            // Tollu rate: even rolls move half (2→1, 4→2, 6→3); odd rolls
-            // leave the pair stuck — there is no half block to move.
-            if (score % 2 !== 0) {
-                T.trace('engine.move', 'move.tollu_stuck', `Tollu pair cannot move on odd score ${score}`,
-                    { pawnIds: grpPawns.map(p => p.id), curIdx, score, reason: 'tollu-rate' });
-                return;
-            }
-            step = score / 2;
+        // Pairs move on even rolls only, together: tollu at half rate,
+        // toughened at full rate. Odd rolls offer no pair move at all.
+        if (isPair && !isHome && score % 2 !== 0) {
+            T.trace('engine.move', 'move.pair_stuck', `Pair cannot move on odd score ${score}`,
+                { pawnIds: grpPawns.map(p => p.id), curIdx, score, reason: 'pair-even-only' });
+            return;
         }
+        let step = score;
+        if (isTollu) step = score / 2;
 
         // A home pawn entering the track moves `score` steps from the start
         // cell (path[0]) — same distance an on-track pawn covers from its
@@ -327,15 +325,23 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
 
         let isCapture = false;
         let blocked = false;
+        let capturesGatti = false;
 
         if (opponentsAtTarget.length > 0) {
             if (safe) {
                 isCapture = false;
                 blocked = false;
             } else if (opponentToughened) {
-                blocked = true; // A toughened Gatti cannot be captured by ANYONE
-                T.trace('engine.move', 'move.gatti_blocked', `Target is an opponent toughened Gatti; cannot capture`,
-                    { pawnIds: grpPawns.map(p => p.id), targetCoords, opponentCount: opponentsAtTarget.length, reason: 'opponent_gatti' });
+                if (moverToughened && myGroupIsGatti) {
+                    // Gatti captures Gatti: a toughened pair landing on an
+                    // opponent's toughened pair takes the WHOLE pair home.
+                    isCapture = true;
+                    capturesGatti = true;
+                } else {
+                    blocked = true; // Tollu/singles cannot touch a toughened Gatti
+                    T.trace('engine.move', 'move.gatti_blocked', `Target is an opponent toughened Gatti; cannot capture`,
+                        { pawnIds: grpPawns.map(p => p.id), targetCoords, opponentCount: opponentsAtTarget.length, reason: 'opponent_gatti' });
+                }
             } else {
                 isCapture = true;
             }
@@ -351,7 +357,8 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
             reachesHome,
             isGattiGroup: myGroupIsGatti,
             isToughened: moverToughened && myGroupIsGatti,
-            toughens
+            toughens,
+            capturesGatti
         });
     });
 
@@ -372,9 +379,10 @@ function validateMove(move) {
     if (typeof move.reachesHome !== 'boolean') return { ok: false, reason: 'reachesHome not boolean' };
     // isGattiGroup is optional; treat undefined as false
     if (move.isGattiGroup !== undefined && typeof move.isGattiGroup !== 'boolean') return { ok: false, reason: 'isGattiGroup not boolean' };
-    // isToughened / toughens are optional; treat undefined as false
+    // isToughened / toughens / capturesGatti are optional; treat undefined as false
     if (move.isToughened !== undefined && typeof move.isToughened !== 'boolean') return { ok: false, reason: 'isToughened not boolean' };
     if (move.toughens !== undefined && typeof move.toughens !== 'boolean') return { ok: false, reason: 'toughens not boolean' };
+    if (move.capturesGatti !== undefined && typeof move.capturesGatti !== 'boolean') return { ok: false, reason: 'capturesGatti not boolean' };
     return { ok: true };
 }
 
@@ -439,10 +447,10 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
     let gattiFormed = false;
     let capturedCount = 0;
 
-    // Handle capture (capture-one): a landing captures exactly ONE pawn —
-    // the lowest id on the cell — whether the victim is a lone pawn, one of
-    // stacked outer singles, or one of an inner tollu pair. Toughened pairs
-    // never reach this branch (landing on them is blocked in validMoves).
+    // Handle capture: normally capture-one (lowest id). A Gatti-vs-Gatti
+    // landing takes the WHOLE defender pair home. Toughened pairs never
+    // reach this branch as victims except via capturesGatti (landing on
+    // them is otherwise blocked in validMoves).
     if (isCapture && !safe) {
         const victims = [];
         newPawns.forEach(p => {
@@ -452,7 +460,8 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
             }
         });
         victims.sort((a, b) => a.id - b.id);
-        victims.slice(0, 1).forEach(p => {
+        const caught = (move.capturesGatti === true) ? victims : victims.slice(0, 1);
+        caught.forEach(p => {
             p.state = 'HOME_BASE';
             p.pathIndex = -1;
             capturedCount++;
@@ -539,6 +548,7 @@ function selectBotMove(validMoves, gridSize) {
     }
 
     const best =
+        validMoves.find(m => m.isCapture && m.capturesGatti) ||
         validMoves.find(m => m.isCapture) ||
         validMoves.find(m => m.reachesHome) ||
         validMoves.find(m => m.toughens) ||

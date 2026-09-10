@@ -242,9 +242,12 @@ fun GameScreen(
                                 val pawnName = stringResource(R.string.pawn_nth, pawnNumber)
                                 // Pair badges mirror the web client: a hardening move
                                 // TOUGHENs, a hardened pair is GATTI, an unhardened
-                                // inner pair is TOLLU (roll a 2 to harden it).
+                                // inner pair is TOLLU (roll a 2 to harden it), and
+                                // a hardened pair taking an enemy Gatti shows
+                                // GATTI-CAPTURE.
                                 val pairTag = when {
                                     move.toughens -> stringResource(R.string.toughen_tag)
+                                    move.isToughened && move.capturesGatti -> stringResource(R.string.gatti_capture_tag)
                                     move.isToughened -> stringResource(R.string.gatti_tag)
                                     move.isGattiGroup -> stringResource(R.string.tollu_tag)
                                     else -> ""
@@ -255,6 +258,7 @@ fun GameScreen(
                                 )
                                 val pairContentTag = when {
                                     move.toughens -> stringResource(R.string.cd_toughen_tag)
+                                    move.isToughened && move.capturesGatti -> stringResource(R.string.cd_gatti_capture_tag)
                                     move.isToughened -> stringResource(R.string.cd_gatti_tag)
                                     move.isGattiGroup -> stringResource(R.string.cd_tollu_tag)
                                     else -> ""

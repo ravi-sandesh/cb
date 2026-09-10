@@ -161,6 +161,13 @@ const scenarios = [
        [{ player: 1, id: 4, r: 2, c: 1 }, { player: 1, id: 5, r: 2, c: 1 }],
        { 1: [21] }),
 
+    // Gatti-vs-Gatti landing: P0 toughened pair (idx 18) +4 lands on the
+    // P1 toughened pair at (3,3) -> capture offered, capturesGatti = true.
+    sc(5, 0, 4, { 0: true },
+       [trackPawn(0, 0, 18), trackPawn(1, 0, 18)],
+       [{ player: 1, id: 4, r: 3, c: 3 }, { player: 1, id: 5, r: 3, c: 3 }],
+       { 0: [18], 1: [18] }),
+
     // Same landing on an UNTOUGHENED (tollu) pair: capturable (capture-one).
     sc(5, 0, 2, { 0: true },
        [trackPawn(0, 0, 15), trackPawn(1, 0, 1)],
@@ -218,7 +225,8 @@ scenarios.forEach((s, i) => {
             reachesHome: m.reachesHome,
             isGattiGroup: m.isGattiGroup,
             isToughened: !!m.isToughened,
-            toughens: !!m.toughens
+            toughens: !!m.toughens,
+            capturesGatti: !!m.capturesGatti
         }));
 });
 
@@ -249,7 +257,8 @@ function buildMoveExecution(label, grid, player, hasCaptured, pawnsBefore, roll,
             reachesHome: move.reachesHome,
             isGattiGroup: !!move.isGattiGroup,
             isToughened: !!move.isToughened,
-            toughens: !!move.toughens
+            toughens: !!move.toughens,
+            capturesGatti: !!move.capturesGatti
         },
         expected: {
             pawnsAfter: res.pawns.map(p => ({ id: p.id, playerIndex: p.playerIndex, state: p.state, pathIndex: p.pathIndex }))
@@ -298,10 +307,10 @@ const moveExecutions = [
         [trackPawn(0, 0, 17), trackPawn(1, 0, 17)],
         { score: 2, isExtraRoll: false }, first),
 
-    // Toughened pair carries its flag: idx 17 -> 20 re-keys {0:[17]} to {0:[20]}.
+    // Toughened pair carries its flag: idx 17 -> 21 re-keys {0:[17]} to {0:[21]}.
     buildMoveExecution('toughened-carry', 5, 0, { 0: true },
         [trackPawn(0, 0, 17), trackPawn(1, 0, 17)],
-        { score: 3, isExtraRoll: false }, first, { 0: [17] }),
+        { score: 4, isExtraRoll: false }, first, { 0: [17] }),
 
     // Capture-one: two stacked outer P1 singles, only the lowest id is cut.
     buildMoveExecution('capture-one-of-pair', 5, 0, {},
@@ -309,6 +318,14 @@ const moveExecutions = [
          oppPawn(1, 4, 5, 1, 4), oppPawn(1, 5, 5, 1, 4)],
         { score: 2, isExtraRoll: false },
         findCapture),
+
+    // Gatti-vs-Gatti: toughened pair takes the whole defender pair home.
+    buildMoveExecution('gatti-captures-gatti', 5, 0, { 0: true },
+        [trackPawn(0, 0, 18), trackPawn(1, 0, 18),
+         oppPawn(1, 4, 5, 3, 3), oppPawn(1, 5, 5, 3, 3)],
+        { score: 4, isExtraRoll: false },
+        (valid) => valid.find(m => m.capturesGatti),
+        { 0: [18], 1: [18] }),
 
     // Reaching the center finishes ALL of P0's pawns -> victory.
     buildMoveExecution('reach-home-victory', 5, 0, { 0: true },

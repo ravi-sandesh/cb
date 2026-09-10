@@ -486,7 +486,8 @@ function applyServerBoard(board) {
         reachesHome: m.reachesHome,
         isGattiGroup: !!m.isGattiGroup,
         isToughened: !!m.isToughened,
-        toughens: !!m.toughens
+        toughens: !!m.toughens,
+        capturesGatti: !!m.capturesGatti
     })).filter(m => m.grpPawns.length > 0); // drop moves referencing nonexistent pawns
     // Guard the seat index: a hostile/buggy relay could broadcast an
     // out-of-range winner, which must degrade to a placeholder — never throw.
@@ -1218,8 +1219,9 @@ function updateUI() {
             const pawn  = move.grpPawns[0];
             const label = pawn.state === 'HOME_BASE' ? 'Base' : `Pos #${pawn.pathIndex + 1}`;
             // Pair badges: TOUGHEN moves harden on arrival; hardened pairs are
-            // GATTI; unhardened inner pairs are TOLLU (roll a 2 to harden).
-            const pairTag = move.toughens ? ' [TOUGHEN]' : (move.isToughened ? ' [GATTI]' : (move.isGattiGroup ? ' [TOLLU]' : ''));
+            // GATTI; unhardened inner pairs are TOLLU (roll a 2 to harden);
+            // a hardened pair taking an enemy Gatti shows GATTI-CAPTURE.
+            const pairTag = move.toughens ? ' [TOUGHEN]' : (move.isToughened ? (move.capturesGatti ? ' [GATTI-CAPTURE]' : ' [GATTI]') : (move.isGattiGroup ? ' [TOLLU]' : ''));
             btn.innerText = `Pawn ${move.grpPawns.map(p=>`#${(p.id%4)+1}`).join('+')} (${label})${pairTag}`;
             btn.onclick = () => {
                 T.debug('input', 'pawn.selected', `User selected ${move.grpPawns.map(p=>`#${(p.id%4)+1}`).join('+')} via quick-list`,

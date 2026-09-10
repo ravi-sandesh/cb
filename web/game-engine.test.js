@@ -385,6 +385,47 @@ describe('calculateValidMoves – Capture & Gatti', () => {
     expect(moves.every(m => m.isGattiGroup === false)).toBe(true);
     expect(moves.every(m => m.grpPawns.length === 1)).toBe(true);
   });
+
+  test('toughened pairs move on even rolls only, at full rate', () => {
+    const pawns = [
+      { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 17 },
+      { id: 1, playerIndex: 0, state: 'ON_TRACK', pathIndex: 17 }
+    ];
+    // Odd roll: stuck, no group move.
+    for (const odd of [1, 3]) {
+      const stuck = calculateValidMoves(5, pawns, 0, {0:true}, odd, { 0: [17] });
+      expect(stuck.find(m => m.isGattiGroup)).toBeUndefined();
+    }
+    // Even roll: full rate + flagged.
+    const moves = calculateValidMoves(5, pawns, 0, {0:true}, 4, { 0: [17] });
+    const hard = moves.find(m => m.isGattiGroup);
+    expect(hard).toBeDefined();
+    expect(hard.targetPathIndex).toBe(21);
+    expect(hard.isToughened).toBe(true);
+    expect(hard.toughens).toBe(false);
+  });
+
+  test('toughened mover landing on a toughened pair captures the whole Gatti', () => {
+    // P0 pair idx 18 + 4 -> 22 = (3,3); P1 pair idx 18 = (3,3), flagged.
+    const pawns = [
+      { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 18 },
+      { id: 1, playerIndex: 0, state: 'ON_TRACK', pathIndex: 18 },
+      { id: 4, playerIndex: 1, state: 'ON_TRACK', pathIndex: 18 },
+      { id: 5, playerIndex: 1, state: 'ON_TRACK', pathIndex: 18 }
+    ];
+    const tough = { 0: [18], 1: [18] };
+    const moves = calculateValidMoves(5, pawns, 0, {0:true}, 4, tough);
+    const g = moves.find(m => m.targetPathIndex === 22);
+    expect(g).toBeDefined();
+    expect(g.isCapture).toBe(true);
+    expect(g.capturesGatti).toBe(true);
+    const res = executeMove(5, pawns.map(p => ({ ...p })), {0:true}, 0, g, { isExtraRoll: false }, tough);
+    expect(res.capturedCount).toBe(2);
+    expect(res.pawns.filter(p => p.playerIndex === 1).every(p => p.state === 'HOME_BASE')).toBe(true);
+    expect(res.toughened).toEqual({ 0: [22] }); // attacker flag carried over
+    expect(res.extraTurn).toBe(true);
+    expect(res.gattiFormed).toBe(false); // capture, not hardening
+  });
 });
 
 describe('executeMove – Core Execution', () => {
@@ -558,7 +599,8 @@ describe('Input validation guards', () => {
     ['reachesHome', { reachesHome: 'yes' }],
     ['isGattiGroup', { isGattiGroup: 'yes' }],
     ['isToughened', { isToughened: 'yes' }],
-    ['toughens', { toughens: 'yes' }]
+    ['toughens', { toughens: 'yes' }],
+    ['capturesGatti', { capturesGatti: 'yes' }]
   ])('executeMove with non-boolean %s returns error', (field, overrides) => {
     const pawns = [{ id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 5 }];
     const move = { grpPawns:[pawns[0]], targetPathIndex: 6, targetCoords:[1,2], isCapture:false, reachesHome:false, isGattiGroup:false, ...overrides };
@@ -612,10 +654,10 @@ describe('advanceTurn', () => {
 });
 
 describe('selectBotMove – Bot AI', () => {
-  function mkMove(pathIndex, {capture=false, home=false, safe=false, gatti=false, toughens=false}={}) {
+  function mkMove(pathIndex, {capture=false, home=false, safe=false, gatti=false, toughens=false, capturesGatti=false}={}) {
     const coord = getPlayerPath(5, 0)[pathIndex] || [pathIndex, pathIndex];
     const coords = { safe: isSafeCell(5, coord[0], coord[1]), ...coord };
-    return { grpPawns:[{pathIndex}], targetCoords:coord, isCapture:capture, reachesHome:home, isGattiGroup:gatti, toughens };
+    return { grpPawns:[{pathIndex}], targetCoords:coord, isCapture:capture, reachesHome:home, isGattiGroup:gatti, toughens, capturesGatti };
   }
 
   test('no moves returns null', () => {
@@ -650,6 +692,11 @@ describe('selectBotMove – Bot AI', () => {
     expect(selectBotMove(moves, 5).toughens).toBe(true);
     const withCapture = [mkMove(2,{toughens:true}), mkMove(3,{capture:true})];
     expect(selectBotMove(withCapture, 5).isCapture).toBe(true);
+  });
+
+  test('prefers Gatti-capture over plain capture', () => {
+    const moves = [mkMove(2,{capture:true}), mkMove(3,{capture:true,capturesGatti:true})];
+    expect(selectBotMove(moves, 5).capturesGatti).toBe(true);
   });
 
   test('falls back to furthest pawn otherwise', () => {

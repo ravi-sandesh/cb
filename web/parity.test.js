@@ -67,7 +67,8 @@ describe('engine parity corpus (web)', () => {
                     reachesHome: m.reachesHome,
                     isGattiGroup: m.isGattiGroup,
                     isToughened: !!m.isToughened,
-                    toughens: !!m.toughens
+                    toughens: !!m.toughens,
+                    capturesGatti: !!m.capturesGatti
                 }));
             expect(derived).toEqual(s.expected);
         }
@@ -85,7 +86,8 @@ describe('engine parity corpus (web)', () => {
                 reachesHome: s.move.reachesHome,
                 isGattiGroup: s.move.isGattiGroup,
                 isToughened: !!s.move.isToughened,
-                toughens: !!s.move.toughens
+                toughens: !!s.move.toughens,
+                capturesGatti: !!s.move.capturesGatti
             };
             const res = E.executeMove(
                 s.gridSize,

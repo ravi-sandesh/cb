@@ -60,6 +60,7 @@
     <string name="gatti_tag"> [GATTI]</string>
     <string name="tollu_tag"> [TOLLU]</string>
     <string name="toughen_tag"> [TOUGHEN]</string>
+    <string name="gatti_capture_tag"> [GATTI-CAPTURE]</string>
     <string name="target_suffix"> → R%1$d C%2$d</string>
     <string name="roll_section_title">COWRY SHELLS ROLL</string>
     <string name="roll_button">\uD83C\uDFB2 ROLL COWRIES</string>
@@ -85,5 +86,6 @@
     <string name="cd_gatti_tag">, grouped Gatti</string>
     <string name="cd_tollu_tag">, untoughened tollu pair</string>
     <string name="cd_toughen_tag">, hardens the pair</string>
+    <string name="cd_gatti_capture_tag">, captures the enemy Gatti</string>
     <string name="no_roll">not rolled yet</string>
 </resources>

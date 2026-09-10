@@ -66,7 +66,8 @@ function serializeBoard(state) {
       reachesHome: m.reachesHome,
       isGattiGroup: !!m.isGattiGroup,
       isToughened: !!m.isToughened,
-      toughens: !!m.toughens
+      toughens: !!m.toughens,
+      capturesGatti: !!m.capturesGatti
     })),
     winner: state.winner
   };

@@ -314,7 +314,7 @@ class GameViewModel(
                 playerColors = eng.playerColors.toList(),
                 validMoves = eng.validMoves.map { m ->
                     MoveUi(m.grpPawns.map { p -> p.id }.sorted(), m.targetCoords, m.isCapture,
-                        m.isGattiGroup, m.isToughened, m.toughens)
+                        m.isGattiGroup, m.isToughened, m.toughens, m.capturesGatti)
                 },
                 currentPlayerIndex = eng.currentPlayerIndex,
                 isCutUnlocked = eng.hasCapturedOpponent[eng.currentPlayerIndex] == true,
