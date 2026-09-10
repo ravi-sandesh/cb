@@ -56,15 +56,24 @@ test.describe('keyboard play', () => {
 
     // Sweep the cursor row-major across the grid until Enter lands on a
     // highlighted target — exactly what a keyboard-only player does.
+    // Park at (0,0) first: a fresh arrow teleports the hidden cursor to the
+    // player's start square, so without parking the sweep can never cover
+    // rows above it (Down clamps at the start row).
     await page.focus('#board-canvas');
+    for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowUp');
+    for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowLeft');
     const turnBefore = await page.textContent('#turn-text');
     let moved = false;
     for (let r = 0; r < 5 && !moved; r++) {
       for (let c = 0; c < 5 && !moved; c++) {
         await page.keyboard.press('Enter');
         await page.waitForTimeout(150);
+        // A move executed iff the pawn buttons vanish (validMoves consumed).
+        // Turn-text comparison alone misses extra-turn moves (Chowka/Baara/
+        // capture keep the seat), which are still successful keyboard play.
+        const buttons = await page.locator('#pawn-select-bar:not(.hidden)').count();
         const turnNow = await page.textContent('#turn-text');
-        if (turnNow !== turnBefore || /VICTORY/i.test(turnNow)) moved = true;
+        if (buttons === 0 || turnNow !== turnBefore || /VICTORY/i.test(turnNow)) moved = true;
         if (!moved && c < 4) await page.keyboard.press('ArrowRight');
       }
       if (!moved) {
