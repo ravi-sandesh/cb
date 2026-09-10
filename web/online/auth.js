@@ -83,7 +83,9 @@ const DUMMY_HASH = hashPassword('!dummy-password-against-timing-enumeration!');
 // ---- Login throttle (per-username fixed window, in-memory) ----
 const LOGIN_MAX_FAILURES = 5;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const MAX_SESSIONS_PER_USER = 10; // multi-device headroom; login loops prune past this
 const loginFailures = new Map(); // username -> { count, firstAt }
+let loginInsertionsSinceSweep = 0;
 
 function isLockedOut(username) {
   const rec = loginFailures.get(username);
@@ -100,8 +102,21 @@ function recordLoginFailure(username) {
   const rec = loginFailures.get(username);
   if (!rec || now - rec.firstAt >= LOGIN_WINDOW_MS) {
     loginFailures.set(username, { count: 1, firstAt: now });
+    // Username-spray would otherwise grow this map without bound: sweep
+    // expired buckets periodically (same pattern as the HTTP rate limiter).
+    if (++loginInsertionsSinceSweep >= 64) {
+      loginInsertionsSinceSweep = 0;
+      sweepLoginFailures(now);
+    }
   } else {
     rec.count += 1;
+  }
+}
+
+// Test seam: evict expired throttle buckets as of `now`.
+function sweepLoginFailures(now = Date.now()) {
+  for (const [k, b] of loginFailures) {
+    if (now - b.firstAt >= LOGIN_WINDOW_MS) loginFailures.delete(k);
   }
 }
 
@@ -134,6 +149,11 @@ async function registerUser(db, username, password) {
   const token = newSessionToken();
   db.insertSession(token, user.id, new Date(Date.now() + SESSION_TTL_MS).toISOString());
   clearLoginFailures(uname);
+  // Session policy: EXISTING sessions stay valid on re-login (multi-device
+  // friendly), but the per-user total is capped so login loops cannot grow
+  // the sessions table without bound. Revocation happens explicitly via
+  // /api/logout or the sweeper when tokens expire.
+  if (typeof db.pruneUserSessions === 'function') db.pruneUserSessions(user.id, MAX_SESSIONS_PER_USER);
   return { ok: true, user: { id: user.id, username: user.username }, token };
 }
 
@@ -160,10 +180,12 @@ async function loginUser(db, username, password) {
   }
   clearLoginFailures(uname);
   // Session policy: EXISTING sessions stay valid on re-login (multi-device
-  // friendly). Revocation happens explicitly via /api/logout or the sweeper
-  // when tokens expire.
+  // friendly), but the per-user total is capped so login loops cannot grow
+  // the sessions table without bound (see registerUser). Revocation happens
+  // explicitly via /api/logout or the sweeper when tokens expire.
   const token = newSessionToken();
   db.insertSession(token, user.id, new Date(Date.now() + SESSION_TTL_MS).toISOString());
+  if (typeof db.pruneUserSessions === 'function') db.pruneUserSessions(user.id, MAX_SESSIONS_PER_USER);
   return { ok: true, user: { id: user.id, username: user.username }, token };
 }
 
@@ -188,7 +210,7 @@ module.exports = {
   hashPassword, hashPasswordAsync, verifyPassword, verifyPasswordAsync,
   newSessionToken, isExpired,
   registerUser, loginUser, logoutUser, authenticateToken,
-  isLockedOut, resetLoginThrottle,
-  LOGIN_MAX_FAILURES, LOGIN_WINDOW_MS,
+  isLockedOut, resetLoginThrottle, sweepLoginFailures,
+  LOGIN_MAX_FAILURES, LOGIN_WINDOW_MS, MAX_SESSIONS_PER_USER,
   SESSION_TTL_MS
 };

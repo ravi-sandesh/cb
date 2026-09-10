@@ -146,6 +146,16 @@ function deleteSession(db, token) {
 function deleteUserSessions(db, userId) {
   db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
 }
+// Cap sessions per user (newest survive): login loops must not grow the
+// sessions table without bound. Multi-device use (a handful of sessions)
+// is unaffected by the default cap.
+function pruneUserSessions(db, userId, keepLatest) {
+  const keep = (Number.isInteger(keepLatest) && keepLatest > 0) ? keepLatest : 10;
+  db.prepare(
+    'DELETE FROM sessions WHERE user_id = ? AND rowid NOT IN (' +
+    'SELECT rowid FROM sessions WHERE user_id = ? ORDER BY rowid DESC LIMIT ?)'
+  ).run(userId, userId, keep);
+}
 
 // ---- Matches ----
 function createMatch(db, { code, gridSize, playerCount, hostUserId }) {
@@ -177,8 +187,10 @@ function setMatchBoard(db, matchId, boardJson) {
   db.prepare('UPDATE matches SET board = ?, updated_at = datetime(\'now\') WHERE id = ?').run(boardJson, matchId);
 }
 function finishMatch(db, matchId, winnerUserId) {
-  db.prepare('UPDATE matches SET status = ?, winner_user_id = ?, finished_at = datetime(\'now\') WHERE id = ?')
-    .run('FINISHED', winnerUserId, matchId);
+  // Only a live (PLAYING) match can finish: the status guard makes the
+  // transition idempotent and refuses to rewrite history rows.
+  db.prepare('UPDATE matches SET status = ?, winner_user_id = ?, finished_at = datetime(\'now\') WHERE id = ? AND status = ?')
+    .run('FINISHED', winnerUserId, matchId, 'PLAYING');
   return getMatchById(db, matchId);
 }
 
@@ -218,6 +230,7 @@ function makeStore(rawDb) {
     getSession: (token) => getSession(rawDb, token),
     deleteSession: (token) => deleteSession(rawDb, token),
     deleteUserSessions: (userId) => deleteUserSessions(rawDb, userId),
+    pruneUserSessions: (userId, keepLatest) => pruneUserSessions(rawDb, userId, keepLatest),
     createMatch: (m) => createMatch(rawDb, m),
     getMatchByCode: (code) => getMatchByCode(rawDb, code),
     getMatchById: (id) => getMatchById(rawDb, id),
@@ -237,7 +250,7 @@ module.exports = {
   openDb, migrateSchema, sweepAbandoned, SWEEP_INTERVAL_MS,
   makeStore,
   createUser, getUserByUsername, getUserById,
-  insertSession, getSession, deleteSession, deleteUserSessions,
+  insertSession, getSession, deleteSession, deleteUserSessions, pruneUserSessions,
   createMatch, getMatchByCode, getMatchById, setMatchGuest, setMatchInvited, setMatchBoard, finishMatch,
   appendMove, countMoves, listMoves,
   resetDb

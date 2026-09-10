@@ -6,26 +6,35 @@ const { openDb, makeStore } = require('./online-db.js');
 const { createOnlineServer, makeRoomCode, startOnlineServer, sweepTick, resetRateLimits, rateAllow, rateBucketCount } = require('./online-server.js');
 
 // ---- tiny http client ----
-function apiRequest(port, method, pathname, { token, body } = {}) {
+function apiRequest(port, method, pathname, { token, body, headers } = {}) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : undefined;
     const req = http.request({ host: '127.0.0.1', port, method, path: pathname, headers: {
       'Content-Type': 'application/json',
       'Content-Length': data ? Buffer.byteLength(data) : 0,
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(headers || {})
     } }, (res) => {
       let buf = '';
       res.on('data', (c) => (buf += c));
       res.on('end', () => {
         let parsed;
         try { parsed = JSON.parse(buf); } catch { parsed = buf; }
-        resolve({ status: res.statusCode, body: parsed });
+        resolve({ status: res.statusCode, body: parsed, headers: res.headers });
       });
     });
     req.on('error', reject);
     if (data) req.write(data);
     req.end();
   });
+}
+
+// Session tokens travel ONLY in the HttpOnly cookie: extract them from
+// Set-Cookie exactly like a browser jar would (never from the JSON body).
+function sessionToken(res) {
+  const raw = (res.headers && res.headers['set-cookie']) || [];
+  const m = raw.join(';').match(/cb_session=([0-9a-f]{64})/);
+  return m ? m[1] : null;
 }
 
 // ---- minimal raw WS client over a TCP socket ----
@@ -151,7 +160,15 @@ afterAll(() => {
 async function register(user) {
   const r = await apiRequest(port, 'POST', '/api/register', { body: { username: user, password: 'secret123' } });
   expect(r.status).toBe(201);
-  return r.body;
+  expect(r.body.token).toBeUndefined(); // tokens live only in the HttpOnly cookie
+  return { ...r.body, token: sessionToken(r) };
+}
+
+async function loginAs(user, password) {
+  const r = await apiRequest(port, 'POST', '/api/login', { body: { username: user, password: password || 'secret123' } });
+  expect(r.status).toBe(200);
+  expect(r.body.token).toBeUndefined(); // tokens live only in the HttpOnly cookie
+  return { ...r.body, token: sessionToken(r) };
 }
 
 beforeEach(async () => {
@@ -179,9 +196,30 @@ describe('online-server HTTP API', () => {
   test('login requires the right password', async () => {
     const ok = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
     expect(ok.status).toBe(200);
-    expect(ok.body.token).toBeTruthy();
+    expect(ok.body.token).toBeUndefined(); // never in JSON
+    expect(sessionToken(ok)).toMatch(/^[0-9a-f]{64}$/); // ...only in the cookie
     const nope = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'bad' } });
     expect(nope.status).toBe(401);
+  });
+
+  test('login is rate limited per IP', async () => {
+    resetRateLimits();
+    let last;
+    for (let i = 0; i < 11; i++) {
+      last = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
+    }
+    expect(last.status).toBe(429);
+    expect(last.body.error).toBe('try-again-later');
+    resetRateLimits();
+  });
+
+  test('session cookie is Secure behind TLS, plain over local HTTP', async () => {
+    const tls = await apiRequest(port, 'POST', '/api/login',
+      { body: { username: 'alice', password: 'secret123' }, headers: { 'X-Forwarded-Proto': 'https' } });
+    expect(tls.status).toBe(200);
+    expect((tls.headers['set-cookie'] || []).join(';')).toContain('Secure');
+    const plain = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
+    expect((plain.headers['set-cookie'] || []).join(';')).not.toContain('Secure');
   });
 
   test('protected endpoints reject missing/invalid tokens', async () => {
@@ -222,12 +260,14 @@ describe('online-server HTTP API', () => {
   test('cookie sessions authenticate without an Authorization header', async () => {
     const login = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
     expect(login.status).toBe(200);
-    // The Set-Cookie header must be present and HttpOnly.
-    const setCookieRaw = (login.headers && login.headers['set-cookie']) || null;
-    void setCookieRaw;
+    // The Set-Cookie header must be present and HttpOnly (never Secure here:
+    // plain local HTTP would drop a Secure cookie).
+    const setCookie = (login.headers['set-cookie'] || []).join(';');
+    expect(setCookie).toContain('cb_session=');
+    expect(setCookie).toContain('HttpOnly');
 
     // Raw HTTP with ONLY the session cookie (no Authorization header).
-    const cookie = `cb_session=${login.body.token}`;
+    const cookie = `cb_session=${sessionToken(login)}`;
     const me = await new Promise((resolve, reject) => {
       const req = http.request({ host: '127.0.0.1', port, path: '/api/me', headers: { Cookie: cookie } }, (res) => {
         let buf = '';
@@ -260,11 +300,10 @@ describe('online-server HTTP API', () => {
   });
 
   test('login keeps prior sessions alive (multi-device policy)', async () => {
-    const first = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
-    const second = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
-    expect(second.status).toBe(200);
-    // Both tokens authenticate — no forced logout of the first device.
-    for (const tok of [first.body.token, second.body.token]) {
+    const first = await loginAs('alice');
+    const second = await loginAs('alice');
+    // Both cookie sessions authenticate — no forced logout of the first device.
+    for (const tok of [first.token, second.token]) {
       const r = await apiRequest(port, 'POST', '/api/match/create', { token: tok, body: { gridSize: 5 } });
       expect(r.status).toBe(201);
     }
@@ -272,11 +311,22 @@ describe('online-server HTTP API', () => {
   });
 
   test('logout invalidates the session token', async () => {
-    const lg = await apiRequest(port, 'POST', '/api/login', { body: { username: 'alice', password: 'secret123' } });
-    const out = await apiRequest(port, 'POST', '/api/logout', { token: lg.body.token });
+    const lg = await loginAs('alice');
+    const out = await apiRequest(port, 'POST', '/api/logout', { token: lg.token });
     expect(out.status).toBe(200);
-    const create = await apiRequest(port, 'POST', '/api/match/create', { token: lg.body.token, body: { gridSize: 5 } });
+    const create = await apiRequest(port, 'POST', '/api/match/create', { token: lg.token, body: { gridSize: 5 } });
     expect(create.status).toBe(401);
+  });
+
+  test('login sessions are capped per user (login loops cannot grow the table)', async () => {
+    for (let i = 0; i < 12; i++) {
+      const r = await loginAs('alice');
+      expect(r.token).toMatch(/^[0-9a-f]{64}$/);
+      resetRateLimits(); // stay under the per-IP login throttle
+    }
+    const n = store.db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?').get(alice.user.id).n;
+    expect(n).toBeLessThanOrEqual(10);
+    resetRateLimits();
   });
 });
 
@@ -345,7 +395,7 @@ describe('online-server match lifecycle + ws relay', () => {
     const reg = await apiRequest(port, 'POST', '/api/register', { body: { username: 'carol', password: 'secret123' } });
     expect(reg.status).toBe(201);
     const stolen = await apiRequest(port, 'POST', '/api/match/join', {
-      token: reg.body.token, body: { code: created.body.code }
+      token: sessionToken(reg), body: { code: created.body.code }
     });
     expect(stolen.status).toBe(409);
     expect(stolen.body.error).toBe('room-taken');

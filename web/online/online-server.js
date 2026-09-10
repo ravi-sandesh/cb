@@ -72,16 +72,22 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
         const { username, password } = await json(req);
         const out = await auth.registerUser(store, username, password);
         if (!out.ok) return send(res, 400, { error: out.error });
-        return send(res, 201, { token: out.token, user: out.user }, { 'Set-Cookie': sessionCookie(out.token) });
+        // The token travels ONLY in the HttpOnly cookie — never in the JSON
+        // body, where logs/proxies/XSS-at-login could capture it.
+        return send(res, 201, { user: out.user }, { 'Set-Cookie': sessionCookie(req, out.token) });
       } catch { return send(res, 400, { error: 'bad-json' }); }
     }
 
     if (req.method === 'POST' && base === '/api/login') {
+      // scrypt makes each attempt expensive: throttle per IP like register.
+      if (!rateAllow(`login:${(req.socket && req.socket.remoteAddress) || 'unknown'}`, LOGIN_RATE.max, LOGIN_RATE.windowMs)) {
+        return send(res, 429, { error: 'try-again-later' });
+      }
       try {
         const { username, password } = await json(req);
         const out = await auth.loginUser(store, username, password);
         if (!out.ok) return send(res, 401, { error: out.error });
-        return send(res, 200, { token: out.token, user: out.user }, { 'Set-Cookie': sessionCookie(out.token) });
+        return send(res, 200, { user: out.user }, { 'Set-Cookie': sessionCookie(req, out.token) });
       } catch { return send(res, 400, { error: 'bad-json' }); }
     }
 
@@ -183,10 +189,14 @@ function sessionFromRequest(req, store) {
   return s && s.ok ? { ...s, token } : null;
 }
 
-function sessionCookie(token) {
+function sessionCookie(req, token) {
   // HttpOnly keeps the token invisible to JS (XSS can't exfiltrate it);
   // SameSite=Strict doubles as CSRF defense for these JSON endpoints.
-  return `${SESSION_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800`;
+  // Secure is set only behind TLS (direct or x-forwarded-proto from the
+  // edge proxy): plain-HTTP dev/test clients would otherwise drop the cookie.
+  const encrypted = (req.socket && req.socket.encrypted === true) ||
+    String((req.headers && req.headers['x-forwarded-proto']) || '').toLowerCase() === 'https';
+  return `${SESSION_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${encrypted ? '; Secure' : ''}`;
 }
 function clearedSessionCookie() {
   return `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`;
@@ -199,6 +209,7 @@ function clearedSessionCookie() {
 const JOIN_RATE = { max: 10, windowMs: 60 * 1000 };   // 10 joins/min
 const CREATE_RATE = { max: 5, windowMs: 60 * 1000 };  // 5 creates/min
 const REGISTER_RATE = { max: 5, windowMs: 60 * 1000 }; // 5 registers/min per IP
+const LOGIN_RATE = { max: 10, windowMs: 60 * 1000 }; // 10 logins/min per IP (scrypt is expensive)
 const rateBuckets = new Map(); // key -> { count, firstAt }
 
 // Returns true when the action is ALLOWED under the window budget.

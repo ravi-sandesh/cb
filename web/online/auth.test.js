@@ -130,6 +130,28 @@ describe('auth register / login / logout', () => {
     expect((await auth.loginUser(db, 'gina', 'secret123')).ok).toBe(true);
   });
 
+  test('sweepLoginFailures evicts only expired buckets', async () => {
+    const db = freshStore();
+    await auth.registerUser(db, 'victim', 'secret123');
+    await auth.loginUser(db, 'victim', 'wrong');
+    auth.sweepLoginFailures(); // nothing expired: record survives
+    for (let i = 0; i < 4; i++) await auth.loginUser(db, 'victim', `wrong${i}`);
+    expect(auth.isLockedOut('victim')).toBe(true);
+    // Far future: the bucket is swept, lockout lifts without waiting.
+    auth.sweepLoginFailures(Date.now() + auth.LOGIN_WINDOW_MS + 1000);
+    expect(auth.isLockedOut('victim')).toBe(false);
+  });
+
+  test('repeat logins cap sessions per user instead of growing forever', async () => {
+    const db = freshStore();
+    await auth.registerUser(db, 'loop', 'secret123');
+    for (let i = 0; i < auth.MAX_SESSIONS_PER_USER + 3; i++) {
+      expect((await auth.loginUser(db, 'loop', 'secret123')).ok).toBe(true);
+    }
+    const n = db.db.prepare('SELECT COUNT(*) AS n FROM sessions').get().n;
+    expect(n).toBeLessThanOrEqual(auth.MAX_SESSIONS_PER_USER);
+  });
+
   test('logout invalidates the token', async () => {
     const db = freshStore();
     await auth.registerUser(db, 'carol', 'secret123');

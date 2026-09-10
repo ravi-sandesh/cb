@@ -948,10 +948,32 @@ describe('Relay teardown', () => {
     guest.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
     room.state.winner = 5;
     relay.finishMatch(room);
+    // Clients still terminate, but no winnerless FINISHED row is persisted.
     const over = received(guest).find((m) => m.type === 'game-over');
     expect(over).toBeTruthy();
     expect(over.winner).toBe(5);
     expect(over.winnersUser).toBeNull();
+    expect(store.getMatchByCode('ROOM01').status).not.toBe('FINISHED');
+    expect(store.getMatchByCode('ROOM01').winner_user_id).toBeNull();
+  });
+
+  test('finishMatch resolves the winner from the persisted row when sockets are gone', async () => {
+    const alice = await makeUser('alice');
+    const bob = await makeUser('bob');
+    relay = freshRelay();
+    const room = openRoom('ROOM01', alice.user.id);
+    const host = connect(alice.token);
+    host.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    const guest = connect(bob.token);
+    guest.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    // Guest wins, then both sockets drop before finishMatch runs.
+    room.state.winner = 1;
+    host.emit('close');
+    guest.emit('close');
+    relay.finishMatch(room);
+    // DB invitee mapping (setMatchGuest ran at attach) resolves the winner.
+    expect(store.getMatchByCode('ROOM01').status).toBe('FINISHED');
+    expect(store.getMatchByCode('ROOM01').winner_user_id).toBe(bob.user.id);
   });
 
   test('heartbeat pings a live conn and closes a dead one', async () => {

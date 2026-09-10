@@ -322,8 +322,30 @@ class Relay {
 
   finishMatch(room) {
     const idx = room.state.winner;
-    const seatConn = room.sockets.get(idx);
-    const winnerUserId = seatConn ? seatConn.userId : null;
+    // Resolve the winner through the authoritative seat mapping first (host /
+    // invitee), then the persisted match row (survives restarts), then live
+    // sockets last: the winner's socket may have dropped in the same tick.
+    // A NULL winner must never be persisted — it corrupts results history.
+    // Out-of-range seats resolve to nobody by construction.
+    const legalSeat = idx === 0 || idx === 1;
+    let winnerUserId = idx === 0 ? room.hostUserId : (idx === 1 ? room.invitedUserId : null);
+    if (winnerUserId == null && legalSeat) {
+      try {
+        const row = this.db.getMatchById(room.matchId);
+        winnerUserId = ((idx === 0 ? row && row.host_user_id : row && row.guest_user_id) || null);
+      } catch {}
+      if (winnerUserId == null) {
+        const seatConn = room.sockets.get(idx);
+        winnerUserId = (seatConn && seatConn.userId) || null;
+      }
+    }
+    if (winnerUserId == null) {
+      // Unresolvable (impossible in legitimate play): still terminate the
+      // clients, but leave the DB row alone rather than writing FINISHED
+      // with a NULL winner.
+      this.broadcast(room, { type: 'game-over', winner: idx, winnersUser: null });
+      return;
+    }
     try {
       this.db.finishMatch(room.matchId, winnerUserId);
     } catch {}

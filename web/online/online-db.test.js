@@ -37,6 +37,17 @@ describe('online-db users & sessions', () => {
     expect(store.getSession('a')).toBeUndefined();
     expect(store.getSession('b')).toBeUndefined();
   });
+
+  test('pruneUserSessions keeps only the newest N sessions', () => {
+    const u = store.createUser('erin', 'h');
+    for (let i = 0; i < 5; i++) store.insertSession(`tok${i}`, u.id, '2026-12-31T00:00:00Z');
+    store.pruneUserSessions(u.id, 2);
+    expect(store.getSession('tok0')).toBeUndefined();
+    expect(store.getSession('tok1')).toBeUndefined();
+    expect(store.getSession('tok2')).toBeUndefined();
+    expect(store.getSession('tok3').token).toBe('tok3');
+    expect(store.getSession('tok4').token).toBe('tok4');
+  });
 });
 
 describe('online-db matches & moves', () => {
@@ -60,6 +71,20 @@ describe('online-db matches & moves', () => {
     expect(done.status).toBe('FINISHED');
     expect(done.winner_user_id).toBe(h.id);
     expect(done.finished_at).toBeTruthy();
+  });
+
+  test('finish is refused unless the match is PLAYING (idempotent, no rewrite)', () => {
+    const h = store.createUser('host', 'h');
+    const m = store.createMatch({ code: 'ABC123', gridSize: 5, playerCount: 2, hostUserId: h.id });
+    const untouched = store.finishMatch(m.id, h.id); // still WAITING
+    expect(untouched.status).toBe('WAITING');
+    expect(untouched.winner_user_id).toBeNull();
+    const g = store.createUser('guest', 'h');
+    store.setMatchGuest(m.id, g.id);
+    store.finishMatch(m.id, h.id);
+    const again = store.finishMatch(m.id, g.id); // already FINISHED: no rewrite
+    expect(again.status).toBe('FINISHED');
+    expect(again.winner_user_id).toBe(h.id);
   });
 
   test('board round-trips through setMatchBoard', () => {
@@ -204,7 +229,9 @@ describe('online-db lifecycle sweeper', () => {
 
   test('FINISHED matches are never swept regardless of age', () => {
     const h = store.createUser('host', 'h');
+    const g = store.createUser('guest', 'h');
     const m = store.createMatch({ code: 'DONE01', gridSize: 5, playerCount: 2, hostUserId: h.id });
+    store.setMatchGuest(m.id, g.id); // WAITING -> PLAYING: only live matches finish
     store.finishMatch(m.id, h.id);
     store.db.prepare("UPDATE matches SET finished_at = datetime('now', '-30 days') WHERE code = 'DONE01'").run();
     sweepAbandoned(store.db);
