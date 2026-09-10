@@ -503,8 +503,53 @@ describe('Relay room attach', () => {
     expect(relay.playerIndexOf(room, bob.user.id)).toBe(1);
   });
 
-  test('a second non-host cannot steal the vacant host seat', async () => {
+  test('a dropped seat is reserved for its owner; strangers see room-full', async () => {
     const alice = await makeUser('alice');
+    const bob = await makeUser('bob');
+    const carol = await makeUser('carol');
+    relay = freshRelay();
+    openRoom('ROOM01', alice.user.id);
+    const host = connect(alice.token);
+    host.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    const guest = connect(bob.token);
+    guest.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    guest.emit('close'); // bob drops; seat 1 reserved for bob
+    // Simulate a lost setMatchGuest write so the DB check alone would pass:
+    // only the in-memory reservation still protects the seat.
+    store.db.prepare("UPDATE matches SET guest_user_id = NULL WHERE code = 'ROOM01'").run();
+    const intruder = connect(carol.token);
+    intruder.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(received(intruder).at(-1)).toEqual({ type: 'error', code: 'room-full' });
+    // The owner reclaims the seat without friction.
+    const back = connect(bob.token);
+    back.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(received(back).some((m) => m.type === 'joined' && m.playerIndex === 1)).toBe(true);
+  });
+
+  test('websocket join to a non-waiting match is refused from the DB row', async () => {
+    const alice = await makeUser('alice');
+    const bob = await makeUser('bob');
+    relay = freshRelay();
+    openRoom('ROOM01', alice.user.id);
+    // Finish the match out-of-band, then try to join over the socket.
+    store.setMatchGuest(store.getMatchByCode('ROOM01').id, bob.user.id);
+    store.finishMatch(store.getMatchByCode('ROOM01').id, alice.user.id);
+    const late = connect(bob.token);
+    late.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    expect(received(late).at(-1)).toEqual({ type: 'error', code: 'room-not-open' });
+  });
+
+  test('reopened rooms resume the move ledger sequence from persistence', async () => {
+    const alice = await makeUser('alice');
+    relay = freshRelay();
+    const m = store.createMatch({ code: 'SEQ01', gridSize: 5, playerCount: 2, hostUserId: alice.user.id });
+    store.appendMove(m.id, 1, 0, '{}');
+    store.appendMove(m.id, 2, 1, '{}');
+    const room = relay.openRoom({ matchId: m.id, code: 'SEQ01', gridSize: 5, hostUserId: alice.user.id });
+    expect(room.seq).toBe(2);
+  });
+
+  test('a second non-host cannot steal the vacant host seat', async () => {    const alice = await makeUser('alice');
     const bob = await makeUser('bob');
     const carol = await makeUser('carol');
     relay = freshRelay();

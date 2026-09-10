@@ -73,8 +73,7 @@ describe('online-db matches & moves', () => {
     expect(done.finished_at).toBeTruthy();
   });
 
-  test('finish is refused unless the match is PLAYING (idempotent, no rewrite)', () => {
-    const h = store.createUser('host', 'h');
+  test('finish is refused unless the match is PLAYING (idempotent, no rewrite)', () => {    const h = store.createUser('host', 'h');
     const m = store.createMatch({ code: 'ABC123', gridSize: 5, playerCount: 2, hostUserId: h.id });
     const untouched = store.finishMatch(m.id, h.id); // still WAITING
     expect(untouched.status).toBe('WAITING');
@@ -85,6 +84,17 @@ describe('online-db matches & moves', () => {
     const again = store.finishMatch(m.id, g.id); // already FINISHED: no rewrite
     expect(again.status).toBe('FINISHED');
     expect(again.winner_user_id).toBe(h.id);
+  });
+
+  test('claimGuestSeat is atomic: exactly one concurrent claimant wins', () => {
+    const h = store.createUser('host', 'h');
+    const g1 = store.createUser('guest1', 'h');
+    const g2 = store.createUser('guest2', 'h');
+    const m = store.createMatch({ code: 'RACE01', gridSize: 5, playerCount: 2, hostUserId: h.id });
+    expect(store.claimGuestSeat(m.id, g1.id)).toBe(true);
+    expect(store.claimGuestSeat(m.id, g2.id)).toBe(false); // loser of the race
+    expect(store.getMatchById(m.id).guest_user_id).toBe(g1.id);
+    expect(store.getMatchById(m.id).status).toBe('WAITING'); // claim records intent only
   });
 
   test('board round-trips through setMatchBoard', () => {

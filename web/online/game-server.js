@@ -12,7 +12,14 @@
 // ============================================================
 'use strict';
 
+const { randomInt } = require('node:crypto');
 const EG = require('../game-engine.js');
+
+// Production dice: Math.random state is recoverable from observed rolls,
+// so cowries default to a CSPRNG. Tests inject deterministic streams.
+function cryptoRng() {
+  return randomInt(0, 1 << 24) / (1 << 24);
+}
 
 // A move candidate from a client is matched against the authoritative move
 // set by (player, pawn id set, target cell). The engine computes full move
@@ -45,7 +52,7 @@ function newGame({ gridSize, playerNum, rng }) {
     currentRoll: null,
     validMoves: [],
     winner: null,
-    rng: rng || Math.random,
+    rng: rng || cryptoRng,
     log: []
   };
 }

@@ -21,6 +21,22 @@ describe('game-server newGame', () => {
     expect(g.winner).toBeNull();
   });
 
+  test('dice default to a CSPRNG when no rng is injected', () => {
+    const g = GS.newGame({ gridSize: 5, playerNum: 2 });
+    const seen = new Set();
+    for (let i = 0; i < 20; i++) {
+      const r = GS.doRoll(g);
+      if (!r.ok) break; // game may end; enough rolls observed
+      expect(r.score).toBeGreaterThanOrEqual(1);
+      expect(r.score).toBeLessThanOrEqual(8);
+      seen.add(r.score);
+      // reset for another roll without playing a full turn
+      g.currentRoll = null;
+      g.validMoves = [];
+    }
+    expect(seen.size).toBeGreaterThan(1); // actually varying dice
+  });
+
   test('coerces invalid sizes to defaults', () => {
     const g = GS.newGame({ gridSize: 3, playerNum: 9 });
     expect(g.gridSize).toBe(5);

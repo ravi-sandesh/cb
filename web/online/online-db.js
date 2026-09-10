@@ -98,11 +98,13 @@ const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const ABANDONED_RETENTION_DAYS = 30;
 
 function sweepAbandoned(db) {
+  // updated_at is bumped on abandonment so the 30-day retention below runs
+  // from when the room was reaped, not from its last game activity.
   const staleWaiting = db.prepare(
-    "UPDATE matches SET status = 'ABANDONED' WHERE status = 'WAITING' AND created_at <= datetime('now', '-24 hours')"
+    "UPDATE matches SET status = 'ABANDONED', updated_at = datetime('now') WHERE status = 'WAITING' AND created_at <= datetime('now', '-24 hours')"
   ).run();
   const stalePlaying = db.prepare(
-    "UPDATE matches SET status = 'ABANDONED' WHERE status = 'PLAYING' AND updated_at <= datetime('now', '-7 days')"
+    "UPDATE matches SET status = 'ABANDONED', updated_at = datetime('now') WHERE status = 'PLAYING' AND updated_at <= datetime('now', '-7 days')"
   ).run();
   // expires_at values are JS ISO strings, so an ISO cutoff compares correctly.
   const deadSessions = db.prepare(
@@ -183,6 +185,22 @@ function setMatchGuest(db, matchId, guestUserId) {
 function setMatchInvited(db, matchId, userId) {
   db.prepare('UPDATE matches SET guest_user_id = ? WHERE id = ?').run(userId, matchId);
 }
+// Atomic variant: claims the guest seat for exactly one racer. The WHERE
+// clause (still-open + unclaimed) makes concurrent join attempts serialize
+// in SQLite's single writer — losers get changes === 0 instead of a forked
+// guest_user_id. Returns true when THIS caller won the seat.
+function claimGuestSeat(db, matchId, userId) {
+  const info = db.prepare(
+    'UPDATE matches SET guest_user_id = ? WHERE id = ? AND guest_user_id IS NULL AND status = ?'
+  ).run(userId, matchId, 'WAITING');
+  return info.changes > 0;
+}
+// Highest persisted ledger sequence for a match (room resurrection after a
+// restart must continue here, not at 0, or UNIQUE(match_id, seq) collides).
+function maxMoveSeq(db, matchId) {
+  const row = db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM moves WHERE match_id = ?').get(matchId);
+  return row ? row.m : 0;
+}
 function setMatchBoard(db, matchId, boardJson) {
   db.prepare('UPDATE matches SET board = ?, updated_at = datetime(\'now\') WHERE id = ?').run(boardJson, matchId);
 }
@@ -236,6 +254,8 @@ function makeStore(rawDb) {
     getMatchById: (id) => getMatchById(rawDb, id),
     setMatchGuest: (matchId, guestUserId) => setMatchGuest(rawDb, matchId, guestUserId),
     setMatchInvited: (matchId, userId) => setMatchInvited(rawDb, matchId, userId),
+    claimGuestSeat: (matchId, userId) => claimGuestSeat(rawDb, matchId, userId),
+    maxMoveSeq: (matchId) => maxMoveSeq(rawDb, matchId),
     setMatchBoard: (matchId, boardJson) => setMatchBoard(rawDb, matchId, boardJson),
     finishMatch: (matchId, winnerUserId) => finishMatch(rawDb, matchId, winnerUserId),
     appendMove: (matchId, seq, playerIdx, payloadJson) => appendMove(rawDb, matchId, seq, playerIdx, payloadJson),
@@ -251,7 +271,9 @@ module.exports = {
   makeStore,
   createUser, getUserByUsername, getUserById,
   insertSession, getSession, deleteSession, deleteUserSessions, pruneUserSessions,
-  createMatch, getMatchByCode, getMatchById, setMatchGuest, setMatchInvited, setMatchBoard, finishMatch,
+  createMatch, getMatchByCode, getMatchById, setMatchGuest, setMatchInvited,
+  claimGuestSeat, maxMoveSeq,
+  setMatchBoard, finishMatch,
   appendMove, countMoves, listMoves,
   resetDb
 };

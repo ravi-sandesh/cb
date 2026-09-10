@@ -206,7 +206,11 @@ class Relay {
         const moverIdx = this.playerIndexOf(room, conn.userId);
         try {
           this.db.appendMove(room.matchId, seq, moverIdx, JSON.stringify(msg.move || {}));
-        } catch {}
+        } catch (e) {
+          // Never swallow ledger failures silently: a lost move row forks
+          // the audit trail from the broadcast board.
+          console.error('[relay] appendMove failed:', e && e.message);
+        }
         this.storeBoard(room);
         // Merge the move's event flags into the broadcast so clients can
         // fire capture/Gatti/home sound + celebration cues (serializeBoard
@@ -250,8 +254,19 @@ class Relay {
       invitedUserId: invitedUserId === undefined ? null : invitedUserId,
       state: newGame({ gridSize, playerNum: 2 }),
       sockets: new Map(), // playerIndex (0=host seat, 1=guest seat) -> conn
+      reservedSeat: new Map(), // seat -> { userId, until } across disconnects
       seq: 0
     };
+    // Resume the move-ledger sequence from persistence: after a restart the
+    // room object is fresh but the match's moves are not — restarting at 0
+    // would collide with the UNIQUE(match_id, seq) index and silently fork
+    // the ledger (the append below swallows the violation).
+    try {
+      const start = this.db.maxMoveSeq(room.matchId);
+      if (Number.isInteger(start) && start > 0) room.seq = start;
+    } catch {
+      // Persistence unreachable: start at 0 (previous behavior).
+    }
     this.rooms.set(code, room);
     return room;
   }
@@ -279,6 +294,44 @@ class Relay {
       this.sendErr(conn, 'not-invited');
       return;
     }
+    // Re-anchor to the persisted match: the in-memory room may predate an
+    // HTTP join/leave (or a restart), so the DB row is authoritative for
+    // whether the match is joinable and who owns each seat. A missing row
+    // (memory-only test rooms) falls back to the in-memory checks above.
+    try {
+      const row = this.db.getMatchByCode(room.code);
+      if (row) {
+        if (row.status !== 'WAITING' && row.status !== 'PLAYING') {
+          this.sendErr(conn, 'room-not-open');
+          return;
+        }
+        if (seat === 0 && row.host_user_id != null && conn.userId !== row.host_user_id) {
+          this.sendErr(conn, 'not-invited');
+          return;
+        }
+        if (seat === 1) {
+          const recorded = room.invitedUserId != null ? room.invitedUserId : row.guest_user_id;
+          if (recorded != null && conn.userId !== recorded) {
+            this.sendErr(conn, 'not-invited');
+            return;
+          }
+        }
+      }
+    } catch {
+      // Persistence unreachable: keep serving from memory (availability over
+      // strictness here; the HTTP lobby remains the primary gate).
+    }
+    // A disconnected seat is reserved for its owner through the grace
+    // window: anyone else probing it sees it as full. The owner reclaims
+    // it frictionlessly; expired holds evaporate on next contact.
+    const hold = room.reservedSeat ? room.reservedSeat.get(seat) : undefined;
+    if (hold && (hold.userId === conn.userId || hold.until < Date.now())) {
+      room.reservedSeat.delete(seat);
+    }
+    if (room.reservedSeat && room.reservedSeat.get(seat)) {
+      this.sendErr(conn, 'room-full');
+      return;
+    }
 
     // All checks passed — NOW cancel the pending close timer. Cancelling
     // before validation would let a rejected probe permanently extend the
@@ -288,13 +341,16 @@ class Relay {
     conn.room = room;
     conn.seat = seat;
     room.sockets.set(seat, conn);
+    if (room.reservedSeat) room.reservedSeat.delete(seat); // owner reclaimed
 
     this.send(conn, { type: 'joined', code: room.code, playerIndex: seat, gridSize: room.gridSize });
     if (seat === 1) {
       // Guest claimed the invitee seat; persist it in the DB (WAITING -> PLAYING).
       try {
         this.db.setMatchGuest(room.matchId, conn.userId);
-      } catch {}
+      } catch (e) {
+        console.error('[relay] setMatchGuest failed:', e && e.message);
+      }
     }
 
     this.broadcast(room, { type: 'member-count', count: room.sockets.size, playerNum: room.state.playerNum });
@@ -317,7 +373,9 @@ class Relay {
   storeBoard(room) {
     try {
       this.db.setMatchBoard(room.matchId, JSON.stringify(serializeBoard(room.state)));
-    } catch {}
+    } catch (e) {
+      console.error('[relay] setMatchBoard failed:', e && e.message);
+    }
   }
 
   finishMatch(room) {
@@ -365,6 +423,11 @@ class Relay {
     const room = conn.room;
     if (!room) return;
     room.sockets.delete(conn.seat);
+    // Reserve the freed seat for its owner through the grace window so a
+    // stranger cannot squat it while the player reconnects.
+    if (room.reservedSeat && conn.seat != null && conn.userId != null) {
+      room.reservedSeat.set(conn.seat, { userId: conn.userId, until: Date.now() + this.resumeGraceMs });
+    }
     conn.room = null;
     conn.seat = null;
     if (room.sockets.size === 0) {

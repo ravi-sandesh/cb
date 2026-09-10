@@ -143,7 +143,13 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
         if (desc.guest_user_id != null && desc.guest_user_id !== session.user.id) {
           return send(res, 409, { error: 'room-taken' });
         }
-        store.setMatchInvited(desc.id, session.user.id);
+        // Atomic claim: concurrent joiners serialize here — exactly one wins.
+        // (A recorded invitee re-joining skips the claim: the seat is theirs.)
+        if (desc.guest_user_id !== session.user.id && !store.claimGuestSeat(desc.id, session.user.id)) {
+          const fresh = store.getMatchById(desc.id);
+          if (!fresh || fresh.status !== 'WAITING') return send(res, 409, { error: 'room-not-open' });
+          return send(res, 409, { error: 'room-taken' });
+        }
         const room = relay.openRoom({ matchId: desc.id, code: desc.code, gridSize: desc.grid_size, hostUserId: desc.host_user_id, invitedUserId: session.user.id });
         return send(res, 200, { code: desc.code, gridSize: desc.grid_size, wsPath: '/ws', matchId: desc.id });
       } catch { return send(res, 500, { error: 'join-failed' }); }
