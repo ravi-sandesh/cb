@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import com.chokabarah.game.ScreenState
 import com.chokabarah.game.engine.GameMode
 import com.chokabarah.game.engine.GridSize
+import com.chokabarah.game.engine.PawnState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -131,8 +132,7 @@ class GameViewModelTest {
     }
 
     @Test
-    fun onCellClickedSelectsAPawnOnItsStartCell() {
-        val vm = freshViewModel()
+    fun onCellClickedSelectsAPawnOnItsStartCell() {        val vm = freshViewModel()
         vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.PASS_AND_PLAY)
         val start = com.chokabarah.game.engine.TrackBuilder
             .getPlayerPath(GridSize.FIVE_BY_FIVE, 0)[0]
@@ -144,6 +144,27 @@ class GameViewModelTest {
         vm.onCellClicked(4, 4)
         runNow()
         assertNull(vm.uiState.value.selectedPawnId)
+    }
+
+    @Test
+    fun onCellClickedMovesTheSelectedPawnOnSharedTargets() {
+        val vm = freshViewModel()
+        vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.PASS_AND_PLAY)
+        playToHumanMove(vm)
+        // Fresh game: every HOME pawn offers the same target cell. Tapping it
+        // must move the SELECTED pawn, not just the first matching move.
+        // (A fresh first roll always offers HOME moves, so this is guaranteed.)
+        val target = vm.uiState.value.board!!.validMoves
+            .groupBy { it.targetCoords }
+            .entries.firstOrNull { it.value.size >= 2 }?.key
+            ?: throw AssertionError("expected a shared HOME target on the first roll")
+        vm.selectPawn(1)
+        runNow()
+        vm.onCellClicked(target.first, target.second)
+        runNow()
+        val pawns = vm.uiState.value.board!!.pawns
+        assertEquals(PawnState.ON_TRACK, pawns.first { it.id == 1 }.state)
+        assertEquals(PawnState.HOME_BASE, pawns.first { it.id == 0 }.state)
     }
 
     @Test

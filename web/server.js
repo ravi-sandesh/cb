@@ -11,7 +11,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = __dirname;
+const DEFAULT_ROOT = __dirname;
 const PORT = Number(process.env.PORT) || 3111;
 // Dev/E2E server: bind to the loopback interface by default so it is never
 // exposed to the network. HOST env var overrides for intentional deployments.
@@ -77,11 +77,14 @@ function cacheControlFor(urlPath, ext) {
   return `public, max-age=${seconds}`;
 }
 
-function handleRequest(req, res) {
+function handleRequest(req, res, opts) {
   let urlPath;
   try { urlPath = decodeURIComponent(req.url.split('?')[0]); } catch (e) { urlPath = '/'; }
   if (urlPath === '/') urlPath = '/index.html';
 
+  // Optional root override (the online server passes its public dir).
+  // Defaults to this file's directory (web/) when omitted or invalid.
+  const ROOT = (opts && typeof opts.root === 'string' && opts.root) ? opts.root : DEFAULT_ROOT;
   const filePath = path.resolve(ROOT, '.' + urlPath);
   // Boundary-safe containment check (BUG-24): a sibling dir such as
   // "...\web2\..." must NOT pass. Prefix matching (indexOf === 0) would allow it.

@@ -194,7 +194,14 @@ class GameViewModel(
         val st = _uiState.value
         if (st.showPauseMenu || st.isBotTurn || st.board?.winner != null) return
         val target = row to col
-        val matching = eng.validMoves.firstOrNull { it.targetCoords == target }
+        val candidates = eng.validMoves.filter { it.targetCoords == target }
+        // Several HOME pawns can offer the SAME target cell: prefer the move
+        // holding the currently selected pawn so taps never move the wrong
+        // pawn out of home.
+        val selected = selectedPawnIdValue
+        val matching = candidates.firstOrNull { move ->
+            selected != null && move.grpPawns.any { it.id == selected }
+        } ?: candidates.firstOrNull()
         if (matching != null) {
             Telemetry.debug(
                 "input", "board.tapped_move", "User tapped cell to move pawn",
@@ -352,7 +359,10 @@ class GameViewModel(
 
             val restored = GameEngine(
                 gridSize = grid,
-                playerColors = PlayerColor.entries.take(players.coerceIn(2, PlayerColor.entries.size))
+                playerColors = PlayerColor.entries.take(players.coerceIn(2, PlayerColor.entries.size)),
+                // Keep the session/test RNG stream across process death so
+                // post-restore rolls continue the same sequence.
+                rng = rng
             )
             check(restored.restore(GameSnapshotCodec.decode(encoded))) { "snapshot rejected" }
 

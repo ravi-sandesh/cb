@@ -56,6 +56,9 @@ describe('server routing', () => {
     expect(isForbidden('/app.js')).toBe(false);       // real extension, not forbidden
     expect(isForbidden('/x.db/config')).toBe(false);  // dotless final segment
     expect(isForbidden('/x/.db')).toBe(true);         // dotfile segment
+    expect(isForbidden('/coverage/lcov.info')).toBe(true);   // blocked tree
+    expect(isForbidden('/node_modules/jest/package.json')).toBe(true); // blocked tree
+    expect(isForbidden('/parity/parity-corpus.json')).toBe(false); // public data stays reachable
   });
 
   test('every response carries the security headers', async () => {
@@ -112,6 +115,15 @@ describe('server routing', () => {
     // coverage/lcov.info exists on disk; it must NOT be downloadable.
     const res = await request('/coverage/lcov.info');
     expect(res._status).toBe(403);
+  });
+
+  test('handleRequest honors an explicit root override and falls back otherwise', async () => {
+    const res = mockRes();
+    handleRequest({ url: '/index.html' }, res, { root: path.join(__dirname) });
+    expect((await res.done)._status).toBe(200);
+    const bad = mockRes();
+    handleRequest({ url: '/index.html' }, bad, { root: 42 }); // invalid -> default root
+    expect((await bad.done)._status).toBe(200);
   });
 });
 
