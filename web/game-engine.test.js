@@ -374,6 +374,19 @@ describe('calculateValidMoves – Capture & Gatti', () => {
     }
   });
 
+  test('a lone single on a stale-flagged cell moves as an ordinary single', () => {
+    // Flag without a pair (stale): no blockade pass, no Gatti label.
+    const pawns = [
+      { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 15 },
+      { id: 1, playerIndex: 0, state: 'HOME_BASE', pathIndex: -1 }
+    ];
+    const moves = calculateValidMoves(5, pawns, 0, {0:true}, 2, { 0: [15] });
+    const single = moves.find(m => m.targetPathIndex === 17);
+    expect(single).toBeDefined();
+    expect(single.isToughened).toBe(false);
+    expect(single.isGattiGroup).toBe(false);
+  });
+
   test('outer pair moves as vulnerable singles, never one Gatti group', () => {
     const idx = 5; // outer (< gate 16)
     const pawns = [

@@ -256,7 +256,9 @@ function calculateValidMoves(gridSize, pawns, currentPlayerIndex, hasCapturedOpp
         const isHome = curIdx === -1;
         const isPair = grpPawns.length >= 2;
         // Inner pairs are tollu until toughened (a roll of 2 hardens them).
-        const moverToughened = !isHome && toughCells.indexOf(curIdx) !== -1;
+        // The flag alone is not enough: a lone single sitting on a stale
+        // flagged cell moves as an ordinary single (no blockade pass).
+        const moverToughened = !isHome && isPair && toughCells.indexOf(curIdx) !== -1;
         const isTollu = isPair && !isHome && !moverToughened;
         // Pairs move on even rolls only, together: tollu at half rate,
         // toughened at full rate. Odd rolls offer no pair move at all.

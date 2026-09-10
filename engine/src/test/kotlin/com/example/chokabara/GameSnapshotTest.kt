@@ -276,7 +276,7 @@ class GameSnapshotTest {
                 else -> PawnSnapshot(id, PawnState.HOME_BASE, -1)
             }
         }
-        val withTough = GameSnapshot(0, 0, -1, pawns, mapOf(0 to true, 1 to false),
+        val withTough = GameSnapshot(0, -1, -1, pawns, mapOf(0 to true, 1 to false),
             mapOf(0 to listOf(gate + 1)), null)
         val target = newEngine()
         assertTrue(target.restore(withTough))
@@ -302,6 +302,52 @@ class GameSnapshotTest {
         // Negative cell index.
         assertFalse(target.restore(GameSnapshot(0, -1, -1, pawns, mapOf(0 to false, 1 to false),
             mapOf(0 to listOf(-1)), null)))
+    }
+
+    @Test
+    fun restoreRejectsCorruptPawnStates() {
+        val target = newEngine()
+        val gate = TrackBuilder.innerGateIndex(GridSize.FIVE_BY_FIVE, 0)
+        val last = TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 0).lastIndex
+        fun pawnsWith(mut: (MutableList<PawnSnapshot>) -> Unit): List<PawnSnapshot> {
+            val list = List(8) { id -> PawnSnapshot(id, PawnState.HOME_BASE, -1) }.toMutableList()
+            mut(list)
+            return list
+        }
+        // ON_TRACK beyond the path end (invisible ghost pawn).
+        assertFalse(target.restore(GameSnapshot(0, -1, -1,
+            pawnsWith { it[0] = PawnSnapshot(0, PawnState.ON_TRACK, last + 10) },
+            mapOf(0 to false, 1 to false), emptyMap(), null)))
+        // HOME_BASE must sit at index -1.
+        assertFalse(target.restore(GameSnapshot(0, -1, -1,
+            pawnsWith { it[0] = PawnSnapshot(0, PawnState.HOME_BASE, 5) },
+            mapOf(0 to false, 1 to false), emptyMap(), null)))
+        // FINISHED must sit exactly on center home.
+        assertFalse(target.restore(GameSnapshot(0, -1, -1,
+            pawnsWith { it[0] = PawnSnapshot(0, PawnState.FINISHED, 3) },
+            mapOf(0 to false, 1 to false), emptyMap(), null)))
+        // Inner pawn without the gate flag.
+        assertFalse(target.restore(GameSnapshot(0, -1, -1,
+            pawnsWith { it[0] = PawnSnapshot(0, PawnState.ON_TRACK, gate) },
+            mapOf(0 to false, 1 to false), emptyMap(), null)))
+        // Outer toughened flag (outer stacks are singles, never Gatti).
+        assertFalse(target.restore(GameSnapshot(0, -1, -1,
+            pawnsWith {
+                it[0] = PawnSnapshot(0, PawnState.ON_TRACK, 5)
+                it[1] = PawnSnapshot(1, PawnState.ON_TRACK, 5)
+            },
+            mapOf(0 to true, 1 to false), mapOf(0 to listOf(5)), null)))
+        // Flagged cell without a live pair.
+        assertFalse(target.restore(GameSnapshot(0, -1, -1,
+            pawnsWith { it[0] = PawnSnapshot(0, PawnState.ON_TRACK, gate + 1) },
+            mapOf(0 to true, 1 to false), mapOf(0 to listOf(gate + 1)), null)))
+        // Roll without actor, and actor without roll.
+        assertFalse(target.restore(GameSnapshot(0, -1, -1,
+            pawnsWith {},
+            mapOf(0 to false, 1 to false), emptyMap(), RollSnapshot(listOf(true, true, true, true)))))
+        assertFalse(target.restore(GameSnapshot(0, 0, -1,
+            pawnsWith {},
+            mapOf(0 to false, 1 to false), emptyMap(), null)))
     }
 
     // ---- Helpers ----

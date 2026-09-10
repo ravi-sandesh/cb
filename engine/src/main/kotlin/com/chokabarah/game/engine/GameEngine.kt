@@ -132,7 +132,9 @@ fun calculateValidMoves(
         val curIdx = grp[0].pathIndex
         val isPair = grp.size >= 2
         // Inner pairs are tollu until toughened (a roll of 2 hardens them).
-        val moverToughened = !isHome && toughCells.contains(curIdx)
+        // The flag alone is not enough: a lone single sitting on a stale
+        // flagged cell moves as an ordinary single (no blockade pass).
+        val moverToughened = !isHome && isPair && toughCells.contains(curIdx)
         val isTollu = isPair && !isHome && !moverToughened
         // Pairs move on even rolls only, together: tollu at half rate,
         // toughened at full rate. Odd rolls offer no pair move at all.
@@ -528,10 +530,33 @@ class GameEngine(
                 }
                 require(allFinished) { "Winner declared with unfinished pawns" }
             }
+            // Pawn state/index consistency: HOME_BASE lives off-board (-1),
+            // ON_TRACK lives on its seat's path, FINISHED sits exactly on the
+            // center home. Anything else is corruption (or tampering) that
+            // would otherwise create invisible or unhittable ghost pawns.
+            // Inner-track presence additionally requires the gate flag: no
+            // pawn can legally sit at/past the gate without a cut.
+            for (p in pawns) {
+                val last = TrackBuilder.getPlayerPath(gridSize, p.playerIndex).lastIndex
+                when (p.state) {
+                    PawnState.HOME_BASE -> require(p.pathIndex == -1) { "Home pawn off base index" }
+                    PawnState.ON_TRACK -> require(p.pathIndex in 0..last) { "Track pawn out of range" }
+                    PawnState.FINISHED -> require(p.pathIndex == last) { "Finished pawn off center" }
+                }
+                if (p.state == PawnState.ON_TRACK &&
+                    p.pathIndex >= TrackBuilder.innerGateIndex(gridSize, p.playerIndex)
+                ) {
+                    require(snapshot.hasCapturedOpponent[p.playerIndex] == true) { "Inner pawn without cut" }
+                }
+            }
             val roll = snapshot.currentRoll?.let {
                 require(it.shells.size == numCowries) { "Bad shell count ${it.shells.size}" }
                 scoreShells(it.shells).let { res -> CowryResult(res.shells, res.score, res.isExtraRoll, res.label) }
             }
+            // A pending roll and its actor travel together: a roll without an
+            // actor (or vice versa) is an orphaned/impossible state that would
+            // hand one player another seat's pending roll.
+            require((roll == null) == (snapshot.rollActorIndex == -1)) { "Roll/actor mismatch" }
             // Toughened flags must reference live seats and non-negative
             // indices; anything else is an injected impossible state.
             val tough = snapshot.toughened.mapValues { (idx, cells) ->
@@ -539,6 +564,23 @@ class GameEngine(
                 cells.toSet()
             }
             require(tough.values.all { cells -> cells.all { it >= 0 } }) { "Bad toughened index" }
+            // ...and every flagged cell must actually hold a live pair there:
+            // outer cells can never toughen (outer stacks are singles), and a
+            // phantom or lonesome flag would otherwise inject a blockade.
+            // The gate flag must also be set: no pair can sit inner without it.
+            for ((seat, cells) in tough) {
+                val gate = TrackBuilder.innerGateIndex(gridSize, seat)
+                val last = TrackBuilder.getPlayerPath(gridSize, seat).lastIndex
+                for (c in cells) {
+                    require(c >= gate && c <= last) { "Toughened cell outside inner track" }
+                    require(pawns.count { it.playerIndex == seat && it.state == PawnState.ON_TRACK && it.pathIndex == c } >= 2) {
+                        "Toughened cell without a live pair"
+                    }
+                }
+                if (cells.isNotEmpty()) {
+                    require(snapshot.hasCapturedOpponent[seat] == true) { "Toughened pair without cut" }
+                }
+            }
             Triple(pawns, roll, tough)
         }.onFailure {
             Telemetry.warn("engine", "state.restore_failed", "Snapshot rejected; engine state left unchanged",
