@@ -298,6 +298,15 @@ describe('online-client room lobby + WebSocket', () => {
     expect(wsInstances.length).toBe(0);
   });
 
+  test('createRoom forwards the configured player count (2-4, coerced)', async () => {
+    oc().onStatus(() => {});
+    await oc().register('amy', 'pw');
+    await oc().createRoom(5, 4);
+    const sent = JSON.parse(fetchImpl.mock.calls.find((c) => c[0] === '/api/match/create')[1].body);
+    expect(sent.playerCount).toBe(4);
+    expect(sent.gridSize).toBe(5);
+  });
+
   test('connect rejects a missing wsPath instead of dialling /undefined', async () => {
     const errs = [];
     oc().onStatus((m, err) => { if (err) errs.push(m); });

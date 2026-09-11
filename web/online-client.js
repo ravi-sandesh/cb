@@ -131,9 +131,10 @@ async function logout() {
 // ============================================================
 // ROOM LOBBY (HTTP)
 // ============================================================
-async function createRoom(gridSize) {
+async function createRoom(gridSize, playerNum) {
   if (!state.authed) { fireStatus('Sign in first.', true); return null; }
-  const r = await http('POST', '/api/match/create', { gridSize: (gridSize === 7 ? 7 : 5) });
+  const count = (playerNum === 3 || playerNum === 4) ? playerNum : 2;
+  const r = await http('POST', '/api/match/create', { gridSize: (gridSize === 7 ? 7 : 5), playerCount: count });
   if (r.status === 201 && r.body.code) {
     const roomCode = r.body.code;
     state.code = roomCode;

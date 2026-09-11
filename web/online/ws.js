@@ -34,8 +34,14 @@ function decodeFrame(buf, offset) {
   if (buf.length < offset + 2) return null;
   const b0 = buf[offset];
   const b1 = buf[offset + 1];
+  // Reserved bits must be zero (no extensions negotiated); reserved data
+  // opcodes 0x3-0x7 are a protocol error, not data.
+  if (b0 & 0x70) throw new Error('ws: reserved bits set');
   const fin = (b0 & 0x80) !== 0;
   const opcode = b0 & 0x0f;
+  if (opcode !== 0x0 && opcode !== 0x1 && opcode !== 0x2 && opcode < 0x8) {
+    throw new Error('ws: reserved opcode');
+  }
   const masked = (b1 & 0x80) !== 0;
   let len = b1 & 0x7f;
   let cursor = offset + 2;
@@ -100,11 +106,16 @@ function encodeClose(code, reason) {
   return encodeFrame(OP.CLOSE, payload, true);
 }
 
-// Accumulates raw socket bytes and yields complete frames.
+// Accumulates raw socket bytes and yields complete MESSAGES (reassembling
+// fragmented fin=false + CONTinuation frames). Control frames pass through
+// untouched; a CONT without an open fragmented message is a protocol error.
 class Framer {
   constructor() {
     this.buf = Buffer.alloc(0);
     this.frames = [];
+    this.fragOpcode = null; // opcode of the message being reassembled, if any
+    this.fragParts = [];
+    this.fragBytes = 0;
   }
   push(chunk) {
     this.buf = Buffer.concat([this.buf, chunk]);
@@ -117,15 +128,45 @@ class Framer {
     for (;;) {
       const frame = decodeFrame(this.buf, 0);
       if (!frame) break;
-      out.push(frame);
       // A flood of tiny pipelined valid frames must not balloon the decoded
       // queue (and the handler work it triggers) from a single socket read.
-      if (out.length > MAX_FRAMES_PER_PUSH) {
-        throw new Error('ws: too many frames in one burst');
+      // (Reassembly parts count too: same burst, same budget.)
+      const emit = this._reassemble(frame);
+      if (emit) {
+        out.push(emit);
+        if (out.length > MAX_FRAMES_PER_PUSH) {
+          throw new Error('ws: too many frames in one burst');
+        }
       }
       this.buf = this.buf.subarray(frame.bytes);
     }
     return out;
+  }
+  // Returns a complete message frame, a pass-through control frame, or null
+  // when more fragments are needed. Throws on protocol violations.
+  _reassemble(frame) {
+    if (frame.opcode >= 0x8) return frame; // control frames never fragment
+    if (frame.opcode === 0x2) return null; // binary: no JSON protocol; drop
+    if (frame.opcode === 0x1) {
+      if (this.fragOpcode !== null) throw new Error('ws: message started before previous finished');
+      if (frame.fin) return frame;
+      // TEXT opener: start buffering.
+      this.fragOpcode = frame.opcode;
+      this.fragParts = [frame.payload];
+      this.fragBytes = frame.payload.length;
+      return null;
+    }
+    // Opcode 0x0: continuation.
+    if (this.fragOpcode === null) throw new Error('ws: stray continuation frame');
+    this.fragParts.push(frame.payload);
+    this.fragBytes += frame.payload.length;
+    if (this.fragBytes > MAX_FRAME) throw new Error('ws: reassembled message too large');
+    if (!frame.fin) return null;
+    const payload = Buffer.concat(this.fragParts);
+    this.fragOpcode = null;
+    this.fragParts = [];
+    this.fragBytes = 0;
+    return { fin: true, opcode: 0x1, payload, bytes: 0 };
   }
 }
 

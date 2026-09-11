@@ -549,6 +549,37 @@ describe('Relay room attach', () => {
     expect(room.seq).toBe(2);
   });
 
+  test('three-player rooms seat 0/1/2, rotate turns, and finish by any seat', async () => {
+    const alice = await makeUser('alice');
+    const bob = await makeUser('bob');
+    const carol = await makeUser('carol');
+    const dave = await makeUser('dave');
+    relay = freshRelay();
+    const m = store.createMatch({ code: 'TRIO01', gridSize: 5, playerCount: 3, hostUserId: alice.user.id });
+    const room = relay.openRoom({
+      matchId: m.id, code: 'TRIO01', gridSize: 5, playerCount: 3,
+      hostUserId: alice.user.id, invitedUserIds: [bob.user.id, carol.user.id]
+    });
+    expect(room.playerCount).toBe(3);
+    expect(room.state.playerNum).toBe(3);
+    const host = connect(alice.token);
+    host.emit('data', clientText({ type: 'join', code: 'TRIO01' }));
+    const guest1 = connect(bob.token);
+    guest1.emit('data', clientText({ type: 'join', code: 'TRIO01' }));
+    const guest2 = connect(carol.token);
+    guest2.emit('data', clientText({ type: 'join', code: 'TRIO01' }));
+    expect(received(guest2).some((x) => x.type === 'joined' && x.playerIndex === 2)).toBe(true);
+    // A fourth seat does not exist.
+    const extra = connect(dave.token);
+    extra.emit('data', clientText({ type: 'join', code: 'TRIO01' }));
+    expect(received(extra).at(-1)).toEqual({ type: 'error', code: 'room-full' });
+    // A win by seat 2 resolves through the invite list, not just seats 0/1.
+    room.state.winner = 2;
+    relay.finishMatch(room);
+    expect(store.getMatchByCode('TRIO01').status).toBe('FINISHED');
+    expect(store.getMatchByCode('TRIO01').winner_user_id).toBe(carol.user.id);
+  });
+
   test('a second non-host cannot steal the vacant host seat', async () => {    const alice = await makeUser('alice');
     const bob = await makeUser('bob');
     const carol = await makeUser('carol');
@@ -593,11 +624,11 @@ describe('Relay room attach', () => {
     // Production sequence: /create opens the room with NO invitee yet.
     store.createMatch({ code: 'ROOM01', gridSize: 5, playerCount: 2, hostUserId: alice.user.id });
     const room = relay.openRoom({ matchId: 1, code: 'ROOM01', gridSize: 5, hostUserId: alice.user.id });
-    expect(room.invitedUserId).toBeNull();
+    expect(room.invitedUserIds).toEqual([]);
 
     // Invitee joins via HTTP -> openRoom called AGAIN, now with the invitee.
     relay.openRoom({ matchId: 1, code: 'ROOM01', gridSize: 5, hostUserId: alice.user.id, invitedUserId: bob.user.id });
-    expect(room.invitedUserId).toBe(bob.user.id); // must MERGE into open room
+    expect(room.invitedUserIds).toEqual([bob.user.id]); // must MERGE into open room
 
     // A stranger who somehow learned the code cannot claim the seat.
     const intruder = connect(carol.token);
@@ -718,6 +749,27 @@ describe('Relay roll/move enforcement', () => {
     host.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
     host.emit('data', clientText({ type: 'roll' }));
     expect(received(host).at(-1)).toEqual({ type: 'error', code: 'game-over' });
+  });
+
+  test('dead rolls broadcast their outcome instead of going silent', async () => {
+    const alice = await makeUser('alice');
+    relay = freshRelay();
+    const room = openRoom('ROOM01', alice.user.id);
+    room.state.rng = () => 0; // all shells closed = Baara (extra roll)
+    // Park every pawn past the track end so the extra roll finds no moves.
+    room.state.pawns.forEach((p) => {
+      if (p.playerIndex === 0) { p.state = 'ON_TRACK'; p.pathIndex = 28; }
+    });
+    const host = connect(alice.token);
+    host.emit('data', clientText({ type: 'join', code: 'ROOM01' }));
+    const before = received(host).length;
+    host.emit('data', clientText({ type: 'roll' }));
+    const board = received(host).slice(before).find((m) => m.type === 'board');
+    expect(board).toBeTruthy();
+    expect(board.board.currentRoll).toBeNull();
+    expect(board.board.rollResult).toEqual(
+      expect.objectContaining({ result: 'reroll', score: 8 })
+    );
   });
 
   test('a winning move finishes the match and broadcasts game-over', async () => {

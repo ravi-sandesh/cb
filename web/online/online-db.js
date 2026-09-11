@@ -10,12 +10,14 @@
 
 const { DatabaseSync } = require('node:sqlite');
 
-// Schema v2. Room "lobby" matches have status: WAITING (host only),
+// Schema v3. Room "lobby" matches have status: WAITING (host only),
 // PLAYING (both seated), FINISHED (winner recorded), ABANDONED (sweeper
 // reaped a stale room; history preserved). The `board` column holds the
 // server-authoritative JSON serialization of the game state. `updated_at`
 // tracks last write so the sweeper can reap dead PLAYING rooms without
-// touching live ones.
+// touching live ones. `invited_user_ids` is the JSON array of authorized
+// guest seats for 2-4 player rooms (`guest_user_id` keeps the FIRST guest
+// for the WAITING -> PLAYING flip and legacy readers).
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,6 +38,7 @@ CREATE TABLE IF NOT EXISTS matches (
   player_count   INTEGER NOT NULL,
   host_user_id   INTEGER NOT NULL REFERENCES users(id),
   guest_user_id  INTEGER REFERENCES users(id),
+  invited_user_ids TEXT NOT NULL DEFAULT '[]',
   status         TEXT NOT NULL DEFAULT 'WAITING',
   board          TEXT NOT NULL DEFAULT '{}',
   winner_user_id INTEGER REFERENCES users(id),
@@ -63,18 +66,22 @@ function openDb(databasePath) {
   return db;
 }
 
-// ---- Schema migrations (v1 -> v2) ---------------------------------------
-// Baseline SCHEMA above already creates fresh databases in v2 shape; this
-// upgrades databases created before v2:
+// ---- Schema migrations (v1 -> v3) ---------------------------------------
+// Baseline SCHEMA above already creates fresh databases in v3 shape; this
+// upgrades older database files:
 //  1. matches.updated_at column (added via guarded ALTER for legacy files)
 //  2. UNIQUE(match_id, seq) on the move ledger — a mid-match restart used to
 //     restart room.seq at 0 and silently duplicate ledger entries. Duplicate
 //     rows are collapsed (lowest id wins) BEFORE the index can be created.
+//  3. matches.invited_user_ids JSON array (2-4 player invite lists).
 function migrateSchema(db) {
   const cols = db.prepare('PRAGMA table_info(matches)').all().map((c) => c.name);
   if (!cols.includes('updated_at')) {
     db.exec("ALTER TABLE matches ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
     db.exec("UPDATE matches SET updated_at = COALESCE(created_at, datetime('now'))");
+  }
+  if (!cols.includes('invited_user_ids')) {
+    db.exec("ALTER TABLE matches ADD COLUMN invited_user_ids TEXT NOT NULL DEFAULT '[]'");
   }
   db.exec(
     'DELETE FROM moves WHERE id NOT IN (SELECT MIN(id) FROM moves GROUP BY match_id, seq)'
@@ -173,8 +180,10 @@ function getMatchById(db, id) {
   return db.prepare('SELECT * FROM matches WHERE id = ?').get(id);
 }
 function setMatchGuest(db, matchId, guestUserId) {
-  db.prepare('UPDATE matches SET guest_user_id = ?, status = ?, updated_at = datetime(\'now\') WHERE id = ?')
-    .run(guestUserId, 'PLAYING', matchId);
+  // Only live matches accept a guest: re-attaching after FINISHED/ABANDONED
+  // must not flip history back to PLAYING or overwrite the recorded guest.
+  db.prepare('UPDATE matches SET guest_user_id = ?, status = ?, updated_at = datetime(\'now\') WHERE id = ? AND status IN (?, ?)')
+    .run(guestUserId, 'PLAYING', matchId, 'WAITING', 'PLAYING');
   return getMatchById(db, matchId);
 }
 
@@ -185,15 +194,59 @@ function setMatchGuest(db, matchId, guestUserId) {
 function setMatchInvited(db, matchId, userId) {
   db.prepare('UPDATE matches SET guest_user_id = ? WHERE id = ?').run(userId, matchId);
 }
-// Atomic variant: claims the guest seat for exactly one racer. The WHERE
-// clause (still-open + unclaimed) makes concurrent join attempts serialize
-// in SQLite's single writer — losers get changes === 0 instead of a forked
-// guest_user_id. Returns true when THIS caller won the seat.
+// Atomic variant: claims one of the (player_count - 1) guest seats for
+// exactly one concurrent joiner. The whole read-validate-write runs inside
+// a single IMMEDIATE transaction so racers serialize in SQLite's single
+// writer — losers get { ok:false } instead of a forked guest_user_id.
+// Returns { ok:true, rejoin } on success (rejoin = already recorded),
+// else { ok:false, reason } with room-not-open / cannot-join-own-room /
+// room-taken matching the HTTP error vocabulary.
 function claimGuestSeat(db, matchId, userId) {
-  const info = db.prepare(
-    'UPDATE matches SET guest_user_id = ? WHERE id = ? AND guest_user_id IS NULL AND status = ?'
-  ).run(userId, matchId, 'WAITING');
-  return info.changes > 0;
+  return claimInviteSeat(db, matchId, userId).ok;
+}
+
+// Multi-seat version backing claimGuestSeat (2-player shorthand above).
+function claimInviteSeat(db, matchId, userId) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const row = db.prepare(
+      'SELECT status, host_user_id, guest_user_id, invited_user_ids, player_count FROM matches WHERE id = ?'
+    ).get(matchId);
+    if (!row) { db.exec('ROLLBACK'); return { ok: false, reason: 'no-such-room' }; }
+    if (row.status !== 'WAITING') { db.exec('ROLLBACK'); return { ok: false, reason: 'room-not-open' }; }
+    if (row.host_user_id === userId) { db.exec('ROLLBACK'); return { ok: false, reason: 'cannot-join-own-room' }; }
+    let invited;
+    try {
+      invited = JSON.parse(row.invited_user_ids || '[]');
+    } catch {
+      invited = [];
+    }
+    if (!Array.isArray(invited)) invited = [];
+    if (invited.includes(userId) || row.guest_user_id === userId) {
+      db.exec('COMMIT'); // idempotent re-join by a recorded invitee
+      return { ok: true, rejoin: true };
+    }
+    const seats = Math.max(2, Math.min(4, row.player_count || 2));
+    if (invited.length >= seats - 1) { db.exec('ROLLBACK'); return { ok: false, reason: 'room-taken' }; }
+    invited.push(userId);
+    db.prepare('UPDATE matches SET invited_user_ids = ? WHERE id = ?').run(JSON.stringify(invited), matchId);
+    db.exec('COMMIT');
+    return { ok: true, rejoin: false };
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch {}
+    throw e;
+  }
+}
+// Invite list for a match (authorized guest seats), oldest first.
+function getInvitees(db, matchId) {
+  const row = db.prepare('SELECT invited_user_ids FROM matches WHERE id = ?').get(matchId);
+  if (!row) return [];
+  try {
+    const list = JSON.parse(row.invited_user_ids || '[]');
+    return Array.isArray(list) ? list.filter((id) => Number.isInteger(id)) : [];
+  } catch {
+    return [];
+  }
 }
 // Highest persisted ledger sequence for a match (room resurrection after a
 // restart must continue here, not at 0, or UNIQUE(match_id, seq) collides).
@@ -255,6 +308,8 @@ function makeStore(rawDb) {
     setMatchGuest: (matchId, guestUserId) => setMatchGuest(rawDb, matchId, guestUserId),
     setMatchInvited: (matchId, userId) => setMatchInvited(rawDb, matchId, userId),
     claimGuestSeat: (matchId, userId) => claimGuestSeat(rawDb, matchId, userId),
+    claimInviteSeat: (matchId, userId) => claimInviteSeat(rawDb, matchId, userId),
+    getInvitees: (matchId) => getInvitees(rawDb, matchId),
     maxMoveSeq: (matchId) => maxMoveSeq(rawDb, matchId),
     setMatchBoard: (matchId, boardJson) => setMatchBoard(rawDb, matchId, boardJson),
     finishMatch: (matchId, winnerUserId) => finishMatch(rawDb, matchId, winnerUserId),
@@ -272,7 +327,7 @@ module.exports = {
   createUser, getUserByUsername, getUserById,
   insertSession, getSession, deleteSession, deleteUserSessions, pruneUserSessions,
   createMatch, getMatchByCode, getMatchById, setMatchGuest, setMatchInvited,
-  claimGuestSeat, maxMoveSeq,
+  claimGuestSeat, claimInviteSeat, getInvitees, maxMoveSeq,
   setMatchBoard, finishMatch,
   appendMove, countMoves, listMoves,
   resetDb

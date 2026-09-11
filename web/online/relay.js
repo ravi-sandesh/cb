@@ -191,7 +191,20 @@ class Relay {
         const roll = doRoll(room.state);
         if (!roll.ok) { this.sendErr(conn, roll.reason || 'roll-failed'); return; }
         this.storeBoard(room);
-        this.broadcast(room, { type: 'board', board: serializeBoard(room.state) });
+        // Dead rolls (reroll / no-moves) leave currentRoll null, so the bare
+        // board cannot tell clients what was rolled: merge the outcome so
+        // turn handoffs and re-rolls are visible instead of silent.
+        const board = serializeBoard(room.state);
+        if (roll.result === 'reroll' || roll.result === 'no-moves') {
+          board.rollResult = {
+            result: roll.result,
+            score: roll.score,
+            scoreText: roll.scoreText,
+            from: roll.from !== undefined ? roll.from : room.state.currentPlayerIndex,
+            to: roll.to !== undefined ? roll.to : room.state.currentPlayerIndex
+          };
+        }
+        this.broadcast(room, { type: 'board', board });
         return;
       }
       case 'move': {
@@ -233,27 +246,35 @@ class Relay {
 
   // ---- Room management (called from HTTP layer) ----
 
-  openRoom({ matchId, code, gridSize, hostUserId, invitedUserId }) {
+  openRoom({ matchId, code, gridSize, playerCount, hostUserId, invitedUserId, invitedUserIds }) {
+    // Normalize the invite list: the array form wins; a legacy single
+    // invitedUserId merges in. Empty = open room (legacy/tests).
+    const incoming = [];
+    if (Array.isArray(invitedUserIds)) incoming.push(...invitedUserIds);
+    if (invitedUserId !== undefined && invitedUserId !== null && !incoming.includes(invitedUserId)) {
+      incoming.push(invitedUserId);
+    }
     const existing = this.rooms.get(code);
     if (existing) {
-      // A late invite must reach an ALREADY-OPEN room: /create opened it
-      // before any invitee existed, so its invitedUserId was null. Without
-      // this merge, the authorization recorded at join time would be
-      // silently dropped and anyone with the code could claim the seat.
-      if (invitedUserId !== undefined && existing.invitedUserId == null) {
-        existing.invitedUserId = invitedUserId;
+      // A late invite must reach an ALREADY-OPEN room: merges that arrived
+      // after creation extend the list instead of replacing it, so an
+      // earlier invitee is never silently disinvited.
+      for (const id of incoming) {
+        if (!existing.invitedUserIds.includes(id)) existing.invitedUserIds.push(id);
       }
       return existing;
     }
+    const seats = (playerCount === 3 || playerCount === 4) ? playerCount : 2;
     const room = {
       matchId, code, gridSize,
+      playerCount: seats,
       hostUserId: hostUserId === undefined ? null : hostUserId,
-      // The user the HTTP join endpoint authorized for the guest seat. When
-      // set, seat 1 is closed to everyone else — a leaked code alone does
-      // not grant a seat. null = open room (legacy/tests).
-      invitedUserId: invitedUserId === undefined ? null : invitedUserId,
-      state: newGame({ gridSize, playerNum: 2 }),
-      sockets: new Map(), // playerIndex (0=host seat, 1=guest seat) -> conn
+      // The users the HTTP join endpoint authorized for guest seats. When
+      // non-empty, guest seats are closed to everyone else — a leaked code
+      // alone does not grant a seat. Empty = open room (legacy/tests).
+      invitedUserIds: incoming,
+      state: newGame({ gridSize, playerNum: seats }),
+      sockets: new Map(), // seat index -> conn (0 = host seat)
       reservedSeat: new Map(), // seat -> { userId, until } across disconnects
       seq: 0
     };
@@ -284,13 +305,24 @@ class Relay {
     if (room.sockets.size >= room.state.playerNum) { this.sendErr(conn, 'room-full'); return; }
 
     // Legacy fallback when a room was opened without a known host: whoever
-    // arrives first takes seat 0 (old arrival-order behavior).
-    const seat = room.hostUserId == null && !room.sockets.has(0)
-      ? 0
-      : (conn.userId === room.hostUserId ? 0 : 1);
-    if (room.sockets.has(seat)) { this.sendErr(conn, 'room-full'); return; }
-    // The invited guest seat is closed to everyone but the invitee.
-    if (seat === 1 && room.invitedUserId != null && conn.userId !== room.invitedUserId) {
+    // arrives first takes seat 0 (old arrival-order behavior). Otherwise the
+    // host owns seat 0 and guests take the lowest free seat >= 1, so a
+    // reconnecting player keeps their original seat.
+    let seat;
+    if (room.hostUserId == null && !room.sockets.has(0)) {
+      seat = 0;
+    } else if (conn.userId === room.hostUserId) {
+      seat = 0;
+    } else {
+      seat = -1;
+      for (let s = 1; s < room.playerCount; s++) {
+        if (!room.sockets.has(s)) { seat = s; break; }
+      }
+      if (seat === -1) { this.sendErr(conn, 'room-full'); return; }
+    }
+    // Guest seats are closed to anyone not on the invite list — except in
+    // legacy open rooms (empty list), where any authenticated user may sit.
+    if (seat >= 1 && room.invitedUserIds.length > 0 && !room.invitedUserIds.includes(conn.userId)) {
       this.sendErr(conn, 'not-invited');
       return;
     }
@@ -309,9 +341,13 @@ class Relay {
           this.sendErr(conn, 'not-invited');
           return;
         }
-        if (seat === 1) {
-          const recorded = room.invitedUserId != null ? room.invitedUserId : row.guest_user_id;
-          if (recorded != null && conn.userId !== recorded) {
+        if (seat >= 1) {
+          // Invitees (memory list plus the persisted first guest) may sit;
+          // strangers may not. An empty set with no recorded guest is the
+          // pre-invite window: still open by design.
+          const known = new Set(room.invitedUserIds);
+          if (row.guest_user_id != null) known.add(row.guest_user_id);
+          if (known.size > 0 && !known.has(conn.userId)) {
             this.sendErr(conn, 'not-invited');
             return;
           }
@@ -344,10 +380,12 @@ class Relay {
     if (room.reservedSeat) room.reservedSeat.delete(seat); // owner reclaimed
 
     this.send(conn, { type: 'joined', code: room.code, playerIndex: seat, gridSize: room.gridSize });
-    if (seat === 1) {
-      // Guest claimed the invitee seat; persist it in the DB (WAITING -> PLAYING).
+    if (seat >= 1) {
+      // First guest attachment flips WAITING -> PLAYING and records them;
+      // later guests only join (the invite list already authorizes them).
       try {
-        this.db.setMatchGuest(room.matchId, conn.userId);
+        const row = this.db.getMatchByCode(room.code);
+        if (row && row.guest_user_id == null) this.db.setMatchGuest(room.matchId, conn.userId);
       } catch (e) {
         console.error('[relay] setMatchGuest failed:', e && e.message);
       }
@@ -381,16 +419,26 @@ class Relay {
   finishMatch(room) {
     const idx = room.state.winner;
     // Resolve the winner through the authoritative seat mapping first (host /
-    // invitee), then the persisted match row (survives restarts), then live
+    // invitees), then the persisted match row (survives restarts), then live
     // sockets last: the winner's socket may have dropped in the same tick.
     // A NULL winner must never be persisted — it corrupts results history.
     // Out-of-range seats resolve to nobody by construction.
-    const legalSeat = idx === 0 || idx === 1;
-    let winnerUserId = idx === 0 ? room.hostUserId : (idx === 1 ? room.invitedUserId : null);
+    const legalSeat = Number.isInteger(idx) && idx >= 0 && idx < room.playerCount;
+    let winnerUserId = null;
+    if (legalSeat) {
+      winnerUserId = idx === 0 ? room.hostUserId : (room.invitedUserIds[idx - 1] ?? null);
+    }
     if (winnerUserId == null && legalSeat) {
       try {
         const row = this.db.getMatchById(room.matchId);
-        winnerUserId = ((idx === 0 ? row && row.host_user_id : row && row.guest_user_id) || null);
+        if (idx === 0) {
+          winnerUserId = (row && row.host_user_id) || null;
+        } else if (typeof this.db.getInvitees === 'function') {
+          winnerUserId = this.db.getInvitees(room.matchId)[idx - 1] || null;
+        }
+        if (winnerUserId == null && idx === 1) {
+          winnerUserId = (row && row.guest_user_id) || null;
+        }
       } catch {}
       if (winnerUserId == null) {
         const seatConn = room.sockets.get(idx);

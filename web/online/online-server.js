@@ -117,9 +117,10 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
           return send(res, 429, { error: 'try-again-later' });
         }
         const gridSize = body.gridSize === 7 ? 7 : 5;
-        const desc = store.createMatch({ code: makeRoomCode(store), gridSize, playerCount: 2, hostUserId: session.user.id });
-        const room = relay.openRoom({ matchId: desc.id, code: desc.code, gridSize, hostUserId: session.user.id });
-        return send(res, 201, { code: desc.code, gridSize, playerCount: 2, matchId: desc.id, wsPath: '/ws' });
+        const playerCount = (body.playerCount === 3 || body.playerCount === 4) ? body.playerCount : 2;
+        const desc = store.createMatch({ code: makeRoomCode(store), gridSize, playerCount, hostUserId: session.user.id });
+        const room = relay.openRoom({ matchId: desc.id, code: desc.code, gridSize, playerCount, hostUserId: session.user.id });
+        return send(res, 201, { code: desc.code, gridSize, playerCount, matchId: desc.id, wsPath: '/ws' });
       } catch (e) {
         return send(res, 500, { error: String(e && e.message || 'create-failed') });
       }
@@ -136,21 +137,12 @@ function createOnlineServer({ store = makeStore(openDb(':memory:')), staticPath 
         const code = String(body.code || '').trim().toUpperCase();
         const desc = store.getMatchByCode(code);
         if (!desc) return send(res, 404, { error: 'no-such-room' });
-        if (desc.status !== 'WAITING') return send(res, 409, { error: 'room-not-open' });
-        if (desc.host_user_id === session.user.id) return send(res, 409, { error: 'cannot-join-own-room' });
-        // One invitee per room: once a guest intent is recorded nobody else
-        // can claim the seat (the relay enforces the same rule on attach).
-        if (desc.guest_user_id != null && desc.guest_user_id !== session.user.id) {
-          return send(res, 409, { error: 'room-taken' });
-        }
-        // Atomic claim: concurrent joiners serialize here — exactly one wins.
-        // (A recorded invitee re-joining skips the claim: the seat is theirs.)
-        if (desc.guest_user_id !== session.user.id && !store.claimGuestSeat(desc.id, session.user.id)) {
-          const fresh = store.getMatchById(desc.id);
-          if (!fresh || fresh.status !== 'WAITING') return send(res, 409, { error: 'room-not-open' });
-          return send(res, 409, { error: 'room-taken' });
-        }
-        const room = relay.openRoom({ matchId: desc.id, code: desc.code, gridSize: desc.grid_size, hostUserId: desc.host_user_id, invitedUserId: session.user.id });
+        // Atomic multi-seat claim: concurrent joiners serialize here — each
+        // seat goes to exactly one claimant. The returned reason keeps the
+        // friendly 409 vocabulary (open / own-room / taken).
+        const claim = store.claimInviteSeat(desc.id, session.user.id);
+        if (!claim.ok) return send(res, 409, { error: claim.reason });
+        const room = relay.openRoom({ matchId: desc.id, code: desc.code, gridSize: desc.grid_size, playerCount: desc.player_count, hostUserId: desc.host_user_id, invitedUserIds: store.getInvitees(desc.id) });
         return send(res, 200, { code: desc.code, gridSize: desc.grid_size, wsPath: '/ws', matchId: desc.id });
       } catch { return send(res, 500, { error: 'join-failed' }); }
     }

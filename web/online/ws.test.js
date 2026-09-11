@@ -115,24 +115,37 @@ describe('ws frame decode', () => {
 
 describe('ws framer', () => {
   test('reassembles a fragmented message across chunk boundaries', () => {
-    const f = new ws.Framer();
     const fragA = masked(ws.OP.TEXT, 'Hel', { fin: false });
     const fragB = masked(ws.OP.CONT, 'lo', { fin: true });
     const all = Buffer.concat([fragA, fragB]);
-    const out = [];
+    // No matter where the byte stream is cut, exactly one complete TEXT
+    // message with the joined payload emerges across the two pushes.
     for (let cut = 1; cut < all.length; cut++) {
       const g = new ws.Framer();
       const r1 = g.push(all.subarray(0, cut));
       const r2 = g.push(all.subarray(cut));
-      out.push({ r1: r1.length, r2: r2.length, text: r2[0]?.payload?.toString?.() ?? r1[0]?.payload?.toString?.() });
+      const got = r1.concat(r2);
+      expect(got).toHaveLength(1);
+      expect(got[0].opcode).toBe(ws.OP.TEXT);
+      expect(got[0].fin).toBe(true);
+      expect(got[0].payload.toString()).toBe('Hello');
     }
-    for (const o of out) {
-      expect(o.r1 + o.r2).toBeGreaterThanOrEqual(2);
-    }
-    // Assert the whole stream decodes to both fragments
+    // Both fragments in one push likewise yield a single message.
     const g2 = new ws.Framer();
     const frames = g2.push(all);
-    expect(frames.map(f => f.payload.toString()).join('')).toBe('Hello');
+    expect(frames).toHaveLength(1);
+    expect(frames[0].payload.toString()).toBe('Hello');
+  });
+
+  test('rejects reserved bits, reserved opcodes and stray continuations', () => {
+    const rsv = masked(ws.OP.TEXT, 'x');
+    rsv[0] |= 0x40;
+    expect(() => ws.decodeFrame(rsv, 0)).toThrow(/reserved/);
+    const rop = masked(ws.OP.TEXT, 'x');
+    rop[0] = (rop[0] & 0xf0) | 0x3;
+    expect(() => ws.decodeFrame(rop, 0)).toThrow(/reserved/);
+    const g = new ws.Framer();
+    expect(() => g.push(masked(ws.OP.CONT, 'x', { fin: true }))).toThrow(/continuation/);
   });
 
   test('splitting a single frame across multiple pushes yields it exactly once', () => {

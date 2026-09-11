@@ -73,7 +73,8 @@ describe('online-db matches & moves', () => {
     expect(done.finished_at).toBeTruthy();
   });
 
-  test('finish is refused unless the match is PLAYING (idempotent, no rewrite)', () => {    const h = store.createUser('host', 'h');
+  test('finish is refused unless the match is PLAYING (idempotent, no rewrite)', () => {
+    const h = store.createUser('host', 'h');
     const m = store.createMatch({ code: 'ABC123', gridSize: 5, playerCount: 2, hostUserId: h.id });
     const untouched = store.finishMatch(m.id, h.id); // still WAITING
     expect(untouched.status).toBe('WAITING');
@@ -86,6 +87,17 @@ describe('online-db matches & moves', () => {
     expect(again.winner_user_id).toBe(h.id);
   });
 
+  test('setMatchGuest refuses to resurrect non-live matches', () => {
+    const h = store.createUser('host', 'h');
+    const g = store.createUser('guest', 'h');
+    const m = store.createMatch({ code: 'REZ01', gridSize: 5, playerCount: 2, hostUserId: h.id });
+    store.setMatchGuest(m.id, g.id);
+    store.finishMatch(m.id, h.id);
+    const again = store.setMatchGuest(m.id, g.id); // FINISHED: no flip, no overwrite
+    expect(again.status).toBe('FINISHED');
+    expect(again.winner_user_id).toBe(h.id);
+  });
+
   test('claimGuestSeat is atomic: exactly one concurrent claimant wins', () => {
     const h = store.createUser('host', 'h');
     const g1 = store.createUser('guest1', 'h');
@@ -93,8 +105,22 @@ describe('online-db matches & moves', () => {
     const m = store.createMatch({ code: 'RACE01', gridSize: 5, playerCount: 2, hostUserId: h.id });
     expect(store.claimGuestSeat(m.id, g1.id)).toBe(true);
     expect(store.claimGuestSeat(m.id, g2.id)).toBe(false); // loser of the race
-    expect(store.getMatchById(m.id).guest_user_id).toBe(g1.id);
+    expect(JSON.parse(store.getMatchById(m.id).invited_user_ids)).toEqual([g1.id]);
     expect(store.getMatchById(m.id).status).toBe('WAITING'); // claim records intent only
+  });
+
+  test('claimInviteSeat fills N-1 seats, rejects the host and extras, rejoin is idempotent', () => {
+    const h = store.createUser('host', 'h');
+    const g1 = store.createUser('g1', 'h');
+    const g2 = store.createUser('g2', 'h');
+    const g3 = store.createUser('g3', 'h');
+    const m = store.createMatch({ code: 'INV01', gridSize: 5, playerCount: 3, hostUserId: h.id });
+    expect(store.claimInviteSeat(m.id, h.id)).toEqual({ ok: false, reason: 'cannot-join-own-room' });
+    expect(store.claimInviteSeat(m.id, g1.id)).toEqual({ ok: true, rejoin: false });
+    expect(store.claimInviteSeat(m.id, g1.id)).toEqual({ ok: true, rejoin: true });
+    expect(store.claimInviteSeat(m.id, g2.id)).toEqual({ ok: true, rejoin: false });
+    expect(store.claimInviteSeat(m.id, g3.id)).toEqual({ ok: false, reason: 'room-taken' });
+    expect(JSON.parse(store.getMatchById(m.id).invited_user_ids)).toEqual([g1.id, g2.id]);
   });
 
   test('board round-trips through setMatchBoard', () => {

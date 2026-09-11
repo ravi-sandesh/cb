@@ -318,6 +318,34 @@ describe('online-server HTTP API', () => {
     expect(create.status).toBe(401);
   });
 
+  test('match create honors playerCount 2-4 and coerces the rest to 2', async () => {
+    for (const [asked, expected] of [[3, 3], [4, 4], [9, 2], [0, 2]]) {
+      const r = await apiRequest(port, 'POST', '/api/match/create',
+        { token: alice.token, body: { gridSize: 5, playerCount: asked } });
+      expect(r.status).toBe(201);
+      expect(r.body.playerCount).toBe(expected);
+      expect(store.getMatchByCode(r.body.code).player_count).toBe(expected);
+      resetRateLimits(); // creates are budgeted per identity
+    }
+    resetRateLimits();
+  });
+
+  test('a 3-player room admits two distinct guests, then closes', async () => {
+    const created = await apiRequest(port, 'POST', '/api/match/create',
+      { token: alice.token, body: { gridSize: 5, playerCount: 3 } });
+    expect(created.status).toBe(201);
+    const carol = await register('carol');
+    const dave = await register('dave');
+    const join = (token) => apiRequest(port, 'POST', '/api/match/join',
+      { token, body: { code: created.body.code } });
+    expect((await join(bob.token)).status).toBe(200);
+    expect((await join(carol.token)).status).toBe(200);
+    const full = await join(dave.token);
+    expect(full.status).toBe(409);
+    expect(full.body.error).toBe('room-taken');
+    resetRateLimits();
+  });
+
   test('login sessions are capped per user (login loops cannot grow the table)', async () => {
     for (let i = 0; i < 12; i++) {
       const r = await loginAs('alice');
