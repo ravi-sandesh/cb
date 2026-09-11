@@ -210,7 +210,7 @@ afterEach(() => {
 
 describe('app.js UI bootstrap (browser harness)', () => {
   const handlers = ['setGridSize','setPlayers','setGameMode','openRules','closeRules',
-    'showHomeScreen','startGame','restartGame','toggleMute','handleRoll',
+    'showHomeScreen','startGame','restartGame','toggleMute','handleRoll','executeMove',
     'setSeniorMode','toggleSeniorMode'];
 
   test('exposes all inline onclick handlers on window', () => {

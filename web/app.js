@@ -414,7 +414,7 @@ async function onlineLogout() {
 async function onlineCreateRoom() {
     const oc = onlineClient();
     if (!oc) { setOnlineStatus('Online is unavailable.', true); return; }
-    const code = await oc.createRoom(currentGridSize);
+    const code = await oc.createRoom(currentGridSize, playerNum);
     if (code) showOnlineWaiting(true);
 }
 
@@ -585,6 +585,13 @@ function applyServerBoard(board) {
     const myTurn = (onlineSeat === currentPlayerIndex && winner === null);
     if (winner !== null) {
         setLog(`🎉 VICTORY! ${winner.name} has moved all 4 pawns to Center Home!`);
+    } else if (board.rollResult) {
+        // Dead roll the bare board cannot show (currentRoll is null): the
+        // relay merges the outcome so handoffs and re-rolls read clearly.
+        const rr = board.rollResult;
+        setLog(rr.result === 'reroll'
+            ? `Rolled ${rr.scoreText} — no moves, roll again!`
+            : `Rolled ${rr.scoreText} — no moves, turn passes.`);
     } else if (myTurn) {
         setLog(currentRoll !== null ? `Rolled ${currentRoll.scoreText}! Select a pawn to move.` : `Your turn! Roll cowries!`);
     } else {

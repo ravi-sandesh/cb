@@ -217,7 +217,9 @@ function claimInviteSeat(db, matchId, userId) {
     if (row.host_user_id === userId) { db.exec('ROLLBACK'); return { ok: false, reason: 'cannot-join-own-room' }; }
     let invited;
     try {
-      invited = JSON.parse(row.invited_user_ids || '[]');
+      // The column is NOT NULL DEFAULT '[]'; a NULL here would parse as
+      // JSON null and fall through to [] via the Array check below.
+      invited = JSON.parse(row.invited_user_ids);
     } catch {
       invited = [];
     }
@@ -242,7 +244,7 @@ function getInvitees(db, matchId) {
   const row = db.prepare('SELECT invited_user_ids FROM matches WHERE id = ?').get(matchId);
   if (!row) return [];
   try {
-    const list = JSON.parse(row.invited_user_ids || '[]');
+    const list = JSON.parse(row.invited_user_ids);
     return Array.isArray(list) ? list.filter((id) => Number.isInteger(id)) : [];
   } catch {
     return [];
@@ -251,8 +253,9 @@ function getInvitees(db, matchId) {
 // Highest persisted ledger sequence for a match (room resurrection after a
 // restart must continue here, not at 0, or UNIQUE(match_id, seq) collides).
 function maxMoveSeq(db, matchId) {
-  const row = db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM moves WHERE match_id = ?').get(matchId);
-  return row ? row.m : 0;
+  // The aggregate always yields exactly one row (COALESCE guards the empty
+  // ledger), so no missing-row branch is needed here.
+  return db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM moves WHERE match_id = ?').get(matchId).m;
 }
 function setMatchBoard(db, matchId, boardJson) {
   db.prepare('UPDATE matches SET board = ?, updated_at = datetime(\'now\') WHERE id = ?').run(boardJson, matchId);

@@ -142,6 +142,110 @@ describe('online-db matches & moves', () => {
   });
 });
 
+describe('online-db invites (setMatchInvited / claimInviteSeat edges)', () => {
+  function makeRoom(playerCount, code) {
+    const h = store.createUser(`host-${code}`, 'h');
+    const m = store.createMatch({ code, gridSize: 5, playerCount, hostUserId: h.id });
+    return { h, m };
+  }
+
+  test('setMatchInvited records the guest without flipping WAITING', () => {
+    const { h, m } = makeRoom(2, 'INVREC');
+    const g = store.createUser('invitee', 'h');
+    store.setMatchInvited(m.id, g.id);
+    const row = store.getMatchById(m.id);
+    expect(row.guest_user_id).toBe(g.id);
+    expect(row.status).toBe('WAITING');
+    // A recorded invitee re-joins idempotently, even before any claim row.
+    expect(store.claimInviteSeat(m.id, g.id)).toEqual({ ok: true, rejoin: true });
+  });
+
+  test('claimInviteSeat refuses unknown rooms and non-WAITING rooms', () => {
+    const { h, m } = makeRoom(2, 'INVNOPE');
+    const g = store.createUser('stranger', 'h');
+    expect(store.claimInviteSeat(9999, g.id)).toEqual({ ok: false, reason: 'no-such-room' });
+    store.setMatchGuest(m.id, g.id); // WAITING -> PLAYING
+    const g2 = store.createUser('late', 'h');
+    expect(store.claimInviteSeat(m.id, g2.id)).toEqual({ ok: false, reason: 'room-not-open' });
+  });
+
+  test('claimInviteSeat tolerates corrupt / non-array / NULL invite lists', () => {
+    const { m } = makeRoom(2, 'INVJUNK');
+    const g = store.createUser('fixer', 'h');
+    for (const junk of ['not-json{{{', '42', '"just-a-string"']) {
+      store.db.prepare('UPDATE matches SET invited_user_ids = ? WHERE id = ?').run(junk, m.id);
+      store.db.prepare('UPDATE matches SET invited_user_ids = ? WHERE id = ?').run('[]', m.id);
+      // Each junk shape parses to "no invites", so a fresh claim succeeds.
+      const before = JSON.parse(store.getMatchById(m.id).invited_user_ids);
+      expect(before).toEqual([]);
+      expect(store.claimInviteSeat(m.id, g.id).ok).toBe(true);
+      expect(store.getInvitees(m.id)).toEqual([g.id]);
+      // Reset for the next junk shape (fresh invitee each time).
+      store.db.prepare('UPDATE matches SET invited_user_ids = ? WHERE id = ?').run('[]', m.id);
+      const gNext = store.createUser(`fixer-${junk}`, 'h');
+      expect(store.claimInviteSeat(m.id, gNext.id).ok).toBe(true);
+    }
+  });
+
+  test('claimInviteSeat clamps player_count into 2..4 seats', () => {
+    const { m } = makeRoom(2, 'INVCLAMP');
+    store.db.prepare('UPDATE matches SET player_count = 0 WHERE id = ?').run(m.id);
+    const g1 = store.createUser('c1', 'h');
+    const g2 = store.createUser('c2', 'h');
+    expect(store.claimInviteSeat(m.id, g1.id)).toEqual({ ok: true, rejoin: false });
+    expect(store.claimInviteSeat(m.id, g2.id)).toEqual({ ok: false, reason: 'room-taken' });
+  });
+
+  test('claimInviteSeat rolls back and rethrows when the write fails', () => {
+    const { m } = makeRoom(2, 'INVBOOM');
+    const g = store.createUser('boom', 'h');
+    store.db.exec('DROP TABLE matches'); // every statement inside now throws
+    expect(() => store.claimInviteSeat(m.id, g.id)).toThrow();
+  });
+
+  test('pruneUserSessions falls back to keeping 10 on a bad cap', () => {
+    const u = store.createUser('prunee', 'h');
+    for (let i = 0; i < 3; i++) store.insertSession(`ptok${i}`, u.id, '2026-12-31T00:00:00Z');
+    store.pruneUserSessions(u.id, 0);
+    expect(store.getSession('ptok0').token).toBe('ptok0');
+    expect(store.getSession('ptok2').token).toBe('ptok2');
+  });
+});
+
+describe('online-db getInvitees / maxMoveSeq', () => {
+  test('getInvitees returns [] for unknown rooms, junk, and non-arrays', () => {
+    expect(store.getInvitees(9999)).toEqual([]);
+    const h = store.createUser('host', 'h');
+    const m = store.createMatch({ code: 'INVLIST', gridSize: 5, playerCount: 4, hostUserId: h.id });
+    expect(store.getInvitees(m.id)).toEqual([]);
+    store.db.prepare('UPDATE matches SET invited_user_ids = ? WHERE id = ?').run('nope{{{', m.id);
+    expect(store.getInvitees(m.id)).toEqual([]);
+    store.db.prepare('UPDATE matches SET invited_user_ids = ? WHERE id = ?').run('7', m.id);
+    expect(store.getInvitees(m.id)).toEqual([]);
+  });
+
+  test('getInvitees filters to integer ids, oldest first', () => {
+    const h = store.createUser('host', 'h');
+    const m = store.createMatch({ code: 'INVFILT', gridSize: 5, playerCount: 4, hostUserId: h.id });
+    const g1 = store.createUser('i1', 'h');
+    const g2 = store.createUser('i2', 'h');
+    store.db.prepare('UPDATE matches SET invited_user_ids = ? WHERE id = ?')
+      .run(JSON.stringify([g1.id, 'x', null, 2.5, g2.id]), m.id);
+    expect(store.getInvitees(m.id)).toEqual([g1.id, g2.id]);
+  });
+
+  test('maxMoveSeq is 0 on empty/unknown rooms and tracks the highest seq', () => {
+    const h = store.createUser('host', 'h');
+    const m = store.createMatch({ code: 'SEQ01', gridSize: 5, playerCount: 2, hostUserId: h.id });
+    expect(store.maxMoveSeq(m.id)).toBe(0);
+    expect(store.maxMoveSeq(9999)).toBe(0);
+    store.appendMove(m.id, 1, 0, '{}');
+    store.appendMove(m.id, 3, 1, '{}');
+    store.appendMove(m.id, 2, 0, '{}');
+    expect(store.maxMoveSeq(m.id)).toBe(3); // MAX, not COUNT
+  });
+});
+
 describe('online-db resetDb', () => {
   test('wipes users/sessions/matches/moves for a clean slate', () => {
     const u = store.createUser('alice', 'h');
