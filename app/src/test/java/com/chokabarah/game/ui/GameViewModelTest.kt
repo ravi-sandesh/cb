@@ -310,6 +310,53 @@ class GameViewModelTest {
     }
 
     @Test
+    fun selectPawnRejectsForeignAndUntimelySelections() {
+        val vm = freshViewModel()
+        vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.PASS_AND_PLAY)
+        runNow()
+        // Pawn 4 belongs to seat 1, but seat 0 is on turn: rejected.
+        vm.selectPawn(4)
+        runNow()
+        assertNull(vm.uiState.value.selectedPawnId)
+        // Own pawn selects fine...
+        vm.selectPawn(0)
+        runNow()
+        assertEquals(0, vm.uiState.value.selectedPawnId)
+        // ...but not while paused: the highlight would outlive its context.
+        vm.setShowPauseMenu(true)
+        runNow()
+        vm.selectPawn(1)
+        runNow()
+        assertNull(vm.uiState.value.selectedPawnId)
+        vm.setShowPauseMenu(false)
+        runNow()
+    }
+
+    @Test
+    fun restartWithoutEngineIsANoOp() {
+        val vm = freshViewModel() // never started: no engine, HOME screen
+        vm.restart() // must not throw
+        idle()
+        assertEquals(ScreenState.HOME, vm.uiState.value.screen)
+        assertNull(vm.uiState.value.board)
+    }
+
+    @Test
+    fun restartResetsSelectionAndBoard() {
+        val vm = freshViewModel()
+        vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.PASS_AND_PLAY)
+        playToHumanMove(vm)
+        vm.selectPawn(vm.uiState.value.board!!.validMoves.first().pawnIds.first())
+        runNow()
+        vm.restart()
+        idle()
+        val board = vm.uiState.value.board!!
+        assertNull(vm.uiState.value.selectedPawnId)
+        assertTrue(board.pawns.all { it.state == PawnState.HOME_BASE })
+        assertEquals(0, board.currentPlayerIndex)
+    }
+
+    @Test
     fun exitToMenuClearsTheMatch() {
         val vm = freshViewModel()
         vm.startGame(GridSize.FIVE_BY_FIVE, 2, GameMode.PASS_AND_PLAY)

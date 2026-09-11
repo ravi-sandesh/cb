@@ -124,7 +124,10 @@ class GameViewModel(
 
     /** Reset the current match to its initial state (RESTART / PLAY AGAIN). */
     fun restart() {
-        requireNotNull(engine).resetGame()
+        // No live engine (fresh boot, exited session, failed restore): the
+        // restart affordance should be a no-op, never a crash.
+        val eng = engine ?: return
+        eng.resetGame()
         resetTransientUiState()
         publish()
     }
@@ -145,10 +148,19 @@ class GameViewModel(
     /**
      * Select/deselect a pawn for move preview. Persisted immediately so the
      * selection survives process death alongside the board.
+     *
+     * Only the CURRENT player's live (HOME_BASE / ON_TRACK) pawns are
+     * selectable, and only while a human may act — an opponent's pawn, a
+     * finished pawn, or a selection attempt on the bot's turn / pause /
+     * victory screen clears the selection instead of highlighting a pawn
+     * that can never move.
      */
     fun selectPawn(pawnId: Int?) {
+        val eng = engine
         selectedPawnIdValue =
-            if (pawnId != null && engine?.pawns?.any { it.id == pawnId } == true) pawnId else null
+            if (pawnId != null && eng != null && humanMayAct() &&
+                eng.pawns.any { it.id == pawnId && it.playerIndex == eng.currentPlayerIndex && it.state != PawnState.FINISHED }
+            ) pawnId else null
         publish()
     }
 

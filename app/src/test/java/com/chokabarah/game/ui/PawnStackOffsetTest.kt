@@ -1,6 +1,8 @@
 package com.chokabarah.game.ui
 
 import kotlin.math.abs
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,5 +44,57 @@ class PawnStackOffsetTest {
                 assertTrue("count=$count i=$i radius", abs(x) <= 9.6f && abs(y) <= 9.6f)
             }
         }
+    }
+
+    // ---- Pair-cell classification + labels (web parity: rings, G/T tags,
+    // pawn numbers). Pure helpers, pinned without a Compose draw pass. ----
+
+    private fun cellPawn(id: Int, player: Int, path: Int) =
+        PawnUi(id, player, com.chokabarah.game.engine.PawnState.ON_TRACK, path)
+
+    @Test
+    fun lonePawnAndMixedCellsHaveNoTag() {
+        val grid = com.chokabarah.game.engine.GridSize.FIVE_BY_FIVE
+        assertEquals(PairCellTag.NONE, classifyPairCell(grid, emptyMap(), listOf(cellPawn(0, 0, 20))))
+        // Cross-player stack: vulnerable pile-up, never a ring.
+        assertEquals(
+            PairCellTag.NONE,
+            classifyPairCell(grid, emptyMap(), listOf(cellPawn(0, 0, 20), cellPawn(4, 1, 10)))
+        )
+        // A HOME_BASE pawn sharing the start square never rings either.
+        assertEquals(
+            PairCellTag.NONE,
+            classifyPairCell(
+                grid, emptyMap(),
+                listOf(cellPawn(0, 0, 0), PawnUi(1, 0, com.chokabarah.game.engine.PawnState.HOME_BASE, -1))
+            )
+        )
+    }
+
+    @Test
+    fun innerPairIsTolluUnlessFlaggedToughened() {
+        val grid = com.chokabarah.game.engine.GridSize.FIVE_BY_FIVE
+        val pair = listOf(cellPawn(0, 0, 20), cellPawn(1, 0, 20)) // seat 0 inner (>= 16)
+        assertEquals(PairCellTag.TOLLU, classifyPairCell(grid, emptyMap(), pair))
+        assertEquals(PairCellTag.TOUGHENED, classifyPairCell(grid, mapOf(0 to setOf(20)), pair))
+        // A flagged cell for ANOTHER seat does not toughen this pair.
+        assertEquals(PairCellTag.TOLLU, classifyPairCell(grid, mapOf(1 to setOf(20)), pair))
+    }
+
+    @Test
+    fun outerPairIsNotATollu() {
+        val grid = com.chokabarah.game.engine.GridSize.FIVE_BY_FIVE
+        val pair = listOf(cellPawn(0, 0, 3), cellPawn(1, 0, 3)) // outer track
+        assertEquals(PairCellTag.NONE, classifyPairCell(grid, emptyMap(), pair))
+    }
+
+    @Test
+    fun labelsMirrorWebParity() {
+        assertEquals("1", pawnNumberLabel(0))
+        assertEquals("4", pawnNumberLabel(3))
+        assertEquals("2", pawnNumberLabel(5)) // second pawn of seat 1
+        assertEquals("G", pairTagLetter(PairCellTag.TOUGHENED))
+        assertEquals("T", pairTagLetter(PairCellTag.TOLLU))
+        assertNull(pairTagLetter(PairCellTag.NONE))
     }
 }

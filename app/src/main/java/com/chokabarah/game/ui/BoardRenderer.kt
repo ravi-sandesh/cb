@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -106,7 +107,11 @@ fun BoardCanvas(
         // board stack (and must never merge into a Gatti-looking bundle at center).
         for (pawn in board.pawns) {
             if (pawn.state != PawnState.ON_TRACK) continue
-            val coords = TrackBuilder.getPlayerPath(board.gridSize, pawn.playerIndex)[pawn.pathIndex]
+            // Hostile-board guard (web parity): a corrupt/foreign pawn list must
+            // skip the bad entry, never crash the draw pass on a bad index.
+            if (pawn.playerIndex !in board.playerColors.indices) continue
+            val path = TrackBuilder.getPlayerPath(board.gridSize, pawn.playerIndex)
+            val coords = path.getOrNull(pawn.pathIndex) ?: continue
             cellPawnsMap.getOrPut(coords) { mutableListOf() }.add(pawn)
         }
         for ((coords, pawnsOnCell) in cellPawnsMap) {
@@ -115,7 +120,7 @@ fun BoardCanvas(
             val cellCenterX = col * cellSize + cellSize / 2f
             val cellCenterY = row * cellSize + cellSize / 2f
             drawPawnsGroup(pawnsOnCell, cellCenterX, cellCenterY, cellSize, selectedPawnId, board.playerColors, seniorMode,
-                cellRing(board.gridSize, board.toughened, pawnsOnCell))
+                classifyPairCell(board.gridSize, board.toughened, pawnsOnCell))
         }
         drawHomeBasePawns(board, cellSize, selectedPawnId, seniorMode)
     }
@@ -174,23 +179,36 @@ private fun DrawScope.drawCenterHomeMarking(row: Int, col: Int, cellSize: Float)
 // Gatti, gray dashed = tollu; stacked outer singles and home-base markers
 // get no ring). Same-cell same-player ON_TRACK pawns share a pathIndex
 // (tracks never revisit a cell), so the first pawn locates the whole stack.
-private enum class CellRing { NONE, TOLLU, TOUGHENED }
+//
+// Internal (not private) so unit tests can pin the classification without a
+// Compose draw pass.
+internal enum class PairCellTag { NONE, TOLLU, TOUGHENED }
 
-private fun cellRing(
+internal fun classifyPairCell(
     gridSize: com.chokabarah.game.engine.GridSize,
     toughened: Map<Int, Set<Int>>,
     pawnsOnCell: List<PawnUi>
-): CellRing {
-    if (pawnsOnCell.size < 2) return CellRing.NONE
+): PairCellTag {
+    if (pawnsOnCell.size < 2) return PairCellTag.NONE
     val first = pawnsOnCell[0]
     if (pawnsOnCell.any { it.playerIndex != first.playerIndex || it.state != PawnState.ON_TRACK }) {
-        return CellRing.NONE
+        return PairCellTag.NONE
     }
     if ((toughened[first.playerIndex] ?: emptySet()).contains(first.pathIndex)) {
-        return CellRing.TOUGHENED
+        return PairCellTag.TOUGHENED
     }
     val gate = TrackBuilder.innerGateIndex(gridSize, first.playerIndex)
-    return if (first.pathIndex >= gate) CellRing.TOLLU else CellRing.NONE
+    return if (first.pathIndex >= gate) PairCellTag.TOLLU else PairCellTag.NONE
+}
+
+/** Web-parity pawn identity number drawn inside each pawn circle (1-4). */
+internal fun pawnNumberLabel(pawnId: Int): String = ((pawnId % 4) + 1).toString()
+
+/** Web-parity letter drawn under a ringed pair cell: G = toughened, T = tollu. */
+internal fun pairTagLetter(tag: PairCellTag): String? = when (tag) {
+    PairCellTag.TOUGHENED -> "G"
+    PairCellTag.TOLLU -> "T"
+    PairCellTag.NONE -> null
 }
 
 private fun DrawScope.drawPawnsGroup(
@@ -201,11 +219,20 @@ private fun DrawScope.drawPawnsGroup(
     selectedPawnId: Int?,
     playerColors: List<com.chokabarah.game.engine.PlayerColor>,
     seniorMode: Boolean = false,
-    ring: CellRing = CellRing.NONE
+    tag: PairCellTag = PairCellTag.NONE
 ) {
     val pawnRadius = cellSize * (if (seniorMode) 0.22f else 0.18f)
     val pawnStroke = if (seniorMode) 6f else 4f
     val count = pawnsOnCell.size
+    // Web parity: every pawn carries its identity number (1-4), and ringed
+    // pair cells get a G (toughened) / T (tollu) tag under the group.
+    val numberPaint = android.graphics.Paint().apply {
+        isAntiAlias = true
+        textAlign = android.graphics.Paint.Align.CENTER
+        color = android.graphics.Color.WHITE
+        textSize = pawnRadius * 1.1f
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
     for (i in 0 until count) {
         val pawn = pawnsOnCell[i]
         val pColor = playerColors[pawn.playerIndex]
@@ -213,8 +240,8 @@ private fun DrawScope.drawPawnsGroup(
         val offset = pawnStackOffset(count, i, pawnRadius)
         val pawnCenterX = centerX + offset.first
         val pawnCenterY = centerY + offset.second
-        if (ring != CellRing.NONE) {
-            val (ringColor, dash) = if (ring == CellRing.TOUGHENED) {
+        if (tag != PairCellTag.NONE) {
+            val (ringColor, dash) = if (tag == PairCellTag.TOUGHENED) {
                 Color(0xFFFFD54F) to null
             } else {
                 Color(0xFFB0BEC5) to floatArrayOf(10f, 6f)
@@ -226,9 +253,25 @@ private fun DrawScope.drawPawnsGroup(
         }
         drawCircle(Color(pColor.hexColor), pawnRadius, Offset(pawnCenterX, pawnCenterY))
         drawCircle(Color.White, pawnRadius, Offset(pawnCenterX, pawnCenterY), style = Stroke(pawnStroke))
+        drawContext.canvas.nativeCanvas.drawText(
+            pawnNumberLabel(pawn.id), pawnCenterX, pawnCenterY + pawnRadius * 0.35f, numberPaint
+        )
         if (isSelected) {
             drawCircle(Color(0xFFFFD54F), pawnRadius + (if (seniorMode) 9f else 6f), Offset(pawnCenterX, pawnCenterY), style = Stroke(if (seniorMode) 9f else 6f))
         }
+    }
+    pairTagLetter(tag)?.let { letter ->
+        val tagPaint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            textAlign = android.graphics.Paint.Align.CENTER
+            color = if (tag == PairCellTag.TOUGHENED) android.graphics.Color.parseColor("#FFD54F")
+            else android.graphics.Color.parseColor("#B0BEC5")
+            textSize = pawnRadius * 0.9f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        drawContext.canvas.nativeCanvas.drawText(
+            letter, centerX, centerY + pawnRadius * 1.9f, tagPaint
+        )
     }
 }
 
