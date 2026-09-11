@@ -582,4 +582,57 @@ class GameEngineTest {
         assertTrue(engine.toughenedCells.isEmpty())
         assertTrue(engine.snapshot().toughened.isEmpty())
     }
+
+    @Test
+    fun testOnlyDiceProducibleScoresYieldMoves() {
+        engine.resetGame()
+        player0Pawn(0).apply { state = PawnState.ON_TRACK; pathIndex = 5 }
+        // 5x5 dice make {1,2,3,4,8}: 5, 6, 7 are impossible rolls.
+        for (bad in listOf(5, 6, 7)) {
+            assertTrue(
+                calculateValidMoves(GridSize.FIVE_BY_FIVE, engine.pawns, 0,
+                    engine.hasCapturedOpponent, bad, engine.toughenedCells).isEmpty()
+            )
+        }
+        // 7x7 dice make {1..6,12}: 5 is legal, 7..11 are not.
+        engine.hasCapturedOpponent[0] = true
+        assertTrue(
+            calculateValidMoves(GridSize.SEVEN_BY_SEVEN, engine.pawns, 0,
+                engine.hasCapturedOpponent, 5, engine.toughenedCells).isNotEmpty()
+        )
+        for (bad in listOf(7, 8, 9, 10, 11)) {
+            assertTrue(
+                calculateValidMoves(GridSize.SEVEN_BY_SEVEN, engine.pawns, 0,
+                    engine.hasCapturedOpponent, bad, engine.toughenedCells).isEmpty()
+            )
+        }
+    }
+
+    @Test
+    fun testForgedCaptureOnToughenedCatchesNothing() {
+        engine.resetGame()
+        // P1 flagged pair at (3,3) = P1 path 18; P0 single forges isCapture.
+        // (No gate flag: the forged move bypasses calculateValidMoves, which
+        // is exactly the hardening under test.)
+        player0Pawn(0).apply { state = PawnState.ON_TRACK; pathIndex = 20 }
+        player1Pawn(0).apply { state = PawnState.ON_TRACK; pathIndex = 18 }
+        player1Pawn(1).apply { state = PawnState.ON_TRACK; pathIndex = 18 }
+        engine.toughenedCells.getOrPut(1) { mutableSetOf() }.add(18)
+        val forged = MoveOption(
+            grpPawns = listOf(player0Pawn(0)),
+            targetPathIndex = 22,
+            targetCoords = TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 0)[22],
+            isCapture = true,
+            reachesHome = false,
+            isGattiGroup = false
+        )
+        val res = executeMovePure(GridSize.FIVE_BY_FIVE, engine.pawns.toList(),
+            engine.hasCapturedOpponent.toMap(), 0, forged, CowryResult(emptyList(), 2, false, "t"),
+            engine.toughenedCells)
+        assertNull(res.error)
+        assertEquals(0, res.capturedCount)
+        assertFalse(res.hasCapturedOpponent[0] == true)
+        assertFalse(res.extraTurn)
+        assertEquals(PawnState.ON_TRACK, res.pawns.first { it.id == player1Pawn(0).id }.state)
+    }
 }

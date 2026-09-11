@@ -650,6 +650,44 @@ describe('Input validation guards', () => {
     expect(moves2).toEqual([]);
   });
 
+  test('only dice-producible scores yield moves (no injected rolls)', () => {
+    const pawns = [{ id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 5 }];
+    // 5x5 dice make {1,2,3,4,8}: 5, 6, 7 are impossible.
+    for (const bad of [5, 6, 7]) {
+      expect(calculateValidMoves(5, pawns, 0, {0:true}, bad)).toEqual([]);
+    }
+    // 7x7 dice make {1,2,3,4,5,6,12}: 7-11 are impossible, 5 is legal.
+    expect(calculateValidMoves(7, pawns, 0, {0:true}, 5)).not.toEqual([]);
+    for (const bad of [7, 8, 9, 10, 11]) {
+      expect(calculateValidMoves(7, pawns, 0, {0:true}, bad)).toEqual([]);
+    }
+  });
+
+  test('an empty pawn list can never declare victory', () => {
+    // A seat with no pawns at all must not win: every() on [] is true.
+    const foreign = [{ id: 4, playerIndex: 1, state: 'ON_TRACK', pathIndex: 5 }];
+    const mv2 = { grpPawns: [foreign[0]], targetPathIndex: 6, targetCoords: [0, 4], isCapture: false, reachesHome: false, isGattiGroup: false };
+    const res = executeMove(5, foreign, {0:true,1:true}, 0, mv2, { isExtraRoll: false });
+    expect(res.error).toBeUndefined();
+    expect(res.winner).toBeNull(); // seat 0 has no pawns at all
+  });
+
+  test('forged capture onto a toughened cell catches nothing and unlocks nothing', () => {
+    // P1 flagged pair at (3,3)=P1-18; P0 single forges isCapture onto it.
+    const pawns = [
+      { id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 20 },
+      { id: 4, playerIndex: 1, state: 'ON_TRACK', pathIndex: 18 },
+      { id: 5, playerIndex: 1, state: 'ON_TRACK', pathIndex: 18 }
+    ];
+    const forged = { grpPawns: [pawns[0]], targetPathIndex: 22, targetCoords: [3, 3], isCapture: true, reachesHome: false, isGattiGroup: false };
+    const res = executeMove(5, pawns.map(p => ({ ...p })), {}, 0, forged, { isExtraRoll: false }, { 1: [18] });
+    expect(res.error).toBeUndefined();
+    expect(res.capturedCount).toBe(0);
+    expect(res.hasCapturedOpponent[0]).not.toBe(true); // no gate unlock without a catch
+    expect(res.extraTurn).toBe(false);
+    expect(res.pawns.find(p => p.id === 4).state).toBe('ON_TRACK');
+  });
+
   test('calculateValidMoves with negative score returns empty array', () => {
     const pawns = [{ id: 0, playerIndex: 0, state: 'ON_TRACK', pathIndex: 5 }];
     const moves = calculateValidMoves(5, pawns, 0, {0:true}, -5);
@@ -670,7 +708,7 @@ describe('selectBotMove – Bot AI', () => {
   function mkMove(pathIndex, {capture=false, home=false, safe=false, gatti=false, toughens=false, capturesGatti=false}={}) {
     const coord = getPlayerPath(5, 0)[pathIndex] || [pathIndex, pathIndex];
     const coords = { safe: isSafeCell(5, coord[0], coord[1]), ...coord };
-    return { grpPawns:[{pathIndex}], targetCoords:coord, isCapture:capture, reachesHome:home, isGattiGroup:gatti, toughens, capturesGatti };
+    return { grpPawns:[{pathIndex}], targetPathIndex: pathIndex, targetCoords:coord, isCapture:capture, reachesHome:home, isGattiGroup:gatti, toughens, capturesGatti };
   }
 
   test('no moves returns null', () => {
@@ -714,8 +752,16 @@ describe('selectBotMove – Bot AI', () => {
 
   test('falls back to furthest pawn otherwise', () => {
     const moves = [mkMove(1), mkMove(3), mkMove(2)];
-    const chosen = selectBotMove(moves,5);
+    const chosen = selectBotMove(moves, 5);
     expect(chosen.targetCoords).toEqual(getPlayerPath(5,0)[3]);
+  });
+
+  test('furthest compares destinations, not starting cells', () => {
+    // A single starting ahead (30) landing at 32 loses to a single starting
+    // behind (29) landing at 33: destination wins, not origin.
+    const ahead = { grpPawns: [{ pathIndex: 30 }], targetPathIndex: 32, targetCoords: [9, 9], isCapture: false, reachesHome: false, isGattiGroup: false };
+    const behind = { grpPawns: [{ pathIndex: 29 }], targetPathIndex: 33, targetCoords: [8, 8], isCapture: false, reachesHome: false, isGattiGroup: false };
+    expect(selectBotMove([ahead, behind], 7).targetPathIndex).toBe(33);
   });
 });
 

@@ -4,6 +4,7 @@ import com.chokabarah.game.engine.GameEngine
 import com.chokabarah.game.engine.GameSnapshot
 import com.chokabarah.game.engine.GameSnapshotCodec
 import com.chokabarah.game.engine.GridSize
+import com.chokabarah.game.engine.MoveOption
 import com.chokabarah.game.engine.Pawn
 import com.chokabarah.game.engine.PawnState
 import com.chokabarah.game.engine.PawnSnapshot
@@ -348,6 +349,34 @@ class GameSnapshotTest {
         assertFalse(target.restore(GameSnapshot(0, 0, -1,
             pawnsWith {},
             mapOf(0 to false, 1 to false), emptyMap(), null)))
+    }
+
+    @Test
+    fun postVictoryRollAndMoveAreIgnored() {
+        // A legitimately finished match: every seat-0 pawn home, winner stored.
+        val path = TrackBuilder.getPlayerPath(GridSize.FIVE_BY_FIVE, 0)
+        val last = path.lastIndex
+        val pawns = List(8) { id ->
+            if (id < 4) PawnSnapshot(id, PawnState.FINISHED, last)
+            else PawnSnapshot(id, PawnState.HOME_BASE, -1)
+        }
+        val target = newEngine()
+        assertTrue(target.restore(
+            GameSnapshot(0, -1, 0, pawns, mapOf(0 to true, 1 to false), emptyMap(), null)))
+        assertEquals(PlayerColor.RED, target.winner)
+        // Rolls after victory change nothing (no fresh dice, no moves).
+        target.rollCowries()
+        assertNull(target.currentRoll)
+        assertTrue(target.validMoves.isEmpty())
+        assertEquals(0, target.currentPlayerIndex)
+        // Well-formed moves after victory are refused outright (no overwrite).
+        val stale = MoveOption(
+            grpPawns = listOf(target.pawns[0]), targetPathIndex = last,
+            targetCoords = path[last], isCapture = false,
+            reachesHome = true, isGattiGroup = false
+        )
+        assertFalse(target.executeMove(stale))
+        assertEquals(PlayerColor.RED, target.winner)
     }
 
     // ---- Helpers ----

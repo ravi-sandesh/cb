@@ -80,8 +80,15 @@ fun calculateValidMoves(
     score: Int,
     toughened: Map<Int, Set<Int>> = emptyMap()
 ): List<MoveOption> {
-    val maxScore = if (gridSize == GridSize.FIVE_BY_FIVE) 8 else 12
-    if (score !in 1..maxScore) return emptyList()
+    // Only scores real dice can produce: 5-house {1,2,3,4,8} (Chowka 4,
+    // Baara 8), 7-house {1,2,3,4,5,6,12} (Chowka 6, Baara 12). Anything else
+    // is an injected roll and yields no moves.
+    val legalScores = if (gridSize == GridSize.FIVE_BY_FIVE) {
+        setOf(1, 2, 3, 4, 8)
+    } else {
+        setOf(1, 2, 3, 4, 5, 6, 12)
+    }
+    if (score !in legalScores) return emptyList()
 
     val path      = TrackBuilder.getPlayerPath(gridSize, currentPlayerIndex)
     val innerGate = TrackBuilder.innerGateIndex(gridSize, currentPlayerIndex)
@@ -353,23 +360,35 @@ fun executeMovePure(
     val capturedIds = mutableListOf<Int>()
 
     // Capture: normally capture-one (lowest id); a Gatti-vs-Gatti landing
-    // takes the WHOLE defender pair home. Toughened pairs never reach this
-    // branch as victims except via capturesGatti (landing on them is
-    // otherwise blocked in calculateValidMoves).
+    // takes the flagged defender pair(s) home. Flagged-pair members are
+    // immune to non-Gatti captures even when the caller forged isCapture
+    // onto their cell — and a forged capture with no actual victims mints
+    // neither gate unlock nor extra turn (the move itself still applies).
     if (move.isCapture && !TrackBuilder.isSafeCell(gridSize, move.targetCoords.first, move.targetCoords.second)) {
         val victims = newPawns.filter { p ->
             p.playerIndex != currentPlayerIndex && p.state == PawnState.ON_TRACK &&
                 TrackBuilder.getPlayerPath(gridSize, p.playerIndex).getOrNull(p.pathIndex) == move.targetCoords
         }.sortedBy { it.id }
-        val caught = if (move.capturesGatti) victims else victims.take(1)
+        val byPlayer = victims.groupBy { it.playerIndex }
+        val flaggedSeats = byPlayer.filter { (pi, list) ->
+            list.size >= 2 && (newToughened[pi] ?: emptySet()).contains(list[0].pathIndex)
+        }.keys
+        val caught = if (move.capturesGatti) {
+            val flagged = victims.filter { flaggedSeats.contains(it.playerIndex) }
+            if (flagged.isNotEmpty()) flagged else victims.take(1)
+        } else {
+            victims.filter { !flaggedSeats.contains(it.playerIndex) }.take(1)
+        }
         caught.forEach { p ->
             p.state = PawnState.HOME_BASE
             p.pathIndex = -1
             capturedCount++
             capturedIds.add(p.id)
         }
-        newHasCaptured[currentPlayerIndex] = true
-        extraTurn = true
+        if (caught.isNotEmpty()) {
+            newHasCaptured[currentPlayerIndex] = true
+            extraTurn = true
+        }
     }
 
     // Toughening: a tollu pair arriving on a 2 hardens into a Gatti here.
@@ -400,9 +419,10 @@ fun executeMovePure(
     }
     stalePlayers.forEach { newToughened.remove(it) }
 
-    val allDone = newPawns
-        .filter { it.playerIndex == currentPlayerIndex }
-        .all { it.state == PawnState.FINISHED }
+    val mine = newPawns.filter { it.playerIndex == currentPlayerIndex }
+    // Non-vacuous: all() on an empty list is true, which would crown a seat
+    // with no pawns at all.
+    val allDone = mine.isNotEmpty() && mine.all { it.state == PawnState.FINISHED }
     val winnerIndex = if (allDone) currentPlayerIndex else -1
 
     return MoveExecutionResult(
@@ -617,6 +637,14 @@ class GameEngine(
     }
 
     fun rollCowries(): CowryResult {
+        // Terminal state: the match is over; no further rolls. Callers must
+        // check winner first (all production flows do) — this guard keeps
+        // direct/test callers from advancing a finished game.
+        if (winner != null) {
+            Telemetry.warn("engine", "roll.after_victory", "Roll requested after victory; ignored",
+                mapOf("winner" to (winner?.displayName ?: "?")))
+            return currentRoll ?: CowryResult(emptyList(), 0, false, "game-over")
+        }
         val spanId = Telemetry.startSpan("roll", mapOf("player" to currentPlayerIndex))
         // A pending roll only belongs to the player whose turn produced it
         // (BUG-10). If the acting turn changed, an existing roll is orphaned
@@ -742,14 +770,38 @@ class GameEngine(
     }
 
     private fun validateScore(score: Int): Boolean {
-        val maxScore = if (gridSize == GridSize.FIVE_BY_FIVE) 8 else 12
-        return score in 1..maxScore
+        // Only scores real dice can produce: 5-house {1,2,3,4,8} (Chowka 4,
+        // Baara 8), 7-house {1..6,12} (Chowka 6, Baara 12). Anything else is
+        // an injected roll and yields no moves.
+        if (gridSize == GridSize.FIVE_BY_FIVE) return score in setOf(1, 2, 3, 4, 8)
+        return score in setOf(1, 2, 3, 4, 5, 6, 12)
     }
 
     fun executeMove(move: MoveOption?): Boolean {
         if (move == null || !validateMove(move)) {
             Telemetry.warn("engine", "move.invalid_input", "executeMove rejected: invalid MoveOption",
                 mapOf("move" to move?.toString()))
+            return false
+        }
+        // Terminal state: the match is over; moves must not apply. A second
+        // finisher could otherwise overwrite the recorded winner.
+        if (winner != null) {
+            Telemetry.warn("engine", "move.after_victory", "Move requested after victory; ignored",
+                mapOf("winner" to (winner?.displayName ?: "?")))
+            return false
+        }
+        // Structural legality: the target must exist on the mover's own
+        // track, agree with its coordinates, and reachesHome must mean the
+        // last cell. Engine-built moves always satisfy this; anything else
+        // is forged or stale and must not mutate state.
+        val moverPath = TrackBuilder.getPlayerPath(gridSize, currentPlayerIndex)
+        if (move.grpPawns.any { it.playerIndex != currentPlayerIndex } ||
+            move.targetPathIndex >= moverPath.size ||
+            moverPath.getOrNull(move.targetPathIndex) != move.targetCoords ||
+            move.reachesHome != (move.targetPathIndex == moverPath.lastIndex)
+        ) {
+            Telemetry.warn("engine", "move.off_track", "executeMove rejected: target off mover track",
+                mapOf("targetPathIndex" to move.targetPathIndex, "targetCoords" to move.targetCoords.toString()))
             return false
         }
         val spanId = Telemetry.startSpan("move", mapOf(
@@ -866,7 +918,9 @@ class GameEngine(
             mapOf("from" to from, "to" to currentPlayerIndex, "playerCount" to playerColors.size))
     }
 
-    // AI Bot Strategy — Gatti-capture > capture > reach home > toughen > safe > Gatti > furthest
+    // AI Bot Strategy — Gatti-capture > capture > reach home > toughen > safe > Gatti > furthest.
+    // Furthest compares DESTINATION path index (where the pawn lands), not
+    // the start: a half-rate tollu starting ahead can land behind a single.
     fun getBestBotMove(): MoveOption? {
         if (validMoves.isEmpty()) return null
         val best = validMoves.firstOrNull { it.isCapture && it.capturesGatti }
@@ -875,7 +929,7 @@ class GameEngine(
             ?: validMoves.firstOrNull { it.toughens }
             ?: validMoves.firstOrNull { TrackBuilder.isSafeCell(gridSize, it.targetCoords.first, it.targetCoords.second) }
             ?: validMoves.firstOrNull { it.isGattiGroup }
-            ?: validMoves.maxByOrNull { it.grpPawns[0].pathIndex }
+            ?: validMoves.maxByOrNull { it.targetPathIndex }
 
         Telemetry.debug("bot", "bot.move_selected", "Bot selected a move",
             mapOf(

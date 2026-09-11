@@ -203,8 +203,14 @@ function getPawnsAtCoords(gridSize, pawns, r, c, excludePawnId = null) {
 
 // ---- Valid Move Calculation ----
 function validateScore(gridSize, score) {
-    const maxScore = gridSize === 5 ? 8 : 12;
-    if (typeof score !== 'number' || score < 1 || score > maxScore) {
+    // Only scores real dice can produce: 5-house {1,2,3,4,8} (Chowka 4,
+    // Baara 8), 7-house {1,2,3,4,5,6,12} (Chowka 6, Baara 12). Anything else
+    // is an injected roll and yields no moves.
+    if (typeof score !== 'number') {
+        return { ok: false, reason: `score ${score} invalid for grid ${gridSize}` };
+    }
+    const legal = gridSize === 5 ? [1, 2, 3, 4, 8] : [1, 2, 3, 4, 5, 6, 12];
+    if (!legal.includes(score)) {
         return { ok: false, reason: `score ${score} invalid for grid ${gridSize}` };
     }
     return { ok: true };
@@ -449,10 +455,10 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
     let gattiFormed = false;
     let capturedCount = 0;
 
-    // Handle capture: normally capture-one (lowest id). A Gatti-vs-Gatti
-    // landing takes the WHOLE defender pair home. Toughened pairs never
-    // reach this branch as victims except via capturesGatti (landing on
-    // them is otherwise blocked in validMoves).
+    // Handle capture. Victim scope: a Gatti-vs-Gatti landing takes the
+    // flagged defender pair(s) home; anything else takes exactly ONE pawn
+    // (lowest id). Flagged-pair members are immune to non-Gatti captures
+    // even when the caller forged isCapture onto their cell.
     if (isCapture && !safe) {
         const victims = [];
         newPawns.forEach(p => {
@@ -462,16 +468,35 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
             }
         });
         victims.sort((a, b) => a.id - b.id);
-        const caught = (move.capturesGatti === true) ? victims : victims.slice(0, 1);
+        const byPlayer = {};
+        victims.forEach(p => { (byPlayer[p.playerIndex] = byPlayer[p.playerIndex] || []).push(p); });
+        const flaggedSeats = new Set();
+        Object.keys(byPlayer).forEach(pi => {
+            const list = byPlayer[pi];
+            const cells = ((toughened && toughened[pi]) || []);
+            if (list.length >= 2 && cells.indexOf(list[0].pathIndex) !== -1) flaggedSeats.add(pi);
+        });
+        let caught;
+        if (move.capturesGatti === true) {
+            const flagged = victims.filter(p => flaggedSeats.has(String(p.playerIndex)));
+            caught = flagged.length ? flagged : victims.slice(0, 1);
+        } else {
+            caught = victims.filter(p => !flaggedSeats.has(String(p.playerIndex))).slice(0, 1);
+        }
         caught.forEach(p => {
             p.state = 'HOME_BASE';
             p.pathIndex = -1;
             capturedCount++;
         });
-        newHasCaptured[currentPlayerIndex] = true;
-        extraTurn = true;
-        T.info('engine.move', 'move.capture', `Player ${currentPlayerIndex} captured ${capturedCount} opponent pawn(s)`,
-            { byPlayer: currentPlayerIndex, capturedCount, targetCoords });
+        // Gate unlock + extra turn only on an actual catch: a forged
+        // isCapture against immune victims must mint neither (the move
+        // itself, plus toughen/cleanup/victory below, still applies).
+        if (caught.length > 0) {
+            newHasCaptured[currentPlayerIndex] = true;
+            extraTurn = true;
+            T.info('engine.move', 'move.capture', `Player ${currentPlayerIndex} captured ${capturedCount} opponent pawn(s)`,
+                { byPlayer: currentPlayerIndex, capturedCount, targetCoords });
+        }
     }
 
     // Toughening: a tollu pair arriving on a 2 hardens into a Gatti here.
@@ -503,10 +528,10 @@ function executeMove(gridSize, pawns, hasCapturedOpponent, currentPlayerIndex, m
         if (newToughened[k].length === 0) delete newToughened[k];
     });
 
-    // Victory check
-    const allDone = newPawns
-        .filter(p => p.playerIndex === currentPlayerIndex)
-        .every(p => p.state === 'FINISHED');
+    // Victory check: all of the mover's pawns FINISHED (non-vacuously —
+    // every() on an empty list is true, which would crown missing pawns).
+    const mine = newPawns.filter(p => p.playerIndex === currentPlayerIndex);
+    const allDone = mine.length > 0 && mine.every(p => p.state === 'FINISHED');
 
     let winner = null;
     if (allDone) {
@@ -556,7 +581,7 @@ function selectBotMove(validMoves, gridSize) {
         validMoves.find(m => m.toughens) ||
         validMoves.find(m => isSafeCell(gridSize, m.targetCoords[0], m.targetCoords[1])) ||
         validMoves.find(m => m.isGattiGroup) ||
-        [...validMoves].sort((a, b) => b.grpPawns[0].pathIndex - a.grpPawns[0].pathIndex)[0];
+        [...validMoves].sort((a, b) => b.targetPathIndex - a.targetPathIndex)[0];
 
     T.debug('engine.bot', 'bot.move_selected', `Bot selected move to ${best.targetCoords}`,
         { chosenMove: { pawnIds: best.grpPawns.map(p => p.id), targetCoords: best.targetCoords, isCapture: best.isCapture, reachesHome: best.reachesHome, isGattiGroup: best.isGattiGroup }, candidateCount: validMoves.length });
