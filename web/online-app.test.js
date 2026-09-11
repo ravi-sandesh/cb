@@ -590,4 +590,94 @@ describe('app.js online match (server-authoritative flow)', () => {
     w.OnlineClient = ocBackup;
     expect(oc._calls.roll).toBe(0);
   });
+
+  test('mid-match member-count rebroadcasts do not wipe the live board', () => {
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    seatAs(oc, 0);
+    oc.__hooks.onPeerCount({ count: 2, playerNum: 2 });
+    expect(holder.docEls['game-screen'].classList._set.active).toBe(true);
+    // A board arrives; the log moves off the fresh-game banner...
+    oc.__hooks.onBoard(boardFrom(5, 0, { currentRoll: null, validMoves: [] }));
+    expect(holder.docEls['game-log'].innerText).toContain('Your turn');
+    // ...and a duplicate member-count (rejoin echo) must NOT reset it.
+    oc.__hooks.onPeerCount({ count: 2, playerNum: 2 });
+    expect(holder.docEls['game-log'].innerText).toContain('Your turn');
+    expect(holder.docEls['game-log'].innerText).not.toContain('Game Started');
+  });
+
+  test('late boards after leaving to home are ignored', () => {
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    // Never seated, never started: a stray board must not render or announce.
+    oc.__hooks.onBoard(boardFrom(5, 0, { winner: 1, currentRoll: null, validMoves: [] }));
+    expect(holder.docEls['game-log'].innerText).toBe('');
+    expect(holder.docEls['btn-roll'].disabled).toBe(false);
+  });
+
+  test('peer-left tears down the seat so startGame returns to the lobby', () => {
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    seatAs(oc, 0);
+    oc.__hooks.onPeerCount({ count: 2, playerNum: 2 });
+    expect(holder.docEls['game-screen'].classList._set.active).toBe(true);
+    oc.__hooks.onPeerLeft(); // opponent gone mid-match
+    w.startGame(); // stale seat must be gone: back to lobby prompt, not a dead game
+    expect(holder.docEls['game-screen'].classList._set.active).toBeUndefined();
+    expect(holder.docEls['online-status'].innerText).toContain('Create or join');
+  });
+
+  test('online rolls and moves are gated on seat, turn and in-flight state', () => {
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    seatAs(oc, 0);
+    // Opponent's turn: roll is gated client-side (no frame sent).
+    oc.__hooks.onBoard(boardFrom(5, 1, { currentRoll: null, validMoves: [] }));
+    w.handleRoll();
+    expect(oc._calls.roll).toBe(0);
+    // My turn with a pending offer: roll sends once, then locks until a board.
+    oc.__hooks.onBoard(boardFrom(5, 0, {
+      currentRoll: null,
+      validMoves: [{ pawnIds: [0], targetCoords: [4, 3], isCapture: false, reachesHome: false }]
+    }));
+    w.handleRoll();
+    expect(oc._calls.roll).toBe(1);
+    w.handleRoll(); // duplicate while in flight: gated
+    expect(oc._calls.roll).toBe(1);
+  });
+
+  test('online moves must be currently offered (stale/forged rejected)', () => {
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    seatAs(oc, 0);
+    oc.__hooks.onBoard(boardFrom(5, 0, {
+      currentRoll: { shells: [true, false, false, false], score: 1, isExtraRoll: false, scoreText: '1' },
+      validMoves: [{ pawnIds: [0], targetCoords: [4, 3], isCapture: false, reachesHome: false }]
+    }));
+    w.executeMove({ grpPawns: [{ id: 0 }], targetCoords: [9, 9] }); // not offered
+    w.executeMove(null); // malformed
+    expect(oc._calls.move).toHaveLength(0);
+    // The offered move still sends exactly once (in-flight lock after).
+    const offered = {
+      grpPawns: [{ id: 0 }], targetCoords: [4, 3],
+      isCapture: false, reachesHome: false
+    };
+    w.executeMove(offered);
+    w.executeMove(offered); // duplicate while in flight: gated
+    expect(oc._calls.move).toHaveLength(1);
+  });
+
+  test('logout tears down waiting UI and room state', async () => {
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    holder.docEls['online-username'].value = 'amy';
+    holder.docEls['online-password'].value = 'pw';
+    await w.onlineRegister();
+    await w.onlineCreateRoom();
+    expect(holder.docEls['online-waiting'].classList._set.hidden).toBe(false);
+    await w.onlineLogout();
+    expect(holder.docEls['online-waiting'].classList._set.hidden).toBe(true);
+    w.startGame(); // no seat: lobby prompt, not a dead game
+    expect(holder.docEls['game-screen'].classList._set.active).toBeUndefined();
+  });
 });

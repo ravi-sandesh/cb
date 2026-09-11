@@ -171,6 +171,12 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 10000;
 
 function connect(wsPath, roomCode) {
+  // Reject bad server paths before dialling (a 201 without wsPath used to
+  // open ws://host/undefined and loop generic connection errors).
+  if (typeof wsPath !== 'string' || !wsPath.startsWith('/')) {
+    fireStatus('Cannot reach the match server (bad address).', true);
+    return;
+  }
   // Preserve the reconnect bookkeeping across the internal disconnect().
   const pendingAttempts = state.reconnectAttempts || 0;
   const givingUp = state.giveUpReconnect || false;
@@ -178,6 +184,7 @@ function connect(wsPath, roomCode) {
   disconnect('reconnect');
   // disconnect() clears state.code internally; restore the room we're joining.
   if (roomCode) state.code = roomCode;
+  state.wsPath = wsPath; // reconnects reuse the CURRENT path, not a stale closure
   state.reconnectAttempts = pendingAttempts;
   state.giveUpReconnect = givingUp;
   try {
@@ -192,9 +199,10 @@ function connect(wsPath, roomCode) {
       state.giveUpReconnect = false;
       // The HttpOnly session cookie attaches to this same-origin upgrade
       // automatically — the relay treats us as authenticated at handshake,
-      // so the room join can go out immediately.
+      // so the room join can go out immediately (once per socket: the
+      // 'authed' handler below skips if this already sent).
       if (roomCode) {
-        try { ws.send(JSON.stringify({ type: 'join', code: roomCode })); } catch (e) { /* ignore */ }
+        try { ws.send(JSON.stringify({ type: 'join', code: roomCode })); ws._joinSent = roomCode; } catch (e) { /* ignore */ }
       }
     };
     ws.onmessage = (ev) => {
@@ -230,7 +238,7 @@ function connect(wsPath, roomCode) {
         fireStatus(`Connection lost — reconnecting (${attempt}/${RECONNECT_MAX_ATTEMPTS})…`, true);
         state.reconnectTimer = setTimeout(() => {
           state.reconnectTimer = null;
-          connect(wsPath, state.code);
+          connect(state.wsPath, state.code);
         }, delay);
         if (typeof state.reconnectTimer.unref === 'function') state.reconnectTimer.unref();
       } else {
@@ -252,9 +260,11 @@ function stopReconnecting() {
 function dispatch(msg) {
   switch (msg.type) {
     case 'authed':
-      // Authenticated; attach to the pending room, if any.
-      if (state.code && state.ws && state.ws.readyState === 1) {
-        try { state.ws.send(JSON.stringify({ type: 'join', code: state.code })); } catch (e) { /* ignore */ }
+      // Authenticated; attach to the pending room, if any — unless this
+      // socket already joined on open (sending twice used to surface a
+      // spurious already-in-room error on every clean connect).
+      if (state.code && state.ws && state.ws.readyState === 1 && state.ws._joinSent !== state.code) {
+        try { state.ws.send(JSON.stringify({ type: 'join', code: state.code })); state.ws._joinSent = state.code; } catch (e) { /* ignore */ }
       }
       break;
     case 'joined':

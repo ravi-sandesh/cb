@@ -298,6 +298,29 @@ describe('online-client room lobby + WebSocket', () => {
     expect(wsInstances.length).toBe(0);
   });
 
+  test('connect rejects a missing wsPath instead of dialling /undefined', async () => {
+    const errs = [];
+    oc().onStatus((m, err) => { if (err) errs.push(m); });
+    await oc().register('amy', 'pw');
+    oc().connect(undefined, 'ABCDEF');
+    expect(wsInstances.length).toBe(0);
+    expect(errs.some((m) => /bad address/.test(m))).toBe(true);
+    oc().connect('/ws', 'ABCDEF');
+    expect(wsInstances.length).toBe(1);
+    expect(wsInstances[0].url).toContain('/ws');
+  });
+
+  test('join goes out once per socket across open + authed', async () => {
+    oc().onStatus(() => {});
+    await oc().register('amy', 'pw');
+    await oc().createRoom(5);
+    const ws = wsInstances[0];
+    ws.open(); // join #1 on open
+    expect(ws.sent).toHaveLength(1);
+    ws.server({ type: 'authed' }); // must NOT re-send join
+    expect(ws.sent).toHaveLength(1);
+  });
+
   test('dispatch routes board/joined/member-count/peer-left/game-over/error', async () => {
     const seen = { joined: null, board: null, count: null, left: false, over: null, error: null };
     oc().onStatus(() => {});

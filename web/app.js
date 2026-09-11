@@ -86,6 +86,7 @@ let onlineSeat = -1;          // my server seat: 0 host / 1 guest, -1 until join
 let onlineMemberCount = 0;    // players currently seated in the room
 let onlineLocked = false;     // a server move/roll is in flight; block local input
 let onlineBoardReady = false; // at least one authoritative board has been applied
+let lastVictoryKey = null;    // match+winner already celebrated (no duplicate fanfare)
 
 const canvas = document.getElementById('board-canvas');
 const ctx    = canvas.getContext('2d');
@@ -150,6 +151,9 @@ function showHomeScreen() {
     // otherwise fire into the menu or a fresh game (see clearScheduledTimers).
     gameActive = false;
     clearScheduledTimers();
+    // Leaving an online match also drops the seat: late/duplicate boards must
+    // not resurrect rendering, sounds, or roll state over the home screen.
+    if (gameMode === 'online') teardownOnlineMatch();
     boardCursor.row = -1; boardCursor.col = -1; // hide the keyboard cursor
     document.getElementById('home-screen').classList.add('active');
     document.getElementById('game-screen').classList.remove('active');
@@ -400,10 +404,9 @@ async function onlineRegister() {
 async function onlineLogout() {
     const oc = onlineClient();
     if (oc) await oc.logout();
-    onlineSeat = -1;
-    onlineMemberCount = 0;
-    // If we were mid-game, properly exit to home so the player isn't left
-    // staring at a dead board with no opponent and a disconnected socket.
+    // Full lobby teardown: no seat, no waiting overlay, no stale room.
+    // (gameActive covers mid-game exits to home below.)
+    teardownOnlineMatch();
     if (gameActive) showHomeScreen();
     refreshOnlineSections();
 }
@@ -423,15 +426,21 @@ async function onlineJoinRoom() {
 }
 
 // Flip to the game screen once both players are seated.
-function startOnlineGame() {
+function startOnlineGame(playerNum) {
     if (onlineSeat === -1) return;
-    onlineMemberCount = 2; // both seated; relay confirmed
+    // Mid-match member-count rebroadcasts (rejoins, duplicate frames) must
+    // NOT wipe the live match: enter only from the lobby.
+    if (gameActive && onlineBoardReady) return;
+    if (playerNum === 2 || playerNum === 3 || playerNum === 4) onlineMemberCount = playerNum;
+    else onlineMemberCount = 2; // both seated; relay confirmed
     gameActive = true;
+    lastVictoryKey = null; // fresh match: fanfare may fire again
     clearScheduledTimers();
     // Clear stale state from any previous local game: without this, the
     // player briefly sees the OLD board's pawns/winner/cursor before the
     // first server broadcast arrives.
     initGameState();
+    lastVictoryKey = null;
     document.getElementById('home-screen').classList.remove('active');
     document.getElementById('game-screen').classList.add('active');
     document.getElementById('board-title').innerText = `${currentGridSize}x${currentGridSize} CHOKA BARAH - ONLINE`;
@@ -441,11 +450,34 @@ function startOnlineGame() {
     updateUI();
 }
 
+// Full teardown of online match state: seat, board flags, lobby widgets.
+// Called whenever the match is over for this client (peer left, logout)
+// so no stale seat/room can resurrect a dead game.
+function teardownOnlineMatch() {
+    onlineSeat = -1;
+    onlineMemberCount = 0;
+    onlineBoardReady = false;
+    onlineLocked = false;
+    lastVictoryKey = null;
+    currentRoll = null;
+    validMoves = [];
+    winner = null;
+    clearRollDisplay();
+    showOnlineWaiting(false);
+    const codeEl = document.getElementById('online-room-code-display');
+    if (codeEl) codeEl.innerText = '';
+}
+
 // Apply a server-authoritative board to the local view. No game rules are
 // run here — the relay already rolled/moved and the result is trusted.
+// Boards arriving with no seat (lobby, after leaving to home, logout) are
+// ignored: no render, no sounds, no celebrations. Seated-but-waiting boards
+// still apply — the lobby needs live turn/waiting text.
 function applyServerBoard(board) {
     if (!board) return;
+    if (gameMode !== 'online' || onlineSeat === -1) return;
     onlineBoardReady = true;
+    onlineLocked = false; // the in-flight roll/move this board answers has landed
     // Hostile/buggy relay hardening: never trust numeric fields. A bad value
     // here used to crash the tab (undefined .hex) or hang the renderer.
     currentGridSize = (board.gridSize === 5 || board.gridSize === 7) ? board.gridSize : currentGridSize;
@@ -523,9 +555,17 @@ function applyServerBoard(board) {
     // Sound + celebration feedback for online events (parity with local
     // executeMove path). The relay merges the last move's event flags into
     // the board broadcast, so capture/Gatti/home cues work here too.
+    // Victory fanfare fires once per match: reconnects re-broadcast the
+    // final board, and replaying it every time would spam sound + overlay.
+    // Boards with no event at all (plain turn handoffs) stay silent.
     if (board.winner != null) {
-        Sound.play('victory');
-        celebrate('victory');
+        const oc = onlineClient();
+        const key = String((oc && oc.code) || '') + ':' + board.winner;
+        if (key !== lastVictoryKey) {
+            lastVictoryKey = key;
+            Sound.play('victory');
+            celebrate('victory');
+        }
     } else if (board.reachesHome && !board.winner) {
         Sound.play('move');
         celebrate('home');
@@ -540,8 +580,6 @@ function applyServerBoard(board) {
         celebrate('extra');
     } else if (currentRoll !== null) {
         Sound.play('roll');
-    } else {
-        Sound.play('move');
     }
 
     const myTurn = (onlineSeat === currentPlayerIndex && winner === null);
@@ -574,16 +612,21 @@ function setupOnlineClient() {
     });
     oc.onPeerCount(({ count, playerNum }) => {
         onlineMemberCount = count;
-        if (count >= (playerNum || 2)) startOnlineGame();
+        if (count >= (playerNum || 2)) startOnlineGame(playerNum);
     });
     oc.onBoard(board => applyServerBoard(board));
-    oc.onError(() => { /* status is already surfaced via onStatus */ });
+    oc.onError(() => { onlineLocked = false; /* status is already surfaced via onStatus */ });
     oc.onPeerLeft(() => {
         setOnlineStatus(gameActive ? 'Opponent left the game.' : 'Opponent left the lobby.', true);
+        teardownOnlineMatch();
         if (gameActive) showHomeScreen();
+        refreshOnlineSections();
     });
     oc.onGameOver(() => { /* victory is rendered from the final board */ });
     oc.onClosed(() => {
+        // Transient drops auto-reconnect (seat kept for resume); only the
+        // status line updates here. Permanent teardown happens on peer-left
+        // (opponent gone) or logout (deliberate).
         setOnlineStatus(gameActive ? 'Disconnected from the match.' : 'Disconnected.', true);
         refreshOnlineSections();
     });
@@ -844,8 +887,17 @@ function handleRoll() {
     }
     if (gameMode === 'online') {
         // The relay owns the dice; we only surface intent and wait for the board.
+        // Client-side turn gate (the relay still rejects): only the seated
+        // player, on their turn, with no roll pending or in flight, may roll.
         const oc = onlineClient();
         if (!oc) return;
+        if (onlineSeat === -1 || currentPlayerIndex !== onlineSeat ||
+            currentRoll !== null || onlineLocked) {
+            T.debug('input', 'roll.gated', 'Online roll gated client-side', {});
+            if (spanId && T.endSpan) T.endSpan(spanId, { outcome: 'gated' });
+            return;
+        }
+        onlineLocked = true; // released by the answering board (or onError)
         oc.roll();
         if (spanId && T.endSpan) T.endSpan(spanId, { outcome: 'sent' });
         return;
@@ -960,8 +1012,23 @@ function executeMove(move) {
     if (gameMode === 'online') {
         // The relay validates and applies the move; the result returns as a
         // board broadcast. Nothing is mutated locally (server-authoritative).
+        // Client-side gates (the relay still rejects): seated, on turn, the
+        // move must be currently offered, and nothing in flight.
         const oc = onlineClient();
-        oc && oc.move(move);
+        if (!oc || !move || !move.targetCoords) return;
+        const moveIds = (move.grpPawns || move.pawnIds || [])
+            .map(p => (typeof p === 'object' ? p.id : p)).sort().join(',');
+        const offered = validMoves.some(m =>
+            m.targetCoords[0] === move.targetCoords[0] &&
+            m.targetCoords[1] === move.targetCoords[1] &&
+            m.grpPawns.map(p => p.id).sort().join(',') === moveIds);
+        if (onlineSeat === -1 || currentPlayerIndex !== onlineSeat ||
+            onlineLocked || !offered) {
+            T.debug('input', 'move.gated', 'Online move gated client-side', {});
+            return;
+        }
+        onlineLocked = true; // released by the answering board (or onError)
+        oc.move(move);
         return;
     }
     const spanId = T.startSpan ? T.startSpan('move', { player: currentPlayerIndex, target: move.targetCoords }) : null;
@@ -1272,6 +1339,12 @@ function celebrate(type) {
     // swapping the class forces a fresh animation start.
     overlay.className = 'celebration-overlay';
     void overlay.offsetWidth; // force reflow between the two writes
+    // Screen readers: the overlay carries aria-hidden statically in markup,
+    // so expose it (as a live alert) exactly while it is visible.
+    if (typeof overlay.setAttribute === 'function') {
+        overlay.setAttribute('aria-hidden', 'false');
+        overlay.setAttribute('role', 'alert');
+    }
     emoji.innerText = spec.emoji;
     text.innerText = spec.text;
     overlay.className = 'celebration-overlay ' + spec.cls;
@@ -1288,6 +1361,10 @@ function hideCelebration() {
     /* istanbul ignore next: degraded-DOM guard; the layer exists in every supported browser */
     if (!overlay) return;
     overlay.className = 'celebration-overlay hidden';
+    if (typeof overlay.removeAttribute === 'function') {
+        overlay.setAttribute('aria-hidden', 'true');
+        overlay.removeAttribute('role');
+    }
 }
 
 // ============================================================
@@ -1560,6 +1637,7 @@ window.startGame      = startGame;
 window.restartGame    = restartGame;
 window.toggleMute     = toggleMute;
 window.handleRoll     = handleRoll;
+window.executeMove    = executeMove;
 window.setSeniorMode  = setSeniorMode;
 window.toggleSeniorMode = toggleSeniorMode;
 // Online lobby (auth + rooms). Transport is window.OnlineClient (online-client.js).
