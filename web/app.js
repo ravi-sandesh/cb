@@ -86,6 +86,7 @@ let onlineSeat = -1;          // my server seat: 0 host / 1 guest, -1 until join
 let onlineMemberCount = 0;    // players currently seated in the room
 let onlineLocked = false;     // a server move/roll is in flight; block local input
 let onlineBoardReady = false; // at least one authoritative board has been applied
+let onlineStarted = false;    // startOnlineGame entered from the lobby (re-entries = no-ops)
 let lastVictoryKey = null;    // match+winner already celebrated (no duplicate fanfare)
 
 const canvas = document.getElementById('board-canvas');
@@ -429,10 +430,14 @@ async function onlineJoinRoom() {
 function startOnlineGame(playerNum) {
     if (onlineSeat === -1) return;
     // Mid-match member-count rebroadcasts (rejoins, duplicate frames) must
-    // NOT wipe the live match: enter only from the lobby.
-    if (gameActive && onlineBoardReady) return;
+    // NOT wipe the live match: enter only from the lobby. (An explicit flag,
+    // not gameActive/onlineBoardReady: gameActive defaults true and the host
+    // always applies a lobby board before the guest arrives, so that
+    // heuristic misfires and the host never flips to the game screen.)
+    if (onlineStarted) return;
     if (playerNum === 2 || playerNum === 3 || playerNum === 4) onlineMemberCount = playerNum;
     else onlineMemberCount = 2; // both seated; relay confirmed
+    onlineStarted = true;
     gameActive = true;
     lastVictoryKey = null; // fresh match: fanfare may fire again
     clearScheduledTimers();
@@ -457,6 +462,7 @@ function teardownOnlineMatch() {
     onlineSeat = -1;
     onlineMemberCount = 0;
     onlineBoardReady = false;
+    onlineStarted = false;
     onlineLocked = false;
     lastVictoryKey = null;
     currentRoll = null;

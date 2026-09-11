@@ -255,6 +255,22 @@ describe('app.js online match (server-authoritative flow)', () => {
     expect(holder.docEls['board-title'].innerText).toContain('ONLINE');
   });
 
+  test('host flips when the guest arrives even after applying a lobby board', () => {
+    // Real host order: joined -> member-count(1) -> lobby board ->
+    // member-count(2). The lobby board must NOT arm the "already started"
+    // guard — otherwise the host never leaves the lobby (regression).
+    const { w, oc } = fresh();
+    w.setGameMode('online');
+    seatAs(oc, 0);
+    oc.__hooks.onPeerCount({ count: 1, playerNum: 2 });
+    expect(holder.docEls['game-screen'].classList._set.active).toBeUndefined();
+    oc.__hooks.onBoard(boardFrom(5, 0, { currentRoll: null, validMoves: [] }));
+    expect(holder.docEls['game-screen'].classList._set.active).toBeUndefined();
+    oc.__hooks.onPeerCount({ count: 2, playerNum: 2 });
+    expect(holder.docEls['game-screen'].classList._set.active).toBe(true);
+    expect(holder.docEls['board-title'].innerText).toContain('ONLINE');
+  });
+
   test('applyServerBoard renders turn, roll gate, and pawn offers for the seated mover', () => {
     const { w, oc } = fresh();
     w.setGameMode('online');
