@@ -25,7 +25,7 @@ module.exports = defineConfig({
     screenshot: 'only-on-failure'
   },
   webServer: {
-    command: 'node online/online-server.js',
+    command: 'npm run build && node online/online-server.js',
     url: 'http://localhost:3111/index.html',
     reuseExistingServer: !process.env.CI,
     timeout: 30_000

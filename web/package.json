@@ -3,17 +3,19 @@
   "version": "1.0.0",
   "description": "Chowka Bara web version with unit tests",
   "scripts": {
+    "build": "esbuild src/board-3d.js --bundle --format=iife --global-name=CbBoard3D --target=es2020 --outfile=dist/board-3d.js --minify",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
     "test:gate": "node scripts/coverage-gate-diff.js",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium",
-    "serve": "node server.js",
-    "online": "node online/online-server.js"
+    "serve": "npm run build && node server.js",
+    "online": "npm run build && node online/online-server.js"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.62.1",
+    "esbuild": "^0.25.12",
     "jest": "^29.7.0"
   },
   "jest": {
@@ -122,5 +124,8 @@
       "lcov",
       "json"
     ]
+  },
+  "dependencies": {
+    "three": "^0.179.1"
   }
 }

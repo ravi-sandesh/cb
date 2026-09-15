@@ -93,6 +93,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.sceneview)
 
     // Unit testing
     testImplementation("junit:junit:4.13.2")

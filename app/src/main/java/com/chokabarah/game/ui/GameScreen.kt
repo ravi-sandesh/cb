@@ -199,7 +199,7 @@ fun GameScreen(
 
                     Spacer(Modifier.height(8.dp))
 
-                    BoardCanvas(
+                    Board3D(
                         board = board,
                         selectedPawnId = selectedPawnId,
                         seniorMode = seniorMode,

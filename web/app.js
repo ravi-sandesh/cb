@@ -80,6 +80,7 @@ let celebrateTimer = null; // auto-hide for the celebration overlay (cleared wit
 let turnAdvanceLog = null; // "No valid moves" outcome preserved across the auto-advance (BUG-13)
 let prevActionLog = ''; // Previous player's action for senior accessibility
 let seniorMode = false;   // accessibility "Senior Mode" (bigger UI + relaxed pacing)
+let selectedPawnId = null;
 
 // ---- Online mode state (web/online-client.js transport) ----
 let onlineSeat = -1;          // my server seat: 0 host / 1 guest, -1 until joined
@@ -91,6 +92,12 @@ let lastVictoryKey = null;    // match+winner already celebrated (no duplicate f
 
 const canvas = document.getElementById('board-canvas');
 const ctx    = canvas.getContext('2d');
+const canvas3d = document.getElementById('board-canvas-3d');
+
+let boardRenderer = null;
+let boardRendererMode = '2d';
+let boardRendererUnavailable = false;
+let lastBoardEvent = null;
 
 // Display size of the board in CSS pixels (drives renderBoard) and the device
 // pixel ratio used for the canvas backing store. Sized by syncBoardSize() so
@@ -152,6 +159,7 @@ function showHomeScreen() {
     // otherwise fire into the menu or a fresh game (see clearScheduledTimers).
     gameActive = false;
     clearScheduledTimers();
+    destroyBoardRenderer();
     // Leaving an online match also drops the seat: late/duplicate boards must
     // not resurrect rendering, sounds, or roll state over the home screen.
     if (gameMode === 'online') teardownOnlineMatch();
@@ -161,6 +169,7 @@ function showHomeScreen() {
 }
 function startGame() {
     clearScheduledTimers();
+    destroyBoardRenderer();
     // Online: state is server-authoritative. If we aren't seated yet, direct
     // the player to the lobby; otherwise the board broadcast drives the screen.
     if (gameMode === 'online') {
@@ -260,7 +269,11 @@ function actOnCell(row, col) {
 let _boardPointerHandled = false;
 
 function cellFromEvent(e) {
-    const rect   = canvas.getBoundingClientRect();
+    if (boardRendererMode === '3d' && boardRenderer && typeof boardRenderer.hitTest === 'function') {
+        const hit = boardRenderer.hitTest(e.clientX, e.clientY);
+        if (hit) return hit;
+    }
+    const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width  / rect.width;
     const scaleY = canvas.height / rect.height;
     const x      = (e.clientX - rect.left) * scaleX;
@@ -284,6 +297,20 @@ canvas.addEventListener('click', e => {
     actOnCell(row, col);
 });
 canvas.addEventListener('keydown', handleBoardKeydown);
+if (canvas3d) {
+    canvas3d.addEventListener('pointerup', e => {
+        if (e.button !== undefined && e.button !== 0) return;
+        const hit = boardRenderer && typeof boardRenderer.hitTest === 'function'
+            ? boardRenderer.hitTest(e.clientX, e.clientY) : null;
+        if (hit) actOnCell(hit.row, hit.col);
+    });
+    canvas3d.addEventListener('click', e => {
+        const hit = boardRenderer && typeof boardRenderer.hitTest === 'function'
+            ? boardRenderer.hitTest(e.clientX, e.clientY) : null;
+        if (hit) actOnCell(hit.row, hit.col);
+    });
+    canvas3d.addEventListener('keydown', handleBoardKeydown);
+}
 
 // Keep the board square + crisp when the viewport changes (rotation, mobile
 // address-bar show/hide, window resize, switching devices). Debounced so it
@@ -449,6 +476,7 @@ function startOnlineGame(playerNum) {
     document.getElementById('home-screen').classList.remove('active');
     document.getElementById('game-screen').classList.add('active');
     document.getElementById('board-title').innerText = `${currentGridSize}x${currentGridSize} CHOKA BARAH - ONLINE`;
+    syncBoardSize();
     Sound.play('game_start');
     canvas.focus();
     syncBoardSize();
@@ -468,6 +496,7 @@ function teardownOnlineMatch() {
     currentRoll = null;
     validMoves = [];
     winner = null;
+    lastBoardEvent = null;
     clearRollDisplay();
     showOnlineWaiting(false);
     const codeEl = document.getElementById('online-room-code-display');
@@ -490,7 +519,16 @@ function applyServerBoard(board) {
     // Keep the board-title in sync when gridSize changes mid-match.
     document.getElementById('board-title').innerText = `${currentGridSize}x${currentGridSize} CHOKA BARAH - ONLINE`;
     playerNum = (board.playerNum === 2 || board.playerNum === 3 || board.playerNum === 4) ? board.playerNum : 2;
-    pawns = (board.pawns || []).map(p => Object.assign({}, p));
+    const previousPawns = pawns;
+    const previousWinner = winner;
+    const nextPawns = (board.pawns || []).map(p => Object.assign({}, p));
+    const capturedPawnIds = nextPawns
+        .filter((pawn, index) => previousPawns[index] && previousPawns[index].state === 'ON_TRACK' && pawn.state === 'HOME_BASE')
+        .map(pawn => pawn.id);
+    const reachedHomeIds = nextPawns
+        .filter((pawn, index) => previousPawns[index] && previousPawns[index].state === 'ON_TRACK' && pawn.state === 'FINISHED')
+        .map(pawn => pawn.id);
+    pawns = nextPawns;
     hasCapturedOpponent = Object.assign({}, board.hasCapturedOpponent || {});
     // Toughened map: hostile/buggy relays could smuggle non-array cells, so
     // sanitize to {seat: [int, ...]} before it drives rings + blockade UI.
@@ -553,6 +591,31 @@ function applyServerBoard(board) {
             renderCowryShells(null);
             clearRollDisplay();
         }
+    }
+
+    if (board.winner != null) {
+        lastBoardEvent = {
+            type: 'victory',
+            winner: board.winner,
+            timestamp: Date.now()
+        };
+    } else if (board.capturedCount > 0) {
+        lastBoardEvent = {
+            type: 'capture',
+            pawnIds: capturedPawnIds,
+            timestamp: Date.now()
+        };
+    } else if (board.reachesHome && !previousWinner) {
+        lastBoardEvent = {
+            type: 'home',
+            pawnIds: reachedHomeIds,
+            timestamp: Date.now()
+        };
+    } else if (board.gattiFormed) {
+        lastBoardEvent = {
+            type: 'gatti',
+            timestamp: Date.now()
+        };
     }
 
     renderBoard();
@@ -850,6 +913,7 @@ function initGameState() {
     currentRoll        = null;
     validMoves         = [];
     winner             = null;
+    lastBoardEvent     = null;
     boardCursor.row = -1; boardCursor.col = -1; // keyboard cursor hidden on fresh games
     // BUG-13: a freshly started game must not inherit the previous game's
     // "No valid moves (Player X)" banner — that reason belonged to a finished
@@ -1061,6 +1125,13 @@ function executeMove(move) {
         currentRoll || { isExtraRoll: false },
         hasToughened
     );
+    const capturedPawnIds = result.pawns
+        .filter((pawn, index) => pawns[index] && pawns[index].state === 'ON_TRACK' && pawn.state === 'HOME_BASE')
+        .map(pawn => pawn.id);
+    const reachedHomeIds = result.pawns
+        .filter((pawn, index) => pawns[index] && pawns[index].state === 'ON_TRACK' && pawn.state === 'FINISHED')
+        .map(pawn => pawn.id);
+    const previousWinner = winner;
 
     pawns               = result.pawns;
     // BUG-17: executeMove is now pure — it returns a NEW hasCapturedOpponent map
@@ -1073,6 +1144,35 @@ function executeMove(move) {
     const gattiFormed   = result.gattiFormed;
     const capturedCount = result.capturedCount;
     const winnerIdx     = result.winner;
+
+    if (winnerIdx !== null) {
+        lastBoardEvent = {
+            type: 'victory',
+            coords: move.targetCoords,
+            winner: winnerIdx,
+            timestamp: Date.now()
+        };
+    } else if (capturedCount > 0) {
+        lastBoardEvent = {
+            type: 'capture',
+            coords: move.targetCoords,
+            pawnIds: capturedPawnIds,
+            timestamp: Date.now()
+        };
+    } else if (reachedHomeIds.length > 0) {
+        lastBoardEvent = {
+            type: 'home',
+            coords: move.targetCoords,
+            pawnIds: reachedHomeIds,
+            timestamp: Date.now()
+        };
+    } else if (gattiFormed) {
+        lastBoardEvent = {
+            type: 'gatti',
+            coords: move.targetCoords,
+            timestamp: Date.now()
+        };
+    }
 
     // Sound feedback: one distinct cue per move, victory has priority.
     // Each big event also fires its celebration animation (same priority).
@@ -1381,7 +1481,98 @@ function hideCelebration() {
 }
 
 // ============================================================
-// BOARD RENDERER (Canvas 2D)
+// BOARD RENDERER ADAPTER
+// ============================================================
+
+function getBoardView() {
+    const paths = Array.from({ length: playerColors.length }, (_, playerIndex) =>
+        typeof EG.getPlayerPath === 'function' ? EG.getPlayerPath(currentGridSize, playerIndex) : []);
+    const safeCells = [];
+    for (let row = 0; row < currentGridSize; row++) {
+        for (let col = 0; col < currentGridSize; col++) {
+            if (typeof isSafeCell === 'function' && isSafeCell(currentGridSize, row, col)) safeCells.push(`${row},${col}`);
+        }
+    }
+    return {
+        gridSize: currentGridSize,
+        playerColors: playerColors.map(color => color.hex),
+        paths,
+        safeCells,
+        innerGates: playerColors.map((_, playerIndex) =>
+            typeof innerStartIndex === 'function' ? innerStartIndex(currentGridSize, playerIndex) : 0),
+        pawns: pawns.map(pawn => ({
+            id: pawn.id,
+            playerIndex: pawn.playerIndex,
+            state: pawn.state,
+            pathIndex: pawn.pathIndex
+        })),
+        validMoves: validMoves.map(move => ({
+            targetCoords: Array.isArray(move.targetCoords) ? move.targetCoords.slice() : [],
+            isCapture: !!move.isCapture
+        })),
+        toughened: Object.keys(hasToughened || {}).reduce((clean, key) => {
+            const playerIndex = Number(key);
+            if (Number.isInteger(playerIndex)) clean[playerIndex] = (hasToughened[key] || []).filter(Number.isInteger);
+            return clean;
+        }, {}),
+        selectedPawnId,
+        seniorMode,
+        cursor: { row: boardCursor.row, col: boardCursor.col },
+        reducedMotion: typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
+        event: lastBoardEvent
+    };
+}
+
+function setBoardCanvasMode(mode) {
+    const is3d = mode === '3d';
+    const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
+    const hadBoardFocus = activeElement === canvas || activeElement === canvas3d;
+    if (canvas) canvas.hidden = is3d;
+    if (canvas3d) canvas3d.hidden = !is3d;
+    if (canvas && typeof canvas.setAttribute === 'function') canvas.setAttribute('aria-hidden', String(is3d));
+    if (canvas3d && typeof canvas3d.setAttribute === 'function') canvas3d.setAttribute('aria-hidden', String(!is3d));
+    if (hadBoardFocus) {
+        const next = is3d ? canvas3d : canvas;
+        if (next && typeof next.focus === 'function') next.focus();
+    }
+}
+
+function destroyBoardRenderer() {
+    if (boardRenderer) {
+        boardRenderer.destroy();
+        boardRenderer = null;
+    }
+    boardRendererMode = '2d';
+    setBoardCanvasMode('2d');
+}
+
+function ensureBoardRenderer() {
+    if (boardRenderer || typeof document === 'undefined' || !canvas3d) return;
+    const requested = String(typeof window !== 'undefined' ? window.CB_BOARD_3D : 'auto').toLowerCase();
+    if (boardRendererUnavailable || requested === '2d' || !window.CbBoard3D ||
+        typeof window.CbBoard3D.createBoardRenderer !== 'function' ||
+        typeof window.CbBoard3D.isWebGLAvailable !== 'function' || !window.CbBoard3D.isWebGLAvailable()) {
+        destroyBoardRenderer();
+        return;
+    }
+    try {
+        boardRenderer = window.CbBoard3D.createBoardRenderer(canvas3d, {
+            onFallback: () => {
+                boardRendererUnavailable = true;
+                destroyBoardRenderer();
+                renderBoard();
+            }
+        });
+        boardRendererMode = '3d';
+        setBoardCanvasMode('3d');
+    } catch {
+        boardRendererUnavailable = true;
+        destroyBoardRenderer();
+    }
+}
+
+// ============================================================
+// BOARD RENDERER (Canvas 2D / WebGL 3D)
 // ============================================================
 
 // Size the board to the largest square that fits both the wrapper width and
@@ -1434,15 +1625,30 @@ function syncBoardSize() {
     wrap.style.width = size + 'px';
     wrap.style.height = size + 'px';
     wrap.style.margin = centerMat ? '0 auto' : '0';
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    canvas.width = Math.round(size * boardDpr);
-    canvas.height = Math.round(size * boardDpr);
-    ctx.setTransform(boardDpr, 0, 0, boardDpr, 0, 0);
+    ensureBoardRenderer();
+    if (boardRendererMode === '3d' && boardRenderer) {
+        boardRenderer.resize(size, boardDpr);
+    } else {
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.width = Math.round(size * boardDpr);
+        canvas.height = Math.round(size * boardDpr);
+        ctx.setTransform(boardDpr, 0, 0, boardDpr, 0, 0);
+    }
     renderBoard();
 }
 
 function renderBoard() {
+    ensureBoardRenderer();
+    if (boardRendererMode === '3d' && boardRenderer) {
+        try {
+            boardRenderer.render(getBoardView());
+        } catch {
+            boardRendererUnavailable = true;
+            destroyBoardRenderer();
+        }
+        return;
+    }
     ctx.setTransform(boardDpr, 0, 0, boardDpr, 0, 0);
     const size     = boardCssSize;
     const cs       = size / currentGridSize; // cell size
@@ -1651,6 +1857,8 @@ window.restartGame    = restartGame;
 window.toggleMute     = toggleMute;
 window.handleRoll     = handleRoll;
 window.executeMove    = executeMove;
+window.renderBoard    = renderBoard;
+window.syncBoardSize  = syncBoardSize;
 window.setSeniorMode  = setSeniorMode;
 window.toggleSeniorMode = toggleSeniorMode;
 // Online lobby (auth + rooms). Transport is window.OnlineClient (online-client.js).

@@ -366,6 +366,90 @@ describe('render & board drawing', () => {
     expect(() => w.handleRoll()).not.toThrow();
     expect(() => w.restartGame()).not.toThrow();
   });
+
+  test('3D renderer receives the immutable board projection', () => {
+    const { w, document } = fresh();
+    w.startGame();
+    const renderer = {
+      resize: jest.fn(),
+      render: jest.fn(),
+      hitTest: jest.fn(() => ({ row: 2, col: 2 })),
+      destroy: jest.fn()
+    };
+    w.CB_BOARD_3D = '3d';
+    w.CbBoard3D = {
+      isWebGLAvailable: () => true,
+      createBoardRenderer: jest.fn(() => renderer)
+    };
+    w.renderBoard();
+    expect(w.CbBoard3D.createBoardRenderer.mock.calls[0][0].id).toBe('board-canvas-3d');
+    expect(w.CbBoard3D.createBoardRenderer.mock.calls[0][1]).toEqual(expect.any(Object));
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+    const view = renderer.render.mock.calls[0][0];
+    expect(view.gridSize).toBe(5);
+    expect(view.pawns).toHaveLength(8);
+    expect(view.paths).toHaveLength(4);
+    expect(view.safeCells.length).toBeGreaterThan(0);
+    expect(renderer.hitTest(100, 100)).toEqual({ row: 2, col: 2 });
+  });
+
+  test('3D creation failure falls back to Canvas 2D', () => {
+    const { w } = fresh();
+    w.startGame();
+    w.CB_BOARD_3D = '3d';
+    w.CbBoard3D = {
+      isWebGLAvailable: () => true,
+      createBoardRenderer: () => { throw new Error('no GPU'); }
+    };
+    expect(() => w.renderBoard()).not.toThrow();
+    expect(holder.docEls['board-canvas'].getContext('2d').__calls.length).toBeGreaterThan(0);
+  });
+
+
+  test('ensureBoardRenderer respects unavailable flag and CB_BOARD_3D=2d', () => {
+    const { w } = fresh();
+    w.startGame();
+    // First, trigger a fallback to set the unavailable flag
+    w.CB_BOARD_3D = '3d';
+    w.CbBoard3D = {
+      isWebGLAvailable: () => true,
+      createBoardRenderer: () => { throw new Error('no GPU'); }
+    };
+    w.renderBoard(); // sets boardRendererUnavailable = true
+
+    // Now even with a working renderer, it should stay in 2D
+    w.CbBoard3D.createBoardRenderer = jest.fn(() => ({
+      resize: jest.fn(),
+      render: jest.fn(),
+      destroy: jest.fn()
+    }));
+    w.renderBoard();
+    expect(w.CbBoard3D.createBoardRenderer).not.toHaveBeenCalled();
+
+    // Explicit 2D request should also skip 3D
+    w.CB_BOARD_3D = '2d';
+    w.boardRendererUnavailable = false; // reset for test
+    w.renderBoard();
+    expect(holder.docEls['board-canvas'].getContext('2d').__calls.length).toBeGreaterThan(0);
+  });
+
+  test('renderBoard try/catch fallback on renderer error', () => {
+    const { w } = fresh();
+    w.startGame();
+    w.CB_BOARD_3D = '3d';
+    const renderer = {
+      resize: jest.fn(),
+      render: () => { throw new Error('GPU lost'); },
+      destroy: jest.fn()
+    };
+    w.CbBoard3D = {
+      isWebGLAvailable: () => true,
+      createBoardRenderer: jest.fn(() => renderer)
+    };
+    w.renderBoard(); // creates 3D renderer
+    w.renderBoard(); // second render throws, should fallback to 2D
+    expect(holder.docEls['board-canvas'].getContext('2d').__calls.length).toBeGreaterThan(0);
+  });
 });
 
 describe('telemetry & sound wiring', () => {

@@ -158,6 +158,8 @@
                 <div class="board-wrapper">
                     <canvas id="board-canvas" width="500" height="500" tabindex="0"
                         aria-label="Choka Barah board. Use the arrow keys to move the cursor, then press Enter to move a pawn."></canvas>
+                    <canvas id="board-canvas-3d" width="500" height="500" tabindex="0"
+                        aria-label="Choka Barah 3D board. Use the arrow keys to move the cursor, then press Enter to move a pawn." hidden></canvas>
                 </div>
                 <aside class="roll-side" aria-label="Last cowry roll" aria-live="polite" aria-atomic="true">
                     <span class="roll-side-label">ROLLED</span>
@@ -217,6 +219,7 @@
     <script src="sound.js"></script>
     <!-- Online transport (auth + lobby + WS); must load before app.js -->
     <script src="online-client.js"></script>
+    <script src="dist/board-3d.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
